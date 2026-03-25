@@ -1,10 +1,10 @@
 # AI Pipeline Prototype
 
-这个原型实现了下面这段链路的最小可运行版本：
+这个原型实现了机械手软件链路的最小可运行版本，用来先验证模块边界、调用顺序和真机接入方式：
 
-`语音/视觉输入 -> AI理解（生成任务JSON） -> 任务调度器`
+`语音/视觉输入 -> 任务理解与任务 JSON -> 任务调度器 -> 执行器 -> 控制器服务 -> Motion SDK`
 
-当前版本使用模拟输入，便于先验证软件架构和模块边界，后续可以逐步替换为真实麦克风、摄像头、ASR、视觉算法或大模型接口。
+当前项目仍以第一阶段原型验证为主，但已经不再只是纯占位代码。`sdk_adapter.py` 已接入仓库内置的 `zmcdll` Python 示例和 DLL，并支持在真机不可连接时自动回退到 mock 后端，便于持续联调。
 
 ## 目录
 
@@ -12,46 +12,138 @@
 - `inputs.py`: 语音和视觉输入适配
 - `planner.py`: 任务理解与 JSON 生成
 - `dispatcher.py`: 任务状态机调度器
-- `executor.py`: 控制执行接口和模拟执行器
-- `sdk_adapter.py`: Motion SDK 风格客户端占位封装
-- `controller_service.py`: 控制器服务层，负责连接、状态、报警和命令历史
+- `executor.py`: 控制执行接口，支持模拟执行器和 SDK 风格执行器
+- `sdk_adapter.py`: Motion SDK 封装，优先接真实 `zmcdll`，失败时自动回退 mock
+- `controller_service.py`: 控制器服务层，负责连接、状态刷新、报警和命令历史
 - `app_service.py`: 应用服务层，统一编排输入、规划和调度
 - `factory.py`: 执行器工厂
-- `demo.py`: 端到端演示入口
+- `demo.py`: 命令行演示与联调入口
 - `gui.py`: 基于 Tkinter 的轻量上位机演示界面
+
+## 当前能力
+
+- 解析固定语音命令
+- 接收结构化视觉定位结果
+- 生成结构化任务 JSON
+- 通过状态机模拟执行主流程
+- 通过执行接口封装 `move/grip/release/home/stop`
+- 通过 `ControllerService` 统一管理连接、状态、报警和命令历史
+- 通过 `MotionSDKClient` 接入真实 `zmcdll` SDK
+- 在 DLL 可加载但控制器不可连接时自动回退 mock，保留联调能力
+- 提供命令行联调流程和轻量 GUI 展示
+
+## 当前已接入的 SDK 函数
+
+基于仓库内 `Windows Python（64位）/Windows Python（64位）/zmcdll/zauxdllPython.py`，当前已确认并接入这些核心函数：
+
+- 连接类: `ZAux_OpenEth`, `ZAux_OpenCom`, `ZAux_OpenPci`, `ZAux_FastOpen`, `ZAux_Close`
+- 通用控制: `ZAux_SetTimeOut`, `ZAux_Direct_SetOp`
+- 单轴运动: `ZAux_Direct_Single_MoveAbs`, `ZAux_Direct_Single_Cancel`, `ZAux_Direct_Single_Datum`
+- 多轴运动: `ZAux_Direct_MultiMoveAbs`
+- 状态读取: `ZAux_GetModbusDpos`, `ZAux_Direct_GetDpos`, `ZAux_Direct_GetAxisEnable`, `ZAux_Direct_GetIfIdle`, `ZAux_Direct_GetAxisStatus`, `ZAux_Direct_GetAxisStopReason`
+- 总线回零: `ZAux_BusCmd_Datum`
 
 ## 运行
 
+运行命令行演示：
+
 ```bash
-python3 -m ai_pipeline_prototype.demo
+python -m ai_pipeline_prototype.demo
 ```
 
-切换到 SDK 风格后端：
+切换到 SDK 风格执行器：
 
 ```bash
-python3 -m ai_pipeline_prototype.demo --mode sdk
+python -m ai_pipeline_prototype.demo --mode sdk
+```
+
+打印当前已接入的 SDK 函数：
+
+```bash
+python -m ai_pipeline_prototype.demo --sdk-functions
+```
+
+运行“连接 -> 读状态 -> 回零 -> 停止 -> 断开”联调流程：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo
+```
+
+指定控制器 IP：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --host 192.168.0.11
+```
+
+强制使用 mock 后端：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --force-mock-sdk
+```
+
+串口方式连接：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --connection-type com --com-port 3
+```
+
+PCI 方式连接：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --connection-type pci --pci-card 0
+```
+
+自定义轴列表、回零模式和停止模式：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --axes 0,1,2 --homing-mode 0 --stop-mode 3
 ```
 
 打开轻量 GUI：
 
 ```bash
-python3 -m ai_pipeline_prototype.gui
+python -m ai_pipeline_prototype.gui
 ```
 
-做一次无界面的冒烟检查：
+## 测试建议
+
+建议按下面顺序测试：
+
+1. 先验证代码可编译：
 
 ```bash
-python3 -m ai_pipeline_prototype.gui --smoke-test
+python -m compileall ai_pipeline_prototype
 ```
 
-## 当前能力
+2. 验证 SDK 封装是否可用：
 
-- 解析固定语音指令
-- 接收视觉定位结果
-- 生成结构化任务 JSON
-- 通过状态机模拟执行主流程
-- 通过执行接口封装 `move/grip/release/home/stop`
-- 预留了 Motion SDK 客户端与执行器替换点
-- 增加了控制器服务层，统一管理连接、状态和报警
-- 增加了轻量 GUI，可手动提交任务并查看状态、报警和命令历史
-- 输出执行日志和最终状态
+```bash
+python -m ai_pipeline_prototype.demo --sdk-functions
+python -m ai_pipeline_prototype.demo --hardware-link-demo --force-mock-sdk
+```
+
+3. 再尝试真实控制器联调：
+
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --host 控制器IP
+```
+
+输出判断方式：
+
+- 如果命令输出中使用 `backend=vendor` 且没有回退错误，说明真实 SDK 链路已经打通
+- 如果 `connect(...)` 中出现 `fallback_error=...`，说明 DLL 已成功加载，但当前控制器连接失败，系统已自动降级到 mock
+
+## 当前限制
+
+- 语音理解仍是规则法，不是 ASR/LLM
+- 视觉输入仍是结构化模拟输入，不是真实视觉算法
+- 真机 `pick_and_place` 还没有完全接成稳定的实机动作闭环
+- `gui.py --smoke-test` 仍依赖 `tkinter` 模块；如果当前 Python 环境没有 `tkinter`，导入阶段会失败
+- 轴号、回零模式、停止模式、夹具输出口等参数仍需按实际控制器配置调整
+
+## 下一步重点
+
+- 用真实控制器参数完成 `--hardware-link-demo` 联调
+- 确认真机动作接口更适合“点位式”还是“固定动作式”
+- 在调度层补齐急停、报警、非法状态拦截和失败处理
+- 再继续接真实视觉和语音输入

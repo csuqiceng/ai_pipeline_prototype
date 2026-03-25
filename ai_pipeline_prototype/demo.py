@@ -89,6 +89,7 @@ def run_controller_service_demo() -> None:
     client = MotionSDKClient(MotionSDKConfig())
     service = ControllerService(client)
     service.connect()
+    service.refresh_status(raise_on_error=False)
     service.move_to_pose(200.0, 100.0, 50.0, 60)
     service.set_gripper(True)
     service.report_alarm("E101", "夹具传感器状态异常", level="warning")
@@ -99,6 +100,51 @@ def run_controller_service_demo() -> None:
     print(json.dumps([asdict(item) for item in service.get_alarm_history()], ensure_ascii=False, indent=2))
 
 
+def run_sdk_function_inventory() -> None:
+    client = MotionSDKClient(MotionSDKConfig())
+    print("\n=== SDK Function Inventory ===")
+    print(json.dumps(client.list_supported_functions(), ensure_ascii=False, indent=2))
+
+
+def run_hardware_link_demo(config: MotionSDKConfig) -> None:
+    client = MotionSDKClient(config)
+    service = ControllerService(client)
+
+    print("\n=== Hardware Link Demo ===")
+    print(
+        json.dumps(
+            {
+                "backend": client.backend_name,
+                "controller_id": config.controller_id,
+                "connection_type": config.connection_type,
+                "host": config.host,
+                "axes": list(config.axes),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    timeline: list[dict[str, object]] = []
+
+    service.connect()
+    timeline.append({"step": "connect", "status": asdict(service.get_status())})
+
+    service.refresh_status(raise_on_error=False)
+    timeline.append({"step": "refresh_status", "status": asdict(service.get_status())})
+
+    service.home()
+    timeline.append({"step": "home", "status": asdict(service.get_status())})
+
+    service.stop()
+    timeline.append({"step": "stop", "status": asdict(service.get_status())})
+
+    service.disconnect()
+    timeline.append({"step": "disconnect", "status": asdict(service.get_status())})
+
+    print(json.dumps(timeline, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI pipeline prototype demo")
     parser.add_argument(
@@ -107,12 +153,49 @@ def main() -> None:
         default="sim",
         help="executor backend: sim for local simulation, sdk for Motion SDK style adapter",
     )
+    parser.add_argument("--host", default="127.0.0.1", help="controller host for sdk hardware link demo")
+    parser.add_argument(
+        "--connection-type",
+        choices=["eth", "com", "pci", "fast"],
+        default="eth",
+        help="controller connection type",
+    )
+    parser.add_argument("--com-port", type=int, default=0, help="COM port when using serial connection")
+    parser.add_argument("--pci-card", type=int, default=0, help="PCI card index when using pci connection")
+    parser.add_argument("--axes", default="0,1,2", help="comma separated axis list, for example: 0,1,2")
+    parser.add_argument("--homing-mode", type=int, default=0, help="homing mode for datum command")
+    parser.add_argument("--stop-mode", type=int, default=3, help="stop mode for cancel command")
+    parser.add_argument("--force-mock-sdk", action="store_true", help="force mock backend instead of vendor sdk")
+    parser.add_argument("--hardware-link-demo", action="store_true", help="run hardware link flow only")
+    parser.add_argument("--sdk-functions", action="store_true", help="print supported sdk functions and exit")
     args = parser.parse_args()
+
+    axes = tuple(int(part.strip()) for part in args.axes.split(",") if part.strip())
+    config = MotionSDKConfig(
+        host=args.host,
+        connection_type=args.connection_type,
+        com_port=args.com_port,
+        pci_card=args.pci_card,
+        axes=axes or (0, 1, 2),
+        homing_mode=args.homing_mode,
+        stop_mode=args.stop_mode,
+        force_mock=args.force_mock_sdk,
+    )
+
+    if args.sdk_functions:
+        run_sdk_function_inventory()
+        return
+
+    if args.hardware_link_demo:
+        run_hardware_link_demo(config)
+        return
 
     run_pick_and_place_demo(args.mode)
     run_go_home_demo(args.mode)
     run_failure_demo()
     run_controller_service_demo()
+    run_sdk_function_inventory()
+    run_hardware_link_demo(config)
 
 
 if __name__ == "__main__":
