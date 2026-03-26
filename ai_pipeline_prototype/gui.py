@@ -4,7 +4,7 @@ import argparse
 import json
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from ai_pipeline_prototype.app_service import PipelineAppService
 
@@ -16,7 +16,8 @@ class PipelineAppUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("AI Mechanical Arm Prototype")
-        self.root.geometry("1200x760")
+        self.root.geometry("1400x900")
+        self.root.minsize(1200, 700)
 
         self.service = PipelineAppService()
 
@@ -28,148 +29,306 @@ class PipelineAppUI:
         self.angle_var = tk.StringVar(value="35.2")
         self.confidence_var = tk.StringVar(value="0.94")
         self.safe_region_var = tk.BooleanVar(value=True)
-        self.connection_var = tk.StringVar(value="")
         self.mic_seconds_var = tk.StringVar(value="4")
         self.mic_device_var = tk.StringVar(value="1")
         self.mic_backend_var = tk.StringVar(value="sounddevice")
         self.iflytek_text_var = tk.StringVar(value="")
         self.iat_status_var = tk.StringVar(value="空闲")
+        self.auto_fill_voice_var = tk.BooleanVar(value=True)
+        self.connected_var = tk.StringVar(value="未连接")
+        self.servo_var = tk.StringVar(value="伺服关闭")
+        self.alarm_var = tk.StringVar(value="无报警")
+        self.estop_var = tk.StringVar(value="可运行")
+        self.pose_var = tk.StringVar(value="0.0, 0.0, 0.0")
+        self.last_command_var = tk.StringVar(value="无")
+        self.result_summary_var = tk.StringVar(value="等待输入任务或语音识别。")
         self._iat_busy = False
 
+        self._configure_styles()
         self._build_layout()
         self._render_snapshot(self.service.get_snapshot())
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style()
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 16, "bold"))
+        style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 9), foreground="#666666")
+        style.configure("StatusConnected.TLabel", font=("Microsoft YaHei UI", 11, "bold"), foreground="#28a745")
+        style.configure("StatusDisconnected.TLabel", font=("Microsoft YaHei UI", 11, "bold"), foreground="#dc3545")
+        style.configure("StatusOK.TLabel", font=("Microsoft YaHei UI", 10), foreground="#28a745")
+        style.configure("StatusWarn.TLabel", font=("Microsoft YaHei UI", 10), foreground="#ffc107")
+        style.configure("StatusError.TLabel", font=("Microsoft YaHei UI", 10), foreground="#dc3545")
+        style.configure("Card.TLabelframe", padding=10)
+        style.configure("Card.TLabelframe.Label", font=("Microsoft YaHei UI", 10, "bold"))
+        style.configure("Primary.TButton", padding=(16, 8), font=("Microsoft YaHei UI", 10, "bold"))
+        style.configure("Secondary.TButton", padding=(12, 6))
+        style.configure("Small.TButton", padding=(8, 4))
+
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.columnconfigure(1, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        title = ttk.Label(
-            self.root,
-            text="语音 / 视觉 -> 任务 JSON -> 调度器 -> 控制器服务",
-            font=("Helvetica", 18, "bold"),
+        header = ttk.Frame(self.root, padding=(16, 12, 16, 8))
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            header,
+            text="AI Mechanical Arm Control Panel",
+            style="Title.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+
+        status_frame = ttk.Frame(header)
+        status_frame.grid(row=0, column=1, sticky="e", padx=(20, 0))
+        self.status_lights = ttk.Label(status_frame, text="", font=("Microsoft YaHei UI", 10, "bold"))
+        self.status_lights.pack(side="right")
+
+        ttk.Label(
+            header,
+            text="语音/视觉输入 → 任务规划 → 调度执行 → 控制器",
+            style="Subtitle.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        main = ttk.Frame(self.root, padding=16)
+        main.grid(row=1, column=0, sticky="nsew")
+        main.columnconfigure(0, weight=1)
+        main.columnconfigure(1, weight=5)
+        main.rowconfigure(0, weight=1)
+
+        left_panel = ttk.Frame(main)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left_panel.rowconfigure(0, weight=1)
+        left_panel.columnconfigure(0, weight=1)
+
+        right_panel = ttk.Frame(main)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        right_panel.rowconfigure(1, weight=1)
+        right_panel.columnconfigure(0, weight=1)
+
+        self._build_left_panel(left_panel)
+        self._build_right_panel(right_panel)
+
+    def _build_left_panel(self, parent: ttk.Frame) -> None:
+        notebook = ttk.Notebook(parent)
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        task_tab = ttk.Frame(notebook, padding=8)
+        task_tab.columnconfigure(0, weight=1)
+        notebook.add(task_tab, text="  任务输入  ")
+
+        voice_tab = ttk.Frame(notebook, padding=8)
+        voice_tab.columnconfigure(0, weight=1)
+        voice_tab.rowconfigure(2, weight=1)
+        notebook.add(voice_tab, text="  语音识别  ")
+
+        self._build_task_tab(task_tab)
+        self._build_voice_tab(voice_tab)
+
+        action_frame = ttk.Frame(parent)
+        action_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        action_frame.columnconfigure((0, 1, 2), weight=1)
+
+        ttk.Button(
+            action_frame,
+            text="提交任务",
+            style="Primary.TButton",
+            command=self.on_submit,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        ttk.Button(
+            action_frame,
+            text="注入报警",
+            style="Secondary.TButton",
+            command=self.on_inject_alarm,
+        ).grid(row=0, column=1, sticky="ew", padx=4)
+
+        ttk.Button(
+            action_frame,
+            text="清除报警",
+            style="Secondary.TButton",
+            command=self.on_clear_alarm,
+        ).grid(row=0, column=2, sticky="ew", padx=(4, 0))
+
+    def _build_task_tab(self, parent: ttk.Frame) -> None:
+        input_frame = ttk.LabelFrame(parent, text="任务输入", style="Card.TLabelframe", padding=12)
+        input_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(input_frame, text="语音文本:", font=("Microsoft YaHei UI", 9, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Entry(input_frame, textvariable=self.voice_var, font=("Microsoft YaHei UI", 10)).grid(
+            row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 4)
         )
-        title.grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(16, 8))
+        ttk.Label(
+            input_frame,
+            text="示例：机械手回零 / 停止作业 / 抓取左边托盘里的工件放到右边工位",
+            style="Subtitle.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
 
-        left = ttk.LabelFrame(self.root, text="输入与控制", padding=16)
-        right = ttk.LabelFrame(self.root, text="结果与状态", padding=16)
-        left.grid(row=1, column=0, sticky="nsew", padx=(16, 8), pady=(0, 16))
-        right.grid(row=1, column=1, sticky="nsew", padx=(8, 16), pady=(0, 16))
+        vision_frame = ttk.LabelFrame(parent, text="视觉输入", style="Card.TLabelframe", padding=12)
+        vision_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        vision_frame.columnconfigure(1, weight=1)
+        vision_frame.columnconfigure(3, weight=1)
 
-        left.columnconfigure(1, weight=1)
-        right.rowconfigure(2, weight=1)
-        right.columnconfigure(0, weight=1)
-
-        top_bar = ttk.Frame(right)
-        top_bar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        top_bar.columnconfigure(0, weight=1)
-        top_bar.columnconfigure(1, weight=0)
-        top_bar.columnconfigure(2, weight=0)
-
-        self.status_lights = ttk.Label(top_bar, text="", font=("Helvetica", 12, "bold"))
-        self.status_lights.grid(row=0, column=0, sticky="w")
-
-        ttk.Button(top_bar, text="连接控制器", command=self.on_connect).grid(row=0, column=1, padx=(8, 6))
-        ttk.Button(top_bar, text="断开控制器", command=self.on_disconnect).grid(row=0, column=2)
-
-        ttk.Label(left, text="语音文本").grid(row=0, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.voice_var).grid(row=0, column=1, sticky="ew", pady=(0, 8))
-
-        ttk.Checkbutton(left, text="视觉发现目标", variable=self.target_found_var).grid(
-            row=1, column=0, columnspan=2, sticky="w"
+        row = 0
+        ttk.Checkbutton(vision_frame, text="发现目标", variable=self.target_found_var).grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=2
         )
-        ttk.Checkbutton(left, text="安全区域通过", variable=self.safe_region_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", pady=(0, 8)
+        ttk.Checkbutton(vision_frame, text="安全区域通过", variable=self.safe_region_var).grid(
+            row=row, column=2, columnspan=2, sticky="w", pady=2
         )
 
-        ttk.Label(left, text="目标 ID").grid(row=3, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.target_id_var).grid(row=3, column=1, sticky="ew", pady=(0, 8))
+        row += 1
+        ttk.Label(vision_frame, text="目标 ID:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(vision_frame, textvariable=self.target_id_var, width=12).grid(row=row, column=1, sticky="ew", padx=(4, 16), pady=(8, 0))
+        ttk.Label(vision_frame, text="X 坐标:").grid(row=row, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(vision_frame, textvariable=self.pos_x_var, width=10).grid(row=row, column=3, sticky="ew", pady=(8, 0))
 
-        ttk.Label(left, text="X").grid(row=4, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.pos_x_var).grid(row=4, column=1, sticky="ew", pady=(0, 8))
+        row += 1
+        ttk.Label(vision_frame, text="Y 坐标:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(vision_frame, textvariable=self.pos_y_var, width=12).grid(row=row, column=1, sticky="ew", padx=(4, 16), pady=(8, 0))
+        ttk.Label(vision_frame, text="角度:").grid(row=row, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(vision_frame, textvariable=self.angle_var, width=10).grid(row=row, column=3, sticky="ew", pady=(8, 0))
 
-        ttk.Label(left, text="Y").grid(row=5, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.pos_y_var).grid(row=5, column=1, sticky="ew", pady=(0, 8))
+        row += 1
+        ttk.Label(vision_frame, text="置信度:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(vision_frame, textvariable=self.confidence_var, width=12).grid(row=row, column=1, sticky="ew", padx=(4, 16), pady=(8, 0))
 
-        ttk.Label(left, text="角度").grid(row=6, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.angle_var).grid(row=6, column=1, sticky="ew", pady=(0, 8))
+        example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
+        example_frame.grid(row=2, column=0, sticky="ew")
+        example_frame.columnconfigure((0, 1, 2), weight=1)
 
-        ttk.Label(left, text="置信度").grid(row=7, column=0, sticky="w")
-        ttk.Entry(left, textvariable=self.confidence_var).grid(row=7, column=1, sticky="ew", pady=(0, 12))
+        ttk.Button(example_frame, text="抓取放置", style="Small.TButton", command=self.use_pick_example).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        ttk.Button(example_frame, text="机械手回零", style="Small.TButton", command=self.use_home_example).grid(
+            row=0, column=1, sticky="ew", padx=4
+        )
+        ttk.Button(example_frame, text="停止作业", style="Small.TButton", command=self.use_stop_example).grid(
+            row=0, column=2, sticky="ew", padx=(4, 0)
+        )
 
-        speech_frame = ttk.LabelFrame(left, text="讯飞 IAT", padding=12)
-        speech_frame.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        speech_frame.columnconfigure(1, weight=1)
-        speech_frame.columnconfigure(3, weight=1)
+    def _build_voice_tab(self, parent: ttk.Frame) -> None:
+        config_frame = ttk.LabelFrame(parent, text="识别参数", style="Card.TLabelframe", padding=12)
+        config_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        config_frame.columnconfigure(1, weight=1)
+        config_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(speech_frame, text="录音秒数").grid(row=0, column=0, sticky="w")
-        ttk.Entry(speech_frame, textvariable=self.mic_seconds_var, width=8).grid(row=0, column=1, sticky="ew", padx=(0, 8))
-        ttk.Label(speech_frame, text="设备号").grid(row=0, column=2, sticky="w")
-        ttk.Entry(speech_frame, textvariable=self.mic_device_var, width=8).grid(row=0, column=3, sticky="ew")
+        ttk.Label(config_frame, text="录音秒数:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(config_frame, textvariable=self.mic_seconds_var, width=8).grid(row=0, column=1, sticky="w", padx=(4, 16))
+        ttk.Label(config_frame, text="设备号:").grid(row=0, column=2, sticky="w")
+        ttk.Entry(config_frame, textvariable=self.mic_device_var, width=8).grid(row=0, column=3, sticky="w", padx=(4, 0))
 
-        ttk.Label(speech_frame, text="后端").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        backend_box = ttk.Combobox(
-            speech_frame,
+        ttk.Label(config_frame, text="音频后端:").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Combobox(
+            config_frame,
             textvariable=self.mic_backend_var,
             values=["sounddevice", "pyaudio"],
             state="readonly",
-        )
-        backend_box.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(8, 0))
-
-        self.iflytek_mic_button = ttk.Button(speech_frame, text="麦克风识别", command=self.on_iflytek_mic)
-        self.iflytek_mic_button.grid(row=1, column=2, sticky="ew", padx=(0, 8), pady=(8, 0))
-        self.iflytek_audio_button = ttk.Button(speech_frame, text="导入音频识别", command=self.on_iflytek_audio_file)
-        self.iflytek_audio_button.grid(row=1, column=3, sticky="ew", pady=(8, 0))
-        self.iflytek_list_button = ttk.Button(speech_frame, text="列设备", command=self.on_list_mics)
-        self.iflytek_list_button.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        self.iflytek_use_text_button = ttk.Button(speech_frame, text="采用识别文本", command=self.on_use_iflytek_text)
-        self.iflytek_use_text_button.grid(row=2, column=1, columnspan=3, sticky="ew", pady=(8, 0))
-
-        ttk.Label(speech_frame, text="当前状态").grid(row=3, column=0, sticky="w", pady=(8, 0))
-        ttk.Label(speech_frame, textvariable=self.iat_status_var).grid(
-            row=3, column=1, columnspan=3, sticky="w", pady=(8, 0)
+            width=12,
+        ).grid(row=1, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
+        ttk.Checkbutton(config_frame, text="自动回填到任务输入", variable=self.auto_fill_voice_var).grid(
+            row=1, column=2, columnspan=2, sticky="w", pady=(8, 0)
         )
 
-        ttk.Label(speech_frame, text="识别结果").grid(row=4, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(speech_frame, textvariable=self.iflytek_text_var).grid(
-            row=4, column=1, columnspan=3, sticky="ew", pady=(8, 0)
+        action_frame = ttk.LabelFrame(parent, text="识别操作", style="Card.TLabelframe", padding=12)
+        action_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        action_frame.columnconfigure((0, 1, 2), weight=1)
+
+        self.iflytek_list_button = ttk.Button(
+            action_frame, text="列出麦克风设备", style="Secondary.TButton", command=self.on_list_mics
         )
+        self.iflytek_list_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
 
-        button_bar = ttk.Frame(left)
-        button_bar.grid(row=9, column=0, columnspan=2, sticky="ew")
-        button_bar.columnconfigure((0, 1, 2), weight=1)
+        self.iflytek_mic_button = ttk.Button(
+            action_frame, text="开始麦克风识别", style="Primary.TButton", command=self.on_iflytek_mic
+        )
+        self.iflytek_mic_button.grid(row=0, column=1, sticky="ew", padx=4)
 
-        ttk.Button(button_bar, text="提交任务", command=self.on_submit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(button_bar, text="注入报警", command=self.on_inject_alarm).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(button_bar, text="清除报警", command=self.on_clear_alarm).grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.iflytek_audio_button = ttk.Button(
+            action_frame, text="导入音频文件", style="Secondary.TButton", command=self.on_iflytek_audio_file
+        )
+        self.iflytek_audio_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
-        quick_bar = ttk.Frame(left)
-        quick_bar.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        quick_bar.columnconfigure((0, 1, 2), weight=1)
-        ttk.Button(quick_bar, text="抓取放置示例", command=self.use_pick_example).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(quick_bar, text="回零示例", command=self.use_home_example).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(quick_bar, text="停止示例", command=self.use_stop_example).grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        self.iflytek_use_text_button = ttk.Button(
+            action_frame, text="采用识别结果 → 任务输入", style="Secondary.TButton", command=self.on_use_iflytek_text
+        )
+        self.iflytek_use_text_button.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
-        status_frame = ttk.LabelFrame(right, text="控制器状态", padding=12)
-        status_frame.grid(row=1, column=0, sticky="ew")
-        status_frame.columnconfigure(0, weight=1)
+        result_frame = ttk.LabelFrame(parent, text="识别结果", style="Card.TLabelframe", padding=12)
+        result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.rowconfigure(2, weight=1)
 
-        self.status_text = tk.Text(status_frame, height=10, wrap="word")
-        self.status_text.grid(row=0, column=0, sticky="nsew")
+        status_row = ttk.Frame(result_frame)
+        status_row.grid(row=0, column=0, sticky="ew")
+        ttk.Label(status_row, text="状态:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left")
+        ttk.Label(status_row, textvariable=self.iat_status_var, style="StatusOK.TLabel").pack(side="left", padx=(8, 0))
 
-        notebook = ttk.Notebook(right)
-        notebook.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        ttk.Label(result_frame, text="识别文本:", font=("Microsoft YaHei UI", 9, "bold")).grid(row=1, column=0, sticky="w", pady=(8, 4))
+        self.iflytek_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=("Microsoft YaHei UI", 10))
+        self.iflytek_result_text.grid(row=2, column=0, sticky="nsew")
 
-        self.result_text = self._build_text_tab(notebook, "结果")
-        self.alarm_text = self._build_text_tab(notebook, "报警")
-        self.command_text = self._build_text_tab(notebook, "命令历史")
-        self.task_text = self._build_text_tab(notebook, "任务历史")
+        tips_frame = ttk.Frame(parent)
+        tips_frame.grid(row=3, column=0, sticky="ew")
+        ttk.Label(
+            tips_frame,
+            text="提示：先列出设备确认设备号，录音 3-5 秒，命令尽量简短明确",
+            style="Subtitle.TLabel",
+        ).pack(side="left")
 
-    def _build_text_tab(self, notebook: ttk.Notebook, title: str) -> tk.Text:
+    def _build_right_panel(self, parent: ttk.Frame) -> None:
+        control_frame = ttk.Frame(parent)
+        control_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        control_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(control_frame, text="控制器连接:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left")
+        ttk.Button(control_frame, text="连接", style="Primary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4))
+        ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4)
+
+        status_card = ttk.LabelFrame(parent, text="状态概览", style="Card.TLabelframe", padding=12)
+        status_card.grid(row=1, column=0, sticky="nsew")
+        status_card.columnconfigure(0, weight=1)
+        status_card.rowconfigure(2, weight=1)
+
+        summary_frame = ttk.Frame(status_card)
+        summary_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        for i in range(6):
+            summary_frame.columnconfigure(i, weight=1)
+
+        self._build_status_cell(summary_frame, 0, "连接", self.connected_var)
+        self._build_status_cell(summary_frame, 1, "伺服", self.servo_var)
+        self._build_status_cell(summary_frame, 2, "报警", self.alarm_var)
+        self._build_status_cell(summary_frame, 3, "急停", self.estop_var)
+        self._build_status_cell(summary_frame, 4, "位姿", self.pose_var)
+        self._build_status_cell(summary_frame, 5, "最后命令", self.last_command_var)
+
+        feedback_frame = ttk.Frame(status_card)
+        feedback_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(feedback_frame, text="执行反馈:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left")
+        ttk.Label(feedback_frame, textvariable=self.result_summary_var, wraplength=500).pack(side="left", padx=(8, 0))
+
+        notebook = ttk.Notebook(status_card)
+        notebook.grid(row=2, column=0, sticky="nsew")
+
+        self.status_text = self._build_text_tab(notebook, "  控制器状态  ")
+        self.result_text = self._build_text_tab(notebook, "  执行结果  ")
+        self.alarm_text = self._build_text_tab(notebook, "  报警记录  ")
+        self.command_text = self._build_text_tab(notebook, "  命令历史  ")
+        self.task_text = self._build_text_tab(notebook, "  任务历史  ")
+
+    def _build_status_cell(self, parent: ttk.Frame, col: int, label: str, variable: tk.StringVar) -> None:
+        cell = ttk.Frame(parent, padding=4)
+        cell.grid(row=0, column=col, sticky="nsew", padx=2)
+        ttk.Label(cell, text=label, font=("Microsoft YaHei UI", 8), foreground="#888888").pack(anchor="w")
+        ttk.Label(cell, textvariable=variable, font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w", pady=(2, 0))
+
+    def _build_text_tab(self, notebook: ttk.Notebook, title: str) -> scrolledtext.ScrolledText:
         frame = ttk.Frame(notebook)
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
-        text = tk.Text(frame, wrap="word")
+        text = scrolledtext.ScrolledText(frame, wrap="word", font=("Consolas", 9))
         text.grid(row=0, column=0, sticky="nsew")
         notebook.add(frame, text=title)
         return text
@@ -247,7 +406,7 @@ class PipelineAppUI:
         )
 
     def on_use_iflytek_text(self) -> None:
-        recognized = self.iflytek_text_var.get().strip()
+        recognized = self._get_iflytek_text()
         if not recognized:
             messagebox.showwarning("没有识别结果", "请先进行一次音频或麦克风识别。")
             return
@@ -257,15 +416,15 @@ class PipelineAppUI:
         self.voice_var.set(DEFAULT_VOICE)
         self.target_found_var.set(True)
         self.safe_region_var.set(True)
-        self.iflytek_text_var.set("")
+        self._set_iflytek_text("")
 
     def use_home_example(self) -> None:
         self.voice_var.set("机械手回零")
-        self.iflytek_text_var.set("")
+        self._set_iflytek_text("")
 
     def use_stop_example(self) -> None:
         self.voice_var.set("停止作业")
-        self.iflytek_text_var.set("")
+        self._set_iflytek_text("")
 
     def _build_position(self) -> list[float] | None:
         x = self._parse_float(self.pos_x_var.get())
@@ -292,18 +451,21 @@ class PipelineAppUI:
     def _handle_iflytek_payload(self, payload: dict) -> None:
         if payload.get("ok"):
             recognized = str(payload.get("text", "")).strip()
-            self.iflytek_text_var.set(recognized)
-            if recognized:
+            self._set_iflytek_text(recognized)
+            if recognized and self.auto_fill_voice_var.get():
                 self.voice_var.set(recognized)
+            self.result_summary_var.set(f"语音识别完成：{recognized[:50]}{'...' if len(recognized) > 50 else ''}")
         else:
-            self.iflytek_text_var.set("")
-            messagebox.showerror("讯飞识别失败", payload.get("error", "未知错误"))
+            error_msg = payload.get("error", "未知错误")
+            self._set_iflytek_text(f"识别失败：{error_msg}")
+            self.result_summary_var.set(f"语音识别失败：{error_msg}")
         self._render_snapshot(self.service.get_snapshot())
         self._set_text(self.result_text, json.dumps(payload, ensure_ascii=False, indent=2))
 
     def _handle_device_payload(self, payload: dict) -> None:
-        if not payload.get("ok"):
-            messagebox.showerror("列出设备失败", payload.get("error", "未知错误"))
+        if payload.get("ok"):
+            devices = payload.get("devices", [])
+            self.result_summary_var.set(f"已读取 {len(devices)} 个可用输入设备。")
         self._render_snapshot(self.service.get_snapshot())
         self._set_text(self.result_text, json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -328,9 +490,9 @@ class PipelineAppUI:
         self.iat_status_var.set(status_text)
         state = "disabled" if busy else "normal"
         for widget in (
+            self.iflytek_list_button,
             self.iflytek_mic_button,
             self.iflytek_audio_button,
-            self.iflytek_list_button,
             self.iflytek_use_text_button,
         ):
             widget.configure(state=state)
@@ -348,6 +510,13 @@ class PipelineAppUI:
     def _render_snapshot(self, snapshot: dict) -> None:
         status = snapshot.get("status", {})
         self._set_status_lights(status)
+        self.connected_var.set("已连接" if status.get("connected") else "未连接")
+        self.servo_var.set("开启" if status.get("servo_enabled") else "关闭")
+        self.alarm_var.set("无" if not status.get("alarm_active") else "有报警")
+        self.estop_var.set("正常" if not status.get("emergency_stopped") else "已急停")
+        pose = status.get("current_pose") or [0.0, 0.0, 0.0]
+        self.pose_var.set(", ".join(f"{float(item):.1f}" for item in pose))
+        self.last_command_var.set(str(status.get("last_command") or "无")[:20])
         self._set_text(self.status_text, json.dumps(status, ensure_ascii=False, indent=2))
         self._set_text(self.alarm_text, json.dumps(snapshot.get("alarms", []), ensure_ascii=False, indent=2))
         self._set_text(self.command_text, json.dumps(snapshot.get("command_history", []), ensure_ascii=False, indent=2))
@@ -356,6 +525,13 @@ class PipelineAppUI:
     def _set_text(self, widget: tk.Text, content: str) -> None:
         widget.delete("1.0", tk.END)
         widget.insert("1.0", content)
+
+    def _set_iflytek_text(self, content: str) -> None:
+        self.iflytek_text_var.set(content)
+        self._set_text(self.iflytek_result_text, content)
+
+    def _get_iflytek_text(self) -> str:
+        return self.iflytek_result_text.get("1.0", tk.END).strip()
 
     def _set_status_lights(self, status: dict) -> None:
         connected = "CONNECTED" if status.get("connected") else "DISCONNECTED"
@@ -389,9 +565,6 @@ def main() -> None:
         return
 
     root = tk.Tk()
-    style = ttk.Style()
-    if "clam" in style.theme_names():
-        style.theme_use("clam")
     PipelineAppUI(root)
     root.mainloop()
 
