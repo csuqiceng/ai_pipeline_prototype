@@ -50,6 +50,39 @@
 - 支持 GUI 演示
 - 支持模拟执行模式和 SDK 风格占位模式
 
+## 依赖说明
+
+### CLI 依赖
+
+命令行演示、讯飞语音识别、麦克风录音所需的 pip 依赖通过下面的命令安装：
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+当前 `requirements.txt` 主要覆盖：
+
+- `xfyunsdkspeech`
+- `sounddevice`
+- `websocket-client`
+
+### GUI 依赖
+
+GUI 本身使用 Python 自带的 `tkinter`，它不是普通的 pip 依赖。
+
+也就是说：
+
+- `requirements.txt` 负责安装命令行和语音相关依赖
+- GUI 是否可运行，还取决于你使用的 Python 解释器是否自带 `tkinter`
+
+如果执行：
+
+```bash
+python -m ai_pipeline_prototype.gui
+```
+
+时提示缺少 `tkinter`，请改用自带 Tk GUI 组件的 Python 3.10+ 环境。Windows 一般建议使用 python.org 官方发行版。
+
 ## 运行方式
 
 运行命令行演示：

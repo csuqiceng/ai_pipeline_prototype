@@ -1,0 +1,16 @@
+# ========================================
+# AI Pipeline Prototype 依赖清单
+# 安装命令: pip install -r requirements.txt
+# ========================================
+
+# 讯飞语音识别 SDK
+xfyunsdkspeech>=0.0.4
+
+# 麦克风录音（二选一，推荐 sounddevice）
+sounddevice>=0.5.5
+
+# WebSocket 客户端
+websocket-client>=1.8.0
+
+# 可选：PyAudio 麦克风后端（备选）
+# pyaudio>=0.2.13

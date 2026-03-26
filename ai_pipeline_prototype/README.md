@@ -23,6 +23,8 @@
 ## 当前能力
 
 - 解析固定语音命令
+- 支持接收结构化语音结果 JSON
+- 支持接入科大讯飞 IAT 语音听写
 - 接收结构化视觉定位结果
 - 生成结构化任务 JSON
 - 通过状态机模拟执行主流程
@@ -62,6 +64,64 @@ python -m ai_pipeline_prototype.demo --mode sdk
 ```bash
 python -m ai_pipeline_prototype.demo --sdk-functions
 ```
+
+使用结构化语音结果 JSON 直接联调语音接口：
+
+```bash
+python -m ai_pipeline_prototype.demo --voice-json voice_input.json
+```
+
+`voice_input.json` 示例：
+
+```json
+{
+  "text": "抓取左边托盘里的工件放到右边工位",
+  "intent": "pick_and_place",
+  "target_area": "left_tray",
+  "destination_area": "right_station",
+  "confidence": 0.91,
+  "timestamp": "2026-03-26T21:30:00+08:00"
+}
+```
+
+使用已安装的官方 `xfyunsdkspeech` SDK 接科大讯飞 IAT，并继续走当前规则语义解析：
+
+先在主代码目录 [ai_pipeline_prototype](/Users/a/Desktop/ai_pipeline_prototype/ai_pipeline_prototype) 下创建 `.env`，或手动设置环境变量：
+
+```bash
+IFLYTEK_APP_ID=你的appid
+IFLYTEK_API_KEY=你的apikey
+IFLYTEK_API_SECRET=你的apisecret
+```
+
+再执行：
+
+```bash
+pip install xfyunsdkspeech
+python -m ai_pipeline_prototype.demo --iflytek-iat-audio path\\to\\audio.pcm
+```
+
+如果要直接接麦克风录音：
+
+```bash
+python -m ai_pipeline_prototype.demo --iflytek-mic --mic-seconds 4
+```
+
+也可以指定后端或设备号：
+
+```bash
+python -m ai_pipeline_prototype.demo --iflytek-mic --mic-seconds 4 --mic-backend sounddevice
+python -m ai_pipeline_prototype.demo --iflytek-mic --mic-seconds 4 --mic-device 1
+```
+
+说明：
+
+- 这个入口当前通过已安装的 `xfyunsdkspeech` 官方 SDK 调用讯飞 IAT
+- 适合对接 IAT 的 16k 单声道 PCM 文件联调
+- 识别出的文本会继续复用 `inputs.py` 里的规则意图解析
+- 麦克风模式当前支持 `sounddevice` 或 `pyaudio`
+- 如果当前 Python 环境没有安装这些依赖，麦克风模式会直接报缺失依赖
+- 当前代码会优先读取 `ai_pipeline_prototype/.env`
 
 运行“连接 -> 读状态 -> 回零 -> 停止 -> 断开”联调流程：
 
@@ -136,6 +196,8 @@ python -m ai_pipeline_prototype.demo --hardware-link-demo --host 控制器IP
 ## 当前限制
 
 - 语音理解仍是规则法，不是 ASR/LLM
+- 真实语音 SDK 还没有直接接麦克风采集，本阶段先对接识别结果 JSON
+- 讯飞 IAT 已支持固定时长麦克风采集，但依赖本机安装 `sounddevice` 或 `pyaudio`
 - 视觉输入仍是结构化模拟输入，不是真实视觉算法
 - 真机 `pick_and_place` 还没有完全接成稳定的实机动作闭环
 - `gui.py --smoke-test` 仍依赖 `tkinter` 模块；如果当前 Python 环境没有 `tkinter`，导入阶段会失败

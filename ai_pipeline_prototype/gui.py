@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 from ai_pipeline_prototype.app_service import PipelineAppService
 
@@ -28,6 +29,12 @@ class PipelineAppUI:
         self.confidence_var = tk.StringVar(value="0.94")
         self.safe_region_var = tk.BooleanVar(value=True)
         self.connection_var = tk.StringVar(value="")
+        self.mic_seconds_var = tk.StringVar(value="4")
+        self.mic_device_var = tk.StringVar(value="1")
+        self.mic_backend_var = tk.StringVar(value="sounddevice")
+        self.iflytek_text_var = tk.StringVar(value="")
+        self.iat_status_var = tk.StringVar(value="空闲")
+        self._iat_busy = False
 
         self._build_layout()
         self._render_snapshot(self.service.get_snapshot())
@@ -90,8 +97,46 @@ class PipelineAppUI:
         ttk.Label(left, text="置信度").grid(row=7, column=0, sticky="w")
         ttk.Entry(left, textvariable=self.confidence_var).grid(row=7, column=1, sticky="ew", pady=(0, 12))
 
+        speech_frame = ttk.LabelFrame(left, text="讯飞 IAT", padding=12)
+        speech_frame.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        speech_frame.columnconfigure(1, weight=1)
+        speech_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(speech_frame, text="录音秒数").grid(row=0, column=0, sticky="w")
+        ttk.Entry(speech_frame, textvariable=self.mic_seconds_var, width=8).grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        ttk.Label(speech_frame, text="设备号").grid(row=0, column=2, sticky="w")
+        ttk.Entry(speech_frame, textvariable=self.mic_device_var, width=8).grid(row=0, column=3, sticky="ew")
+
+        ttk.Label(speech_frame, text="后端").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        backend_box = ttk.Combobox(
+            speech_frame,
+            textvariable=self.mic_backend_var,
+            values=["sounddevice", "pyaudio"],
+            state="readonly",
+        )
+        backend_box.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(8, 0))
+
+        self.iflytek_mic_button = ttk.Button(speech_frame, text="麦克风识别", command=self.on_iflytek_mic)
+        self.iflytek_mic_button.grid(row=1, column=2, sticky="ew", padx=(0, 8), pady=(8, 0))
+        self.iflytek_audio_button = ttk.Button(speech_frame, text="导入音频识别", command=self.on_iflytek_audio_file)
+        self.iflytek_audio_button.grid(row=1, column=3, sticky="ew", pady=(8, 0))
+        self.iflytek_list_button = ttk.Button(speech_frame, text="列设备", command=self.on_list_mics)
+        self.iflytek_list_button.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.iflytek_use_text_button = ttk.Button(speech_frame, text="采用识别文本", command=self.on_use_iflytek_text)
+        self.iflytek_use_text_button.grid(row=2, column=1, columnspan=3, sticky="ew", pady=(8, 0))
+
+        ttk.Label(speech_frame, text="当前状态").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(speech_frame, textvariable=self.iat_status_var).grid(
+            row=3, column=1, columnspan=3, sticky="w", pady=(8, 0)
+        )
+
+        ttk.Label(speech_frame, text="识别结果").grid(row=4, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(speech_frame, textvariable=self.iflytek_text_var).grid(
+            row=4, column=1, columnspan=3, sticky="ew", pady=(8, 0)
+        )
+
         button_bar = ttk.Frame(left)
-        button_bar.grid(row=8, column=0, columnspan=2, sticky="ew")
+        button_bar.grid(row=9, column=0, columnspan=2, sticky="ew")
         button_bar.columnconfigure((0, 1, 2), weight=1)
 
         ttk.Button(button_bar, text="提交任务", command=self.on_submit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -99,7 +144,7 @@ class PipelineAppUI:
         ttk.Button(button_bar, text="清除报警", command=self.on_clear_alarm).grid(row=0, column=2, sticky="ew", padx=(6, 0))
 
         quick_bar = ttk.Frame(left)
-        quick_bar.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        quick_bar.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         quick_bar.columnconfigure((0, 1, 2), weight=1)
         ttk.Button(quick_bar, text="抓取放置示例", command=self.use_pick_example).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(quick_bar, text="回零示例", command=self.use_home_example).grid(row=0, column=1, sticky="ew", padx=6)
@@ -162,16 +207,65 @@ class PipelineAppUI:
         self._render_snapshot(snapshot)
         self._set_text(self.result_text, json.dumps({"action": "disconnect_controller"}, ensure_ascii=False, indent=2))
 
+    def on_iflytek_audio_file(self) -> None:
+        if self._iat_busy:
+            return
+        file_path = filedialog.askopenfilename(
+            title="选择音频文件",
+            filetypes=[("PCM Audio", "*.pcm"), ("All Files", "*.*")],
+        )
+        if not file_path:
+            return
+        self._run_iat_task(
+            status_text="识别音频文件中...",
+            worker=lambda: self.service.transcribe_iflytek_audio(file_path),
+        )
+
+    def on_iflytek_mic(self) -> None:
+        if self._iat_busy:
+            return
+        duration = self._parse_float(self.mic_seconds_var.get(), default=4.0) or 4.0
+        device = self._parse_int(self.mic_device_var.get())
+        backend = self.mic_backend_var.get().strip() or None
+        self._run_iat_task(
+            status_text="录音并识别中...",
+            worker=lambda: self.service.transcribe_iflytek_microphone(
+                duration_sec=duration,
+                device=device,
+                backend=backend,
+            ),
+        )
+
+    def on_list_mics(self) -> None:
+        if self._iat_busy:
+            return
+        backend = self.mic_backend_var.get().strip() or None
+        self._run_iat_task(
+            status_text="读取麦克风设备中...",
+            worker=lambda: self.service.list_iflytek_microphones(backend=backend),
+            success_handler=self._handle_device_payload,
+        )
+
+    def on_use_iflytek_text(self) -> None:
+        recognized = self.iflytek_text_var.get().strip()
+        if not recognized:
+            messagebox.showwarning("没有识别结果", "请先进行一次音频或麦克风识别。")
+            return
+        self.voice_var.set(recognized)
+
     def use_pick_example(self) -> None:
         self.voice_var.set(DEFAULT_VOICE)
         self.target_found_var.set(True)
         self.safe_region_var.set(True)
+        self.iflytek_text_var.set("")
 
     def use_home_example(self) -> None:
         self.voice_var.set("机械手回零")
+        self.iflytek_text_var.set("")
 
     def use_stop_example(self) -> None:
         self.voice_var.set("停止作业")
+        self.iflytek_text_var.set("")
 
     def _build_position(self) -> list[float] | None:
         x = self._parse_float(self.pos_x_var.get())
@@ -185,6 +279,61 @@ class PipelineAppUI:
             return float(value)
         except ValueError:
             return default
+
+    def _parse_int(self, value: str) -> int | None:
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            return int(normalized)
+        except ValueError:
+            return None
+
+    def _handle_iflytek_payload(self, payload: dict) -> None:
+        if payload.get("ok"):
+            recognized = str(payload.get("text", "")).strip()
+            self.iflytek_text_var.set(recognized)
+            if recognized:
+                self.voice_var.set(recognized)
+        else:
+            self.iflytek_text_var.set("")
+            messagebox.showerror("讯飞识别失败", payload.get("error", "未知错误"))
+        self._render_snapshot(self.service.get_snapshot())
+        self._set_text(self.result_text, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def _handle_device_payload(self, payload: dict) -> None:
+        if not payload.get("ok"):
+            messagebox.showerror("列出设备失败", payload.get("error", "未知错误"))
+        self._render_snapshot(self.service.get_snapshot())
+        self._set_text(self.result_text, json.dumps(payload, ensure_ascii=False, indent=2))
+
+    def _run_iat_task(self, *, status_text: str, worker, success_handler=None) -> None:
+        self._set_iat_busy(True, status_text)
+
+        def job() -> None:
+            payload = worker()
+            self.root.after(0, lambda: self._finish_iat_task(payload, success_handler))
+
+        threading.Thread(target=job, daemon=True).start()
+
+    def _finish_iat_task(self, payload: dict, success_handler=None) -> None:
+        self._set_iat_busy(False, "空闲")
+        if success_handler is not None:
+            success_handler(payload)
+            return
+        self._handle_iflytek_payload(payload)
+
+    def _set_iat_busy(self, busy: bool, status_text: str) -> None:
+        self._iat_busy = busy
+        self.iat_status_var.set(status_text)
+        state = "disabled" if busy else "normal"
+        for widget in (
+            self.iflytek_mic_button,
+            self.iflytek_audio_button,
+            self.iflytek_list_button,
+            self.iflytek_use_text_button,
+        ):
+            widget.configure(state=state)
 
     def _render_result(self, payload: dict) -> None:
         status_payload = {

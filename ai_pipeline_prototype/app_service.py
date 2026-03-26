@@ -6,9 +6,10 @@ from typing import Any
 from ai_pipeline_prototype.controller_service import ControllerService
 from ai_pipeline_prototype.dispatcher import TaskDispatcher
 from ai_pipeline_prototype.executor import MotionSDKRobotExecutor
-from ai_pipeline_prototype.inputs import VisionInputAdapter, VoiceInputAdapter
+from ai_pipeline_prototype.inputs import VisionInputAdapter, VoiceInputAdapter, VoiceInputError
 from ai_pipeline_prototype.planner import PlanningError, TaskPlanner
 from ai_pipeline_prototype.sdk_adapter import MotionSDKClient, MotionSDKConfig
+from ai_pipeline_prototype.voice_iflytek import IFlytekIATClient, IFlytekIATConfig, IFlytekMicrophoneConfig, IFlytekRTASRError
 
 
 class PipelineAppService:
@@ -27,7 +28,8 @@ class PipelineAppService:
     def submit(
         self,
         *,
-        voice_text: str,
+        voice_text: str | None = None,
+        voice_payload: dict[str, Any] | None = None,
         target_found: bool,
         target_id: str | None,
         position: list[float] | None,
@@ -36,7 +38,19 @@ class PipelineAppService:
         safe_region_ok: bool,
         camera_id: str = "cam_01",
     ) -> dict[str, Any]:
-        voice = self.voice_adapter.parse_text(voice_text)
+        try:
+            voice = self.voice_adapter.parse(text=voice_text, payload=voice_payload)
+        except VoiceInputError as exc:
+            alarm = self.controller_service.report_alarm("V001", str(exc), level="warning")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "voice": voice_payload if voice_payload is not None else {"text": voice_text},
+                "vision": None,
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+
         vision = None
         if voice.intent not in {"go_home", "stop_task"}:
             vision = self.vision_adapter.from_detection(
@@ -112,6 +126,59 @@ class PipelineAppService:
             "status": asdict(self.controller_service.get_status()),
             "alarms": [],
         }
+
+    def transcribe_iflytek_audio(self, file_path: str) -> dict[str, Any]:
+        try:
+            result = IFlytekIATClient(IFlytekIATConfig.from_env()).transcribe_file(file_path)
+        except IFlytekRTASRError as exc:
+            alarm = self.controller_service.report_alarm("ASR001", str(exc), level="warning")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+        return {"ok": True, "text": result.text, "chunks": result.chunks}
+
+    def transcribe_iflytek_microphone(
+        self,
+        *,
+        duration_sec: float = 4.0,
+        device: int | None = None,
+        backend: str | None = None,
+        debug_save_path: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            result = IFlytekIATClient(IFlytekIATConfig.from_env()).transcribe_microphone(
+                IFlytekMicrophoneConfig(
+                    duration_sec=duration_sec,
+                    device=device,
+                    preferred_backend=backend,
+                    debug_save_path=debug_save_path,
+                )
+            )
+        except IFlytekRTASRError as exc:
+            alarm = self.controller_service.report_alarm("ASR002", str(exc), level="warning")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+        return {"ok": True, "text": result.text, "chunks": result.chunks}
+
+    def list_iflytek_microphones(self, backend: str | None = None) -> dict[str, Any]:
+        try:
+            devices = IFlytekIATClient(IFlytekIATConfig.from_env()).list_microphone_devices(backend=backend)
+        except IFlytekRTASRError as exc:
+            alarm = self.controller_service.report_alarm("ASR003", str(exc), level="warning")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+        return {"ok": True, "devices": devices}
 
     def get_snapshot(self) -> dict[str, Any]:
         return {

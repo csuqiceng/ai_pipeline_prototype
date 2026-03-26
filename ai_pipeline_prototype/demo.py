@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
+from pathlib import Path
 
+from ai_pipeline_prototype.app_service import PipelineAppService
 from ai_pipeline_prototype.dispatcher import TaskDispatcher
 from ai_pipeline_prototype.controller_service import ControllerService
 from ai_pipeline_prototype.factory import build_executor
 from ai_pipeline_prototype.inputs import VisionInputAdapter, VoiceInputAdapter
 from ai_pipeline_prototype.planner import PlanningError, TaskPlanner
 from ai_pipeline_prototype.sdk_adapter import MotionSDKClient, MotionSDKConfig
+from ai_pipeline_prototype.voice_iflytek import IFlytekIATClient, IFlytekIATConfig, IFlytekMicrophoneConfig
 
 
 def run_pick_and_place_demo(mode: str) -> None:
@@ -145,6 +148,84 @@ def run_hardware_link_demo(config: MotionSDKConfig) -> None:
     print(json.dumps(timeline, ensure_ascii=False, indent=2))
 
 
+def run_voice_payload_demo(voice_json_path: str) -> None:
+    service = PipelineAppService()
+    voice_payload = json.loads(Path(voice_json_path).read_text(encoding="utf-8"))
+    payload = service.submit(
+        voice_payload=voice_payload,
+        target_found=True,
+        target_id="part_01",
+        position=[120.5, 230.0],
+        angle=35.2,
+        confidence=0.94,
+        safe_region_ok=True,
+    )
+    print("\n=== Voice Payload Demo ===")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def run_iflytek_iat_demo(file_path: str) -> None:
+    client = IFlytekIATClient(IFlytekIATConfig.from_env())
+    result = client.transcribe_file(file_path)
+    service = PipelineAppService()
+    payload = service.submit(
+        voice_text=result.text,
+        target_found=True,
+        target_id="part_01",
+        position=[120.5, 230.0],
+        angle=35.2,
+        confidence=0.94,
+        safe_region_ok=True,
+    )
+    print("\n=== IFlytek IAT Text ===")
+    print(json.dumps({"text": result.text, "chunks": result.chunks}, ensure_ascii=False, indent=2))
+    print("\n=== IFlytek IAT Pipeline Result ===")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def run_iflytek_iat_mic_demo(duration_sec: float, device: int | None = None, backend: str | None = None) -> None:
+    client = IFlytekIATClient(IFlytekIATConfig.from_env())
+    print(
+        json.dumps(
+            {
+                "action": "record_microphone",
+                "duration_sec": duration_sec,
+                "device": device,
+                "backend": backend or "auto",
+                "sample_rate": 16000,
+                "channels": 1,
+                "sample_width_bytes": 2,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    result = client.transcribe_microphone(
+        IFlytekMicrophoneConfig(duration_sec=duration_sec, device=device, preferred_backend=backend)
+    )
+    service = PipelineAppService()
+    payload = service.submit(
+        voice_text=result.text,
+        target_found=True,
+        target_id="part_01",
+        position=[120.5, 230.0],
+        angle=35.2,
+        confidence=0.94,
+        safe_region_ok=True,
+    )
+    print("\n=== IFlytek IAT Mic Text ===")
+    print(json.dumps({"text": result.text, "chunks": result.chunks}, ensure_ascii=False, indent=2))
+    print("\n=== IFlytek IAT Mic Pipeline Result ===")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def run_iflytek_list_mics(backend: str | None = None) -> None:
+    client = IFlytekIATClient(IFlytekIATConfig.from_env())
+    devices = client.list_microphone_devices(backend=backend)
+    print("\n=== Microphone Devices ===")
+    print(json.dumps(devices, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI pipeline prototype demo")
     parser.add_argument(
@@ -168,6 +249,17 @@ def main() -> None:
     parser.add_argument("--force-mock-sdk", action="store_true", help="force mock backend instead of vendor sdk")
     parser.add_argument("--hardware-link-demo", action="store_true", help="run hardware link flow only")
     parser.add_argument("--sdk-functions", action="store_true", help="print supported sdk functions and exit")
+    parser.add_argument("--voice-json", help="path to a structured voice JSON file for interface integration demo")
+    parser.add_argument("--iflytek-iat-audio", help="path to a 16k mono pcm file for iFlytek IAT integration demo")
+    parser.add_argument("--iflytek-mic", action="store_true", help="record from microphone and send to iFlytek IAT")
+    parser.add_argument("--list-mics", action="store_true", help="list available microphone input devices")
+    parser.add_argument("--mic-seconds", type=float, default=4.0, help="microphone recording duration in seconds")
+    parser.add_argument("--mic-device", type=int, help="optional microphone device index")
+    parser.add_argument(
+        "--mic-backend",
+        choices=["sounddevice", "pyaudio"],
+        help="preferred microphone backend; defaults to auto detect",
+    )
     args = parser.parse_args()
 
     axes = tuple(int(part.strip()) for part in args.axes.split(",") if part.strip())
@@ -188,6 +280,22 @@ def main() -> None:
 
     if args.hardware_link_demo:
         run_hardware_link_demo(config)
+        return
+
+    if args.voice_json:
+        run_voice_payload_demo(args.voice_json)
+        return
+
+    if args.iflytek_iat_audio:
+        run_iflytek_iat_demo(args.iflytek_iat_audio)
+        return
+
+    if args.list_mics:
+        run_iflytek_list_mics(backend=args.mic_backend)
+        return
+
+    if args.iflytek_mic:
+        run_iflytek_iat_mic_demo(args.mic_seconds, device=args.mic_device, backend=args.mic_backend)
         return
 
     run_pick_and_place_demo(args.mode)
