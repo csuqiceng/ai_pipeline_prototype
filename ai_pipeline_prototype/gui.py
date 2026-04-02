@@ -261,12 +261,6 @@ class PipelineAppUI:
         )
         self.iflytek_use_text_button.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
-        ttk.Separator(action_frame, orient="horizontal").grid(row=2, column=0, columnspan=3, sticky="ew", pady=(12, 12))
-
-        ttk.Button(
-            action_frame, text="执行任务", style="Primary.TButton", command=self.on_execute_voice_result
-        ).grid(row=3, column=0, columnspan=3, sticky="ew")
-
         result_frame = ttk.LabelFrame(parent, text="识别结果", style="Card.TLabelframe", padding=12)
         result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         result_frame.columnconfigure(0, weight=1)
@@ -279,13 +273,13 @@ class PipelineAppUI:
         ttk.Label(status_row, textvariable=self.iat_status_var, style="StatusOK.TLabel").pack(side="left", padx=(8, 0))
 
         ttk.Label(result_frame, text="识别文本:", font=("Microsoft YaHei UI", 9, "bold")).grid(row=1, column=0, sticky="w", pady=(8, 4))
-        self.iflytek_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=("Microsoft YaHei UI", 10))
+        self.iflytek_result_text = scrolledtext.ScrolledText(result_frame, height=3, wrap="word", font=("Microsoft YaHei UI", 10))
         self.iflytek_result_text.grid(row=2, column=0, sticky="nsew")
 
         ttk.Separator(result_frame, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(12, 12))
 
         ttk.Label(result_frame, text="DeepSeek解析结果:", font=("Microsoft YaHei UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(0, 4))
-        self.voice_nlp_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=('Consolas', 9))
+        self.voice_nlp_result_text = scrolledtext.ScrolledText(result_frame, height=10, wrap="word", font=('Consolas', 9))
         self.voice_nlp_result_text.grid(row=5, column=0, sticky="nsew")
         self.voice_nlp_result_text.insert("1.0", "语音指令解析结果将显示在这里...")
         
@@ -296,6 +290,10 @@ class PipelineAppUI:
             text="提示：先列出设备确认设备号，录音 3-5 秒，命令尽量简短明确",
             style="Subtitle.TLabel",
         ).pack(side="left")
+
+        ttk.Button(
+            parent, text="执行任务", style="Primary.TButton", command=self.on_execute_voice_result
+        ).grid(row=4, column=0, sticky="ew")
 
     def _build_right_panel(self, parent: ttk.Frame) -> None:
         control_frame = ttk.Frame(parent)
