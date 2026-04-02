@@ -256,16 +256,16 @@ class PipelineAppUI:
         )
         self.iflytek_audio_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
-        ttk.Separator(action_frame, orient="horizontal").grid(row=1, column=0, columnspan=3, sticky="ew", pady=(12, 12))
-
-        ttk.Button(
-            action_frame, text="执行识别结果", style="Primary.TButton", command=self.on_execute_voice_result
-        ).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 8))
-
         self.iflytek_use_text_button = ttk.Button(
             action_frame, text="采用识别结果 → 任务输入", style="Secondary.TButton", command=self.on_use_iflytek_text
         )
-        self.iflytek_use_text_button.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self.iflytek_use_text_button.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+
+        ttk.Separator(action_frame, orient="horizontal").grid(row=2, column=0, columnspan=3, sticky="ew", pady=(12, 12))
+
+        ttk.Button(
+            action_frame, text="执行识别结果", style="Primary.TButton", command=self.on_execute_voice_result
+        ).grid(row=3, column=0, columnspan=3, sticky="ew")
 
         result_frame = ttk.LabelFrame(parent, text="识别结果", style="Card.TLabelframe", padding=12)
         result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
