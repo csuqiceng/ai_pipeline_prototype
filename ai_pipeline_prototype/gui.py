@@ -47,6 +47,7 @@ class PipelineAppUI:
         
         # 自然语言处理器
         self.use_deepseek_var = tk.BooleanVar(value=False)
+        self.voice_auto_execute_var = tk.BooleanVar(value=False)
         self.nlp_input_var = tk.StringVar(value="移动到第一个位置")
         self.json_input_var = tk.StringVar(value='{"command": "MOVE", "parameters": {"target": "POSITION_1", "speed": 50}, "timestamp": "2026-04-02T12:00:00Z"}')
 
@@ -248,6 +249,9 @@ class PipelineAppUI:
         ).grid(row=1, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
         ttk.Checkbutton(config_frame, text="自动回填到任务输入", variable=self.auto_fill_voice_var).grid(
             row=1, column=2, columnspan=2, sticky="w", pady=(8, 0)
+        )
+        ttk.Checkbutton(config_frame, text="语音识别后自动执行(DeepSeek)", variable=self.voice_auto_execute_var).grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(8, 0)
         )
 
         action_frame = ttk.LabelFrame(parent, text="识别操作", style="Card.TLabelframe", padding=12)
@@ -553,12 +557,30 @@ class PipelineAppUI:
             if recognized and self.auto_fill_voice_var.get():
                 self.voice_var.set(recognized)
             self.result_summary_var.set(f"语音识别完成：{recognized[:50]}{'...' if len(recognized) > 50 else ''}")
+            
+            # 如果开启了自动执行，则自动处理
+            if recognized and self.voice_auto_execute_var.get():
+                try:
+                    self._execute_voice_command(recognized)
+                except Exception as e:
+                    messagebox.showerror("执行失败", f"语音指令执行失败: {str(e)}")
         else:
             error_msg = payload.get("error", "未知错误")
             self._set_iflytek_text(f"识别失败：{error_msg}")
             self.result_summary_var.set(f"语音识别失败：{error_msg}")
         self._render_snapshot(self.service.get_snapshot())
         self._set_text(self.result_text, json.dumps(payload, ensure_ascii=False, indent=2))
+    
+    def _execute_voice_command(self, text: str) -> None:
+        """执行语音识别到的命令"""
+        try:
+            processor = NaturalLanguageProcessor(use_deepseek=self.use_deepseek_var.get())
+            command_json = processor.process_to_json(text)
+            result = self.service.execute_json_command(command_json)
+            self._render_result(result)
+            self.result_summary_var.set(f"语音指令执行完成: {text}")
+        except Exception as e:
+            messagebox.showerror("执行失败", f"指令执行失败: {str(e)}")
 
     def _handle_device_payload(self, payload: dict) -> None:
         if payload.get("ok"):
