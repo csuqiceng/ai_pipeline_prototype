@@ -51,6 +51,7 @@
 - 支持模拟执行模式和 SDK 风格占位模式
 - 支持 JSON 格式指令解析和执行
 - 支持多种指令类型：MOVE、GRASP、RELEASE、HOME、STOP、OFFSET_MOVE、PICK_PLACE 等
+- 支持自然语言指令解析，可将自然语言转换为 JSON 指令
 
 ## 依赖说明
 
@@ -109,6 +110,18 @@ python3 -m ai_pipeline_prototype.demo --json-command
 
 ```bash
 python3 -m ai_pipeline_prototype.json_command_demo
+```
+
+运行自然语言处理演示：
+
+```bash
+python3 -m ai_pipeline_prototype.nlp_demo
+```
+
+运行自然语言处理交互式演示：
+
+```bash
+python3 -m ai_pipeline_prototype.nlp_demo --interactive
 ```
 
 运行 GUI：
