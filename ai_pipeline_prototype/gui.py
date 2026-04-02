@@ -475,7 +475,12 @@ class PipelineAppUI:
     def on_disconnect(self) -> None:
         snapshot = self.service.disconnect_controller()
         self._render_snapshot(snapshot)
-        self._set_text(self.result_text, json.dumps({"action": "disconnect_controller"}, ensure_ascii=False, indent=2))
+        # 显示完整的断开结果
+        result = {
+            "action": "disconnect_controller",
+            "status": snapshot.get("status", {})
+        }
+        self._set_text(self.result_text, json.dumps(result, ensure_ascii=False, indent=2))
 
     def on_iflytek_audio_file(self) -> None:
         if self._iat_busy:
