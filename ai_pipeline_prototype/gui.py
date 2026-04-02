@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from ai_pipeline_prototype.app_service import PipelineAppService
+from ai_pipeline_prototype.natural_language_processor import NaturalLanguageProcessor
 
 
 DEFAULT_VOICE = "抓取左边托盘里的工件放到右边工位"
@@ -43,6 +44,11 @@ class PipelineAppUI:
         self.last_command_var = tk.StringVar(value="无")
         self.result_summary_var = tk.StringVar(value="等待输入任务或语音识别。")
         self._iat_busy = False
+        
+        # 自然语言处理器
+        self.use_deepseek_var = tk.BooleanVar(value=False)
+        self.nlp_input_var = tk.StringVar(value="移动到第一个位置")
+        self.json_input_var = tk.StringVar(value='{"command": "MOVE", "parameters": {"target": "POSITION_1", "speed": 50}, "timestamp": "2026-04-02T12:00:00Z"}')
 
         self._configure_styles()
         self._build_layout()
@@ -123,8 +129,20 @@ class PipelineAppUI:
         voice_tab.rowconfigure(2, weight=1)
         notebook.add(voice_tab, text="  语音识别  ")
 
+        nlp_tab = ttk.Frame(notebook, padding=8)
+        nlp_tab.columnconfigure(0, weight=1)
+        nlp_tab.rowconfigure(2, weight=1)
+        notebook.add(nlp_tab, text="  自然语言  ")
+
+        json_tab = ttk.Frame(notebook, padding=8)
+        json_tab.columnconfigure(0, weight=1)
+        json_tab.rowconfigure(2, weight=1)
+        notebook.add(json_tab, text="  JSON指令  ")
+
         self._build_task_tab(task_tab)
         self._build_voice_tab(voice_tab)
+        self._build_nlp_tab(nlp_tab)
+        self._build_json_tab(json_tab)
 
         action_frame = ttk.Frame(parent)
         action_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -426,6 +444,86 @@ class PipelineAppUI:
         self.voice_var.set("停止作业")
         self._set_iflytek_text("")
 
+    def _build_nlp_tab(self, parent: ttk.Frame) -> None:
+        input_frame = ttk.LabelFrame(parent, text="自然语言输入", style="Card.TLabelframe", padding=12)
+        input_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(input_frame, text="指令文本:", font=('Microsoft YaHei UI', 9, 'bold')).grid(row=0, column=0, sticky="w")
+        ttk.Entry(input_frame, textvariable=self.nlp_input_var, font=('Microsoft YaHei UI', 10)).grid(
+            row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 4)
+        )
+
+        config_frame = ttk.LabelFrame(parent, text="配置", style="Card.TLabelframe", padding=12)
+        config_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Checkbutton(config_frame, text="使用DeepSeek API", variable=self.use_deepseek_var).grid(
+            row=0, column=0, sticky="w", pady=2
+        )
+
+        action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
+        action_frame.grid(row=2, column=0, sticky="ew")
+        action_frame.columnconfigure(0, weight=1)
+
+        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_nlp_submit).grid(
+            row=0, column=0, sticky="ew"
+        )
+
+        example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
+        example_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        example_frame.columnconfigure((0, 1), weight=1)
+
+        ttk.Button(example_frame, text="移动到第一个位置", style="Small.TButton", command=lambda: self.nlp_input_var.set("移动到第一个位置")).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        ttk.Button(example_frame, text="抓取物体A", style="Small.TButton", command=lambda: self.nlp_input_var.set("抓取物体A")).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0)
+        )
+        ttk.Button(example_frame, text="向上移动10毫米", style="Small.TButton", command=lambda: self.nlp_input_var.set("向上移动10毫米")).grid(
+            row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0)
+        )
+        ttk.Button(example_frame, text="回零", style="Small.TButton", command=lambda: self.nlp_input_var.set("回零")).grid(
+            row=1, column=1, sticky="ew", padx=(4, 0), pady=(4, 0)
+        )
+
+    def _build_json_tab(self, parent: ttk.Frame) -> None:
+        input_frame = ttk.LabelFrame(parent, text="JSON指令输入", style="Card.TLabelframe", padding=12)
+        input_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        input_frame.columnconfigure(0, weight=1)
+        input_frame.rowconfigure(0, weight=1)
+
+        json_text = scrolledtext.ScrolledText(input_frame, height=8, wrap="word", font=('Consolas', 9))
+        json_text.grid(row=0, column=0, sticky="nsew")
+        json_text.insert("1.0", self.json_input_var.get())
+        self.json_text_widget = json_text
+
+        action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
+        action_frame.grid(row=1, column=0, sticky="ew")
+        action_frame.columnconfigure((0, 1), weight=1)
+
+        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_json_submit).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        ttk.Button(action_frame, text="加载文件", style="Secondary.TButton", command=self.on_load_json_file).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0)
+        )
+
+        example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
+        example_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        example_frame.columnconfigure((0, 1), weight=1)
+
+        ttk.Button(example_frame, text="MOVE指令", style="Small.TButton", command=lambda: self._load_json_example('move')).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4)
+        )
+        ttk.Button(example_frame, text="HOME指令", style="Small.TButton", command=lambda: self._load_json_example('home')).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0)
+        )
+        ttk.Button(example_frame, text="GRASP指令", style="Small.TButton", command=lambda: self._load_json_example('grasp')).grid(
+            row=1, column=0, sticky="ew", padx=(0, 4), pady=(4, 0)
+        )
+        ttk.Button(example_frame, text="RELEASE指令", style="Small.TButton", command=lambda: self._load_json_example('release')).grid(
+            row=1, column=1, sticky="ew", padx=(4, 0), pady=(4, 0)
+        )
+
     def _build_position(self) -> list[float] | None:
         x = self._parse_float(self.pos_x_var.get())
         y = self._parse_float(self.pos_y_var.get())
@@ -539,6 +637,98 @@ class PipelineAppUI:
         alarm = "ALARM" if status.get("alarm_active") else "NORMAL"
         estop = "E-STOP" if status.get("emergency_stopped") else "READY"
         self.status_lights.configure(text=f"{connected} | {servo} | {alarm} | {estop}")
+
+    def on_nlp_submit(self) -> None:
+        """处理自然语言指令提交"""
+        text = self.nlp_input_var.get().strip()
+        if not text:
+            messagebox.showwarning("输入为空", "请输入自然语言指令")
+            return
+
+        try:
+            processor = NaturalLanguageProcessor(use_deepseek=self.use_deepseek_var.get())
+            command_json = processor.process_to_json(text)
+            result = self.service.execute_json_command(command_json)
+            self._render_result(result)
+            self.result_summary_var.set(f"自然语言指令执行完成: {text}")
+        except Exception as e:
+            messagebox.showerror("执行失败", f"指令执行失败: {str(e)}")
+
+    def on_json_submit(self) -> None:
+        """处理JSON指令提交"""
+        json_text = self.json_text_widget.get("1.0", tk.END).strip()
+        if not json_text:
+            messagebox.showwarning("输入为空", "请输入JSON指令")
+            return
+
+        try:
+            command_data = json.loads(json_text)
+            result = self.service.execute_json_command(command_data)
+            self._render_result(result)
+            self.result_summary_var.set("JSON指令执行完成")
+        except json.JSONDecodeError as e:
+            messagebox.showerror("JSON格式错误", f"JSON格式解析失败: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("执行失败", f"指令执行失败: {str(e)}")
+
+    def on_load_json_file(self) -> None:
+        """加载JSON文件"""
+        file_path = filedialog.askopenfilename(
+            title="选择JSON指令文件",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            self.json_text_widget.delete("1.0", tk.END)
+            self.json_text_widget.insert("1.0", content)
+        except Exception as e:
+            messagebox.showerror("加载失败", f"文件加载失败: {str(e)}")
+
+    def _load_json_example(self, example_type: str) -> None:
+        """加载JSON示例"""
+        examples = {
+            'move': '''{
+  "command": "MOVE",
+  "parameters": {
+    "target": "POSITION_1",
+    "offset": {
+      "x": 100.0,
+      "y": 100.0,
+      "z": 50.0,
+      "rotation": 0.0
+    },
+    "speed": 50,
+    "relative": false
+  },
+  "timestamp": "2026-04-02T12:00:00Z"
+}''',
+            'home': '''{
+  "command": "HOME",
+  "parameters": {},
+  "timestamp": "2026-04-02T12:00:00Z"
+}''',
+            'grasp': '''{
+  "command": "GRASP",
+  "parameters": {
+    "target": "OBJECT_1",
+    "force": 5.0
+  },
+  "timestamp": "2026-04-02T12:00:00Z"
+}''',
+            'release': '''{
+  "command": "RELEASE",
+  "parameters": {},
+  "timestamp": "2026-04-02T12:00:00Z"
+}'''
+        }
+
+        if example_type in examples:
+            self.json_text_widget.delete("1.0", tk.END)
+            self.json_text_widget.insert("1.0", examples[example_type])
 
 
 def smoke_test() -> None:
