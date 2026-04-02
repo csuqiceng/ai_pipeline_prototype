@@ -125,7 +125,13 @@ class PipelineAppUI:
             messagebox.showinfo("配置成功", "控制器配置已应用，请重新连接控制器。")
         except Exception as e:
             # 显示错误信息，但不阻止 GUI 运行
-            messagebox.showerror("配置错误", f"配置应用失败: {str(e)}")
+            error_msg = f"配置应用失败: {str(e)}"
+            print(error_msg)
+            # 使用简单的错误提示，避免可能的 GUI 崩溃
+            try:
+                messagebox.showerror("配置错误", error_msg)
+            except Exception:
+                pass
             # 保持原有的服务不变
 
     def _build_layout(self) -> None:
