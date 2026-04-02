@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
+import argparse
 
 from ai_pipeline_prototype.natural_language_processor import NaturalLanguageProcessor
 from ai_pipeline_prototype.app_service import PipelineAppService
 
 
-def run_nlp_demo() -> None:
+def run_nlp_demo(use_deepseek: bool = False, deepseek_api_key: str | None = None) -> None:
     """演示自然语言处理功能"""
-    processor = NaturalLanguageProcessor()
+    processor = NaturalLanguageProcessor(use_deepseek=use_deepseek, deepseek_api_key=deepseek_api_key)
     service = PipelineAppService()
     
     # 测试用例
@@ -40,9 +41,9 @@ def run_nlp_demo() -> None:
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
-def run_interactive_demo() -> None:
+def run_interactive_demo(use_deepseek: bool = False, deepseek_api_key: str | None = None) -> None:
     """交互式演示自然语言处理功能"""
-    processor = NaturalLanguageProcessor()
+    processor = NaturalLanguageProcessor(use_deepseek=use_deepseek, deepseek_api_key=deepseek_api_key)
     service = PipelineAppService()
     
     print("自然语言控制机械手演示")
@@ -75,16 +76,16 @@ def run_interactive_demo() -> None:
 
 
 def main() -> None:
-    import argparse
-    
     parser = argparse.ArgumentParser(description="自然语言处理演示")
     parser.add_argument("--interactive", action="store_true", help="交互式演示")
+    parser.add_argument("--use-deepseek", action="store_true", help="使用DeepSeek API")
+    parser.add_argument("--deepseek-api-key", default="sk-ad347df4ac314060bdb762193c2dca2c", help="DeepSeek API密钥")
     args = parser.parse_args()
     
     if args.interactive:
-        run_interactive_demo()
+        run_interactive_demo(use_deepseek=args.use_deepseek, deepseek_api_key=args.deepseek_api_key)
     else:
-        run_nlp_demo()
+        run_nlp_demo(use_deepseek=args.use_deepseek, deepseek_api_key=args.deepseek_api_key)
 
 
 if __name__ == "__main__":

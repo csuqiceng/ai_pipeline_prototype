@@ -4,13 +4,14 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from .deepseek_client import DeepSeekClient
 from .json_command import CommandType, JSONCommand, CommandParameters, Offset
 
 
 class NaturalLanguageProcessor:
     """自然语言处理器，负责将自然语言输入转换为JSON指令"""
 
-    def __init__(self):
+    def __init__(self, use_deepseek: bool = False, deepseek_api_key: str | None = None):
         # 定义关键词和模式
         self.command_patterns = {
             CommandType.MOVE: [
@@ -76,10 +77,46 @@ class NaturalLanguageProcessor:
             "中间": "CENTER_POSITION",
             "原点": "HOME"
         }
+        
+        # DeepSeek API 支持
+        self.use_deepseek = use_deepseek
+        self.deepseek_client = DeepSeekClient(deepseek_api_key) if deepseek_api_key else None
 
     def process(self, text: str) -> JSONCommand:
         """处理自然语言输入，返回JSON指令"""
         text = text.strip()
+        
+        # 使用DeepSeek API处理自然语言
+        if self.use_deepseek and self.deepseek_client:
+            try:
+                command_dict = self.deepseek_client.parse_command(text)
+                # 转换为JSONCommand对象
+                command_type = CommandType(command_dict.get("command", "MOVE"))
+                params_data = command_dict.get("parameters", {})
+                
+                # 处理offset
+                offset_data = params_data.get("offset")
+                offset = Offset(**offset_data) if offset_data else None
+                
+                # 处理其他参数
+                parameters = CommandParameters(
+                    target=params_data.get("target"),
+                    offset=offset,
+                    speed=params_data.get("speed", 50),
+                    relative=params_data.get("relative", False),
+                    force=params_data.get("force"),
+                    position=params_data.get("position"),
+                    tasks=params_data.get("tasks")
+                )
+                
+                return JSONCommand(
+                    command=command_type,
+                    parameters=parameters,
+                    timestamp=command_dict.get("timestamp", datetime.now().isoformat())
+                )
+            except Exception as e:
+                # 如果DeepSeek API调用失败，回退到规则匹配
+                print(f"DeepSeek API调用失败，回退到规则匹配: {e}")
         
         # 尝试匹配各种命令模式
         for command_type, patterns in self.command_patterns.items():
