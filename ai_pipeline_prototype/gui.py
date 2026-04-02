@@ -193,7 +193,7 @@ class PipelineAppUI:
         action_frame.grid(row=2, column=0, sticky="ew", pady=(8, 8))
         action_frame.columnconfigure(0, weight=1)
 
-        ttk.Button(action_frame, text="提交任务", style="Primary.TButton", command=self.on_submit).grid(
+        ttk.Button(action_frame, text="执行任务", style="Primary.TButton", command=self.on_submit).grid(
             row=0, column=0, sticky="ew"
         )
 
@@ -507,7 +507,7 @@ class PipelineAppUI:
         action_frame.grid(row=4, column=0, sticky="ew")
         action_frame.columnconfigure(0, weight=1)
 
-        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_nlp_submit).grid(
+        ttk.Button(action_frame, text="执行任务", style="Primary.TButton", command=self.on_nlp_submit).grid(
             row=0, column=0, sticky="ew"
         )
 
@@ -526,7 +526,7 @@ class PipelineAppUI:
         action_frame.grid(row=1, column=0, sticky="ew")
         action_frame.columnconfigure((0, 1), weight=1)
 
-        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_json_submit).grid(
+        ttk.Button(action_frame, text="执行任务", style="Primary.TButton", command=self.on_json_submit).grid(
             row=0, column=0, sticky="ew", padx=(0, 4)
         )
         ttk.Button(action_frame, text="加载文件", style="Secondary.TButton", command=self.on_load_json_file).grid(
