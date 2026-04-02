@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from ai_pipeline_prototype.app_service import PipelineAppService
 from ai_pipeline_prototype.natural_language_processor import NaturalLanguageProcessor
+from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
 
 
 DEFAULT_VOICE = "抓取左边托盘里的工件放到右边工位"
@@ -20,8 +21,7 @@ class PipelineAppUI:
         self.root.geometry("1400x900")
         self.root.minsize(1200, 700)
 
-        self.service = PipelineAppService()
-
+        # 首先初始化所有变量
         self.voice_var = tk.StringVar(value=DEFAULT_VOICE)
         self.target_found_var = tk.BooleanVar(value=True)
         self.target_id_var = tk.StringVar(value="part_01")
@@ -50,6 +50,23 @@ class PipelineAppUI:
         self.voice_auto_execute_var = tk.BooleanVar(value=True)
         self.nlp_input_var = tk.StringVar(value="移动到第一个位置")
         self.json_input_var = tk.StringVar(value='{"command": "MOVE", "parameters": {"target": "POSITION_1", "speed": 50}, "timestamp": "2026-04-02T12:00:00Z"}')
+        
+        # 控制器配置
+        self.force_mock_var = tk.BooleanVar(value=True)  # 默认勾选使用模拟控制器，与默认服务保持一致
+        self.controller_host_var = tk.StringVar(value="127.0.0.1")
+        self.controller_port_var = tk.StringVar(value="5000")
+        self.connection_type_var = tk.StringVar(value="eth")
+        self.com_port_var = tk.StringVar(value="0")
+        self.pci_card_var = tk.StringVar(value="0")
+        self.axes_var = tk.StringVar(value="0,1,2")
+        self.homing_mode_var = tk.StringVar(value="0")
+        self.stop_mode_var = tk.StringVar(value="3")
+        
+        # 首先创建一个默认的模拟服务，确保GUI能够正常启动
+        from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+        config = MotionSDKConfig(force_mock=True)
+        self.service = PipelineAppService(config)
+        print("GUI启动，使用默认模拟服务")
 
         self._configure_styles()
         self._build_layout()
@@ -72,6 +89,52 @@ class PipelineAppUI:
         style.configure("Primary.TButton", padding=(16, 8), font=("Microsoft YaHei UI", 10, "bold"))
         style.configure("Secondary.TButton", padding=(12, 6))
         style.configure("Small.TButton", padding=(8, 4))
+    
+    def _reinitialize_service(self) -> None:
+        """重新初始化服务，应用新的控制器配置"""
+        try:
+            axes_str = self.axes_var.get().strip()
+            axes = tuple(int(x.strip()) for x in axes_str.split(","))
+            
+            config = MotionSDKConfig(
+                host=self.controller_host_var.get().strip(),
+                port=int(self.controller_port_var.get().strip()),
+                connection_type=self.connection_type_var.get().strip(),
+                com_port=int(self.com_port_var.get().strip()),
+                pci_card=int(self.pci_card_var.get().strip()),
+                axes=axes,
+                homing_mode=int(self.homing_mode_var.get().strip()),
+                stop_mode=int(self.stop_mode_var.get().strip()),
+                force_mock=self.force_mock_var.get(),
+            )
+            
+            # 测试连接，如果失败且不是模拟模式，会抛出异常
+            temp_service = PipelineAppService(config)
+            # 尝试连接以验证配置
+            if not config.force_mock:
+                temp_service.connect_controller()
+            
+            # 配置验证成功，使用新服务
+            self.service = temp_service
+            self._render_snapshot(self.service.get_snapshot())
+            messagebox.showinfo("配置成功", "控制器配置已应用，请重新连接控制器。")
+        except Exception as e:
+            # 显示错误信息，但不阻止 GUI 运行
+            error_msg = f"配置应用失败: {str(e)}"
+            print(error_msg)
+            # 使用简单的错误提示，避免可能的 GUI 崩溃
+            try:
+                messagebox.showerror("配置错误", error_msg)
+            except Exception:
+                pass
+            # 更新控制器状态为未连接
+            self.connected_var.set("未连接")
+            self.servo_var.set("伺服关闭")
+            self.alarm_var.set("有报警")
+            self.estop_var.set("可运行")
+            self.pose_var.set("0.0, 0.0, 0.0")
+            self.last_command_var.set("无")
+            # 保持原有的服务不变
 
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -296,19 +359,69 @@ class PipelineAppUI:
         ).grid(row=4, column=0, sticky="ew")
 
     def _build_right_panel(self, parent: ttk.Frame) -> None:
+        # 控制器配置
+        config_frame = ttk.LabelFrame(parent, text="控制器配置", style="Card.TLabelframe", padding=12)
+        config_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        config_frame.columnconfigure(1, weight=1)
+        config_frame.columnconfigure(3, weight=1)
+        
+        row = 0
+        ttk.Checkbutton(config_frame, text="使用模拟控制器 (开发测试用)", variable=self.force_mock_var).grid(
+            row=row, column=0, columnspan=4, sticky="w", pady=2
+        )
+        ttk.Label(config_frame, text="提示: 使用真实控制器请取消勾选此选项", style="Subtitle.TLabel").grid(
+            row=row+1, column=0, columnspan=4, sticky="w", pady=2
+        )
+        
+        row += 2
+        ttk.Label(config_frame, text="连接方式:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        connection_combo = ttk.Combobox(
+            config_frame,
+            textvariable=self.connection_type_var,
+            values=["eth", "com", "pci", "fast"],
+            state="readonly",
+            width=8,
+        )
+        connection_combo.grid(row=row, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
+        
+        ttk.Label(config_frame, text="主机IP:").grid(row=row, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.controller_host_var, width=12).grid(row=row, column=3, sticky="ew", pady=(8, 0))
+        
+        row += 1
+        ttk.Label(config_frame, text="端口:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.controller_port_var, width=8).grid(row=row, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
+        
+        ttk.Label(config_frame, text="串口/PCI号:").grid(row=row, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.com_port_var, width=8).grid(row=row, column=3, sticky="w", pady=(8, 0))
+        
+        row += 1
+        ttk.Label(config_frame, text="运动轴:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.axes_var, width=12).grid(row=row, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
+        
+        ttk.Label(config_frame, text="回零模式:").grid(row=row, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.homing_mode_var, width=8).grid(row=row, column=3, sticky="w", pady=(8, 0))
+        
+        row += 1
+        ttk.Label(config_frame, text="停止模式:").grid(row=row, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(config_frame, textvariable=self.stop_mode_var, width=8).grid(row=row, column=1, sticky="w", padx=(4, 16), pady=(8, 0))
+        
+        ttk.Button(config_frame, text="应用配置", style="Secondary.TButton", command=self._reinitialize_service).grid(
+            row=row, column=2, columnspan=2, sticky="ew", pady=(8, 0)
+        )
+        
+        # 控制按钮
         control_frame = ttk.Frame(parent)
-        control_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        control_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         control_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(control_frame, text="控制器连接:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left")
-        ttk.Button(control_frame, text="连接", style="Primary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4))
-        ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4)
-        
-        ttk.Button(control_frame, text="注入报警", style="Secondary.TButton", command=self.on_inject_alarm).pack(side="left", padx=4)
-        ttk.Button(control_frame, text="清除报警", style="Secondary.TButton", command=self.on_clear_alarm).pack(side="left", padx=4)
+        ttk.Label(control_frame, text="控制器连接:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left", fill="y", padx=4)
+        ttk.Button(control_frame, text="连接", style="Secondary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4), fill="y", ipady=4)
+        ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4, fill="y", ipady=4)
+        ttk.Button(control_frame, text="注入报警", style="Secondary.TButton", command=self.on_inject_alarm).pack(side="left", padx=4, fill="y", ipady=4)
+        ttk.Button(control_frame, text="清除报警", style="Secondary.TButton", command=self.on_clear_alarm).pack(side="left", padx=4, fill="y", ipady=4)
 
         status_card = ttk.LabelFrame(parent, text="状态概览", style="Card.TLabelframe", padding=12)
-        status_card.grid(row=1, column=0, sticky="nsew")
+        status_card.grid(row=2, column=0, sticky="nsew")
         status_card.columnconfigure(0, weight=1)
         status_card.rowconfigure(2, weight=1)
 
@@ -379,12 +492,23 @@ class PipelineAppUI:
     def on_connect(self) -> None:
         snapshot = self.service.connect_controller()
         self._render_snapshot(snapshot)
-        self._set_text(self.result_text, json.dumps({"action": "connect_controller"}, ensure_ascii=False, indent=2))
+        # 显示完整的连接结果，包括后端类型
+        result = {
+            "action": "connect_controller",
+            "status": snapshot.get("status", {}),
+            "backend": self.service.client.backend_name
+        }
+        self._set_text(self.result_text, json.dumps(result, ensure_ascii=False, indent=2))
 
     def on_disconnect(self) -> None:
         snapshot = self.service.disconnect_controller()
         self._render_snapshot(snapshot)
-        self._set_text(self.result_text, json.dumps({"action": "disconnect_controller"}, ensure_ascii=False, indent=2))
+        # 显示完整的断开结果
+        result = {
+            "action": "disconnect_controller",
+            "status": snapshot.get("status", {})
+        }
+        self._set_text(self.result_text, json.dumps(result, ensure_ascii=False, indent=2))
 
     def on_iflytek_audio_file(self) -> None:
         if self._iat_busy:
@@ -784,7 +908,10 @@ class PipelineAppUI:
 
 
 def smoke_test() -> None:
-    service = PipelineAppService()
+    from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+    # 使用 force_mock=True 确保 smoke test 能通过
+    config = MotionSDKConfig(force_mock=True)
+    service = PipelineAppService(config)
     payload = service.submit(
         voice_text=DEFAULT_VOICE,
         target_found=True,

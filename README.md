@@ -187,7 +187,105 @@ python3 -m ai_pipeline_prototype.gui --smoke-test
 - 真实语音输入接入
 - 异常处理与安全联动完善
 
-## 下一步重点
+## 连接真实控制器
+
+### 前提条件
+
+1. **硬件环境**
+   - ZMC406 控制器硬件
+   - 控制器已连接到网络或串口
+   - Windows 操作系统（SDK 是 Windows DLL）
+
+2. **软件环境**
+   - Python 3.10+ 官方发行版（自带 tkinter）
+   - 项目根目录下的 `Windows Python（64位）` 文件夹完整
+
+### 连接方式
+
+项目支持多种连接方式，具体参数在 [MotionSDKConfig](file:///workspace/ai_pipeline_prototype/sdk_adapter.py#L26-L44) 中配置。
+
+#### 1. 以太网连接（推荐）
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --host 控制器IP
+```
+
+#### 2. 串口连接
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --connection-type com --com-port 3
+```
+
+#### 3. PCI 连接
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --connection-type pci --pci-card 0
+```
+
+#### 4. 快速连接
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --connection-type fast --host 控制器IP
+```
+
+### 自定义配置参数
+
+#### 配置运动轴
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --axes 0,1,2
+```
+
+#### 配置回零模式
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --homing-mode 0
+```
+
+#### 配置停止模式
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --stop-mode 3
+```
+
+#### 组合配置示例
+```bash
+python -m ai_pipeline_prototype.demo --hardware-link-demo --host 192.168.1.100 --axes 0,1,2 --homing-mode 0 --stop-mode 3
+```
+
+### GUI 使用
+
+1. 在 Windows 环境中启动 GUI：
+```bash
+python -m ai_pipeline_prototype.gui
+```
+
+2. 在 GUI 中点击"连接"按钮连接真实控制器
+3. 连接成功后，状态栏会显示连接状态
+
+### 验证连接
+
+运行以下命令验证 SDK 功能：
+```bash
+python -m ai_pipeline_prototype.demo --sdk-functions
+```
+
+### 输出判断
+
+- **`backend=vendor`**：说明成功使用真实 SDK，没有回退错误
+- **`fallback_error=...`**：DLL 已加载但控制器连接失败，已自动降级到 mock
+- **`backend=mock`**：使用模拟后端，没有加载真实 SDK
+
+### 常见问题
+
+1. **DLL 加载失败**
+   - 确认在 Windows 环境中运行
+   - 确认 `Windows Python（64位）` 文件夹完整
+   - 确认文件夹路径正确
+
+2. **控制器连接失败**
+   - 确认控制器已通电并连接到网络/串口
+   - 确认 IP 地址或 COM 端口正确
+   - 确认网络连接正常（以太网方式）
+
+3. **自动降级到 mock**
+   - 检查控制器连接是否正常
+   - 检查连接参数配置是否正确
+
+### 下一步重点
 
 最优先的工作是把 `ai_pipeline_prototype/sdk_adapter.py` 从占位实现升级为真实 Motion SDK 适配层。
 

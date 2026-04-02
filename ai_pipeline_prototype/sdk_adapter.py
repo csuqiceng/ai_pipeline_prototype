@@ -285,7 +285,8 @@ class MotionSDKClient:
             self._backend.connect()
             self.last_error = None
         except MotionSDKError as exc:
-            if self.backend_name == "vendor" and not self.config.force_mock:
+            # 只有当 force_mock=True 时才回退到模拟模式
+            if self.config.force_mock:
                 self.last_error = str(exc)
                 self._backend = _MockZMotionBackend(self.config)
                 self.backend_name = "mock"
@@ -388,9 +389,13 @@ class MotionSDKClient:
             backend = _VendorZMotionBackend(self.config)
             self.backend_name = "vendor"
             return backend
-        except Exception:
-            self.backend_name = "mock"
-            return _MockZMotionBackend(self.config)
+        except Exception as e:
+            # 只有当 force_mock=True 时才回退到模拟模式
+            if self.config.force_mock:
+                self.backend_name = "mock"
+                return _MockZMotionBackend(self.config)
+            else:
+                raise MotionSDKError(f"无法加载真实控制器后端: {str(e)}")
 
     def _format_command(self, action: str, **fields: Any) -> str:
         joined = ", ".join(f"{key}={value}" for key, value in fields.items())
