@@ -515,7 +515,7 @@ class PipelineAppUI:
         input_frame.columnconfigure(0, weight=1)
         input_frame.rowconfigure(0, weight=1)
 
-        json_text = scrolledtext.ScrolledText(input_frame, height=8, wrap="word", font=('Consolas', 9))
+        json_text = scrolledtext.ScrolledText(input_frame, height=16, wrap="word", font=('Consolas', 9))
         json_text.grid(row=0, column=0, sticky="nsew")
         json_text.insert("1.0", self.json_input_var.get())
         self.json_text_widget = json_text
