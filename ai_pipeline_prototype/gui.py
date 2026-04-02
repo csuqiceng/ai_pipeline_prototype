@@ -479,7 +479,7 @@ class PipelineAppUI:
         result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
         result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         result_frame.columnconfigure(0, weight=1)
-        result_frame.rowconfigure(0, weight=1)
+        result_frame.rowconfigure(1, weight=1)
 
         ttk.Label(result_frame, text="DeepSeek解析结果:", font=('Microsoft YaHei UI', 9, 'bold')).grid(row=0, column=0, sticky="w", pady=(0, 4))
         self.nlp_result_text = scrolledtext.ScrolledText(result_frame, height=5, wrap="word", font=('Consolas', 9))
