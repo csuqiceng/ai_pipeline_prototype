@@ -62,16 +62,11 @@ class PipelineAppUI:
         self.homing_mode_var = tk.StringVar(value="0")
         self.stop_mode_var = tk.StringVar(value="3")
         
-        # 初始化服务，处理控制器连接失败的情况
-        try:
-            # 首先尝试使用用户配置（默认 force_mock=False）
-            self._reinitialize_service()
-        except Exception as e:
-            # 如果失败，使用模拟模式
-            from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
-            config = MotionSDKConfig(force_mock=True)
-            self.service = PipelineAppService(config)
-            print(f"控制器初始化失败，使用模拟模式: {str(e)}")
+        # 首先创建一个默认的模拟服务，确保GUI能够正常启动
+        from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+        config = MotionSDKConfig(force_mock=True)
+        self.service = PipelineAppService(config)
+        print("GUI启动，使用默认模拟服务")
 
         self._configure_styles()
         self._build_layout()
