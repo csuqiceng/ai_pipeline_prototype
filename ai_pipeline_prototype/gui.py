@@ -476,16 +476,8 @@ class PipelineAppUI:
             row=0, column=0, sticky="w", pady=2
         )
 
-        action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
-        action_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
-        action_frame.columnconfigure(0, weight=1)
-
-        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_nlp_submit).grid(
-            row=0, column=0, sticky="ew"
-        )
-
         result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
-        result_frame.grid(row=3, column=0, sticky="nsew", pady=(0, 8))
+        result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(0, weight=1)
 
@@ -495,7 +487,7 @@ class PipelineAppUI:
         self.nlp_result_text.insert("1.0", "解析结果将显示在这里...")
         
         example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
-        example_frame.grid(row=4, column=0, sticky="ew")
+        example_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         example_frame.columnconfigure((0, 1), weight=1)
 
         ttk.Button(example_frame, text="移动到第一个位置", style="Small.TButton", command=lambda: self.nlp_input_var.set("移动到第一个位置")).grid(
@@ -509,6 +501,14 @@ class PipelineAppUI:
         )
         ttk.Button(example_frame, text="回零", style="Small.TButton", command=lambda: self.nlp_input_var.set("回零")).grid(
             row=1, column=1, sticky="ew", padx=(4, 0), pady=(4, 0)
+        )
+
+        action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
+        action_frame.grid(row=4, column=0, sticky="ew")
+        action_frame.columnconfigure(0, weight=1)
+
+        ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_nlp_submit).grid(
+            row=0, column=0, sticky="ew"
         )
 
     def _build_json_tab(self, parent: ttk.Frame) -> None:
