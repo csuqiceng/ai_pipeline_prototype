@@ -362,8 +362,11 @@ class PipelineAppUI:
         ttk.Checkbutton(config_frame, text="使用模拟控制器 (开发测试用)", variable=self.force_mock_var).grid(
             row=row, column=0, columnspan=4, sticky="w", pady=2
         )
+        ttk.Label(config_frame, text="提示: 使用真实控制器请取消勾选此选项", style="Subtitle.TLabel").grid(
+            row=row+1, column=0, columnspan=4, sticky="w", pady=2
+        )
         
-        row += 1
+        row += 2
         ttk.Label(config_frame, text="连接方式:").grid(row=row, column=0, sticky="w", pady=(8, 0))
         connection_combo = ttk.Combobox(
             config_frame,
