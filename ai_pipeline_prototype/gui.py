@@ -464,7 +464,13 @@ class PipelineAppUI:
     def on_connect(self) -> None:
         snapshot = self.service.connect_controller()
         self._render_snapshot(snapshot)
-        self._set_text(self.result_text, json.dumps({"action": "connect_controller"}, ensure_ascii=False, indent=2))
+        # 显示完整的连接结果，包括后端类型
+        result = {
+            "action": "connect_controller",
+            "status": snapshot.get("status", {}),
+            "backend": self.service.client.backend_name
+        }
+        self._set_text(self.result_text, json.dumps(result, ensure_ascii=False, indent=2))
 
     def on_disconnect(self) -> None:
         snapshot = self.service.disconnect_controller()
