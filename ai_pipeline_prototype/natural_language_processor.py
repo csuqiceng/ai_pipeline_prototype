@@ -80,7 +80,7 @@ class NaturalLanguageProcessor:
         
         # DeepSeek API 支持
         self.use_deepseek = use_deepseek
-        self.deepseek_client = DeepSeekClient(deepseek_api_key) if deepseek_api_key else None
+        self.deepseek_client = DeepSeekClient() if use_deepseek else None
 
     def process(self, text: str) -> JSONCommand:
         """处理自然语言输入，返回JSON指令"""

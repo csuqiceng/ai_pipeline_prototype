@@ -5,13 +5,20 @@ import os
 from typing import Any, Dict, Optional
 
 import requests
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 
 class DeepSeekClient:
     """DeepSeek API客户端"""
 
-    def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com/v1/chat/completions"):
-        self.api_key = api_key
+    def __init__(self, api_key: str | None = None, base_url: str = "https://api.deepseek.com/v1/chat/completions"):
+        # 优先使用传入的 api_key，如果没有则从环境变量中读取
+        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not self.api_key:
+            raise ValueError("DeepSeek API key is required. Please set it in .env file or pass it as a parameter.")
         self.base_url = base_url
 
     def generate(self, prompt: str, model: str = "deepseek-chat") -> str:
