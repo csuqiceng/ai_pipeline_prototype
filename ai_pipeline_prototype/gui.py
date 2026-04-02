@@ -52,7 +52,7 @@ class PipelineAppUI:
         self.json_input_var = tk.StringVar(value='{"command": "MOVE", "parameters": {"target": "POSITION_1", "speed": 50}, "timestamp": "2026-04-02T12:00:00Z"}')
         
         # 控制器配置
-        self.force_mock_var = tk.BooleanVar(value=False)
+        self.force_mock_var = tk.BooleanVar(value=True)  # 默认勾选使用模拟控制器，与默认服务保持一致
         self.controller_host_var = tk.StringVar(value="127.0.0.1")
         self.controller_port_var = tk.StringVar(value="5000")
         self.connection_type_var = tk.StringVar(value="eth")
