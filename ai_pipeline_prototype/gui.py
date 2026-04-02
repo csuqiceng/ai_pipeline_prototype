@@ -264,7 +264,7 @@ class PipelineAppUI:
         ttk.Separator(action_frame, orient="horizontal").grid(row=2, column=0, columnspan=3, sticky="ew", pady=(12, 12))
 
         ttk.Button(
-            action_frame, text="执行识别结果", style="Primary.TButton", command=self.on_execute_voice_result
+            action_frame, text="执行任务", style="Primary.TButton", command=self.on_execute_voice_result
         ).grid(row=3, column=0, columnspan=3, sticky="ew")
 
         result_frame = ttk.LabelFrame(parent, text="识别结果", style="Card.TLabelframe", padding=12)
