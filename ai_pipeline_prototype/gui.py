@@ -127,6 +127,13 @@ class PipelineAppUI:
                 messagebox.showerror("配置错误", error_msg)
             except Exception:
                 pass
+            # 更新控制器状态为未连接
+            self.connected_var.set("未连接")
+            self.servo_var.set("伺服关闭")
+            self.alarm_var.set("有报警")
+            self.estop_var.set("可运行")
+            self.pose_var.set("0.0, 0.0, 0.0")
+            self.last_command_var.set("无")
             # 保持原有的服务不变
 
     def _build_layout(self) -> None:
