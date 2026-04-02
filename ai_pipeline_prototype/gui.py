@@ -21,17 +21,7 @@ class PipelineAppUI:
         self.root.geometry("1400x900")
         self.root.minsize(1200, 700)
 
-        # 初始化服务，处理控制器连接失败的情况
-        try:
-            # 首先尝试使用用户配置（默认 force_mock=False）
-            self._reinitialize_service()
-        except Exception as e:
-            # 如果失败，使用模拟模式
-            from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
-            config = MotionSDKConfig(force_mock=True)
-            self.service = PipelineAppService(config)
-            print(f"控制器初始化失败，使用模拟模式: {str(e)}")
-
+        # 首先初始化所有变量
         self.voice_var = tk.StringVar(value=DEFAULT_VOICE)
         self.target_found_var = tk.BooleanVar(value=True)
         self.target_id_var = tk.StringVar(value="part_01")
@@ -72,9 +62,19 @@ class PipelineAppUI:
         self.homing_mode_var = tk.StringVar(value="0")
         self.stop_mode_var = tk.StringVar(value="3")
         
+        # 初始化服务，处理控制器连接失败的情况
+        try:
+            # 首先尝试使用用户配置（默认 force_mock=False）
+            self._reinitialize_service()
+        except Exception as e:
+            # 如果失败，使用模拟模式
+            from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+            config = MotionSDKConfig(force_mock=True)
+            self.service = PipelineAppService(config)
+            print(f"控制器初始化失败，使用模拟模式: {str(e)}")
+
         self._configure_styles()
         self._build_layout()
-        self._reinitialize_service()
         self._render_snapshot(self.service.get_snapshot())
 
     def _configure_styles(self) -> None:
