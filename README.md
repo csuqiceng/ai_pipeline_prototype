@@ -49,6 +49,8 @@
 - 支持控制器服务层状态与报警管理
 - 支持 GUI 演示
 - 支持模拟执行模式和 SDK 风格占位模式
+- 支持 JSON 格式指令解析和执行
+- 支持多种指令类型：MOVE、GRASP、RELEASE、HOME、STOP、OFFSET_MOVE、PICK_PLACE 等
 
 ## 依赖说明
 
@@ -95,6 +97,18 @@ python3 -m ai_pipeline_prototype.demo
 
 ```bash
 python3 -m ai_pipeline_prototype.demo --mode sdk
+```
+
+运行 JSON 指令演示：
+
+```bash
+python3 -m ai_pipeline_prototype.demo --json-command
+```
+
+运行 JSON 指令完整演示：
+
+```bash
+python3 -m ai_pipeline_prototype.json_command_demo
 ```
 
 运行 GUI：
