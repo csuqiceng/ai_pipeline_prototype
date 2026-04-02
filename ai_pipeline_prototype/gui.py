@@ -256,10 +256,16 @@ class PipelineAppUI:
         )
         self.iflytek_audio_button.grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
+        ttk.Separator(action_frame, orient="horizontal").grid(row=1, column=0, columnspan=3, sticky="ew", pady=(12, 12))
+
+        ttk.Button(
+            action_frame, text="执行识别结果", style="Primary.TButton", command=self.on_execute_voice_result
+        ).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+
         self.iflytek_use_text_button = ttk.Button(
             action_frame, text="采用识别结果 → 任务输入", style="Secondary.TButton", command=self.on_use_iflytek_text
         )
-        self.iflytek_use_text_button.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self.iflytek_use_text_button.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
         result_frame = ttk.LabelFrame(parent, text="识别结果", style="Card.TLabelframe", padding=12)
         result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
@@ -427,6 +433,18 @@ class PipelineAppUI:
             messagebox.showwarning("没有识别结果", "请先进行一次音频或麦克风识别。")
             return
         self.voice_var.set(recognized)
+
+    def on_execute_voice_result(self) -> None:
+        """手动执行识别结果"""
+        recognized = self._get_iflytek_text()
+        if not recognized:
+            messagebox.showwarning("没有识别结果", "请先进行一次音频或麦克风识别。")
+            return
+        
+        try:
+            self._execute_voice_command(recognized)
+        except Exception as e:
+            messagebox.showerror("执行失败", f"语音指令执行失败: {str(e)}")
 
     def use_pick_example(self) -> None:
         self.voice_var.set(DEFAULT_VOICE)
