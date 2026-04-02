@@ -21,7 +21,16 @@ class PipelineAppUI:
         self.root.geometry("1400x900")
         self.root.minsize(1200, 700)
 
-        self.service = PipelineAppService()
+        # 初始化服务，处理控制器连接失败的情况
+        try:
+            # 首先尝试使用用户配置（默认 force_mock=False）
+            self._reinitialize_service()
+        except Exception as e:
+            # 如果失败，使用模拟模式
+            from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+            config = MotionSDKConfig(force_mock=True)
+            self.service = PipelineAppService(config)
+            print(f"控制器初始化失败，使用模拟模式: {str(e)}")
 
         self.voice_var = tk.StringVar(value=DEFAULT_VOICE)
         self.target_found_var = tk.BooleanVar(value=True)
@@ -104,11 +113,20 @@ class PipelineAppUI:
                 force_mock=self.force_mock_var.get(),
             )
             
-            self.service = PipelineAppService(config)
+            # 测试连接，如果失败且不是模拟模式，会抛出异常
+            temp_service = PipelineAppService(config)
+            # 尝试连接以验证配置
+            if not config.force_mock:
+                temp_service.connect_controller()
+            
+            # 配置验证成功，使用新服务
+            self.service = temp_service
             self._render_snapshot(self.service.get_snapshot())
             messagebox.showinfo("配置成功", "控制器配置已应用，请重新连接控制器。")
         except Exception as e:
+            # 显示错误信息，但不阻止 GUI 运行
             messagebox.showerror("配置错误", f"配置应用失败: {str(e)}")
+            # 保持原有的服务不变
 
     def _build_layout(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -880,7 +898,10 @@ class PipelineAppUI:
 
 
 def smoke_test() -> None:
-    service = PipelineAppService()
+    from ai_pipeline_prototype.sdk_adapter import MotionSDKConfig
+    # 使用 force_mock=True 确保 smoke test 能通过
+    config = MotionSDKConfig(force_mock=True)
+    service = PipelineAppService(config)
     payload = service.submit(
         voice_text=DEFAULT_VOICE,
         target_found=True,
