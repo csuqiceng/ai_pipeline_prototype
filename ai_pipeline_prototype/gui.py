@@ -292,8 +292,17 @@ class PipelineAppUI:
         self.iflytek_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=("Microsoft YaHei UI", 10))
         self.iflytek_result_text.grid(row=2, column=0, sticky="nsew")
 
+        result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
+        result_frame.grid(row=3, column=0, sticky="nsew", pady=(8, 8))
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.rowconfigure(0, weight=1)
+
+        self.voice_nlp_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=('Consolas', 9))
+        self.voice_nlp_result_text.grid(row=0, column=0, sticky="nsew")
+        self.voice_nlp_result_text.insert("1.0", "语音指令解析结果将显示在这里...")
+        
         tips_frame = ttk.Frame(parent)
-        tips_frame.grid(row=3, column=0, sticky="ew")
+        tips_frame.grid(row=4, column=0, sticky="ew")
         ttk.Label(
             tips_frame,
             text="提示：先列出设备确认设备号，录音 3-5 秒，命令尽量简短明确",
@@ -472,8 +481,17 @@ class PipelineAppUI:
             row=0, column=0, sticky="ew"
         )
 
+        result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
+        result_frame.grid(row=3, column=0, sticky="nsew", pady=(8, 8))
+        result_frame.columnconfigure(0, weight=1)
+        result_frame.rowconfigure(0, weight=1)
+
+        self.nlp_result_text = scrolledtext.ScrolledText(result_frame, height=8, wrap="word", font=('Consolas', 9))
+        self.nlp_result_text.grid(row=0, column=0, sticky="nsew")
+        self.nlp_result_text.insert("1.0", "解析结果将显示在这里...")
+        
         example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
-        example_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        example_frame.grid(row=4, column=0, sticky="ew")
         example_frame.columnconfigure((0, 1), weight=1)
 
         ttk.Button(example_frame, text="移动到第一个位置", style="Small.TButton", command=lambda: self.nlp_input_var.set("移动到第一个位置")).grid(
@@ -576,6 +594,11 @@ class PipelineAppUI:
         try:
             processor = NaturalLanguageProcessor(use_deepseek=self.use_deepseek_var.get())
             command_json = processor.process_to_json(text)
+            
+            # 显示解析结果
+            self.voice_nlp_result_text.delete("1.0", tk.END)
+            self.voice_nlp_result_text.insert("1.0", json.dumps(command_json, ensure_ascii=False, indent=2))
+            
             result = self.service.execute_json_command(command_json)
             self._render_result(result)
             self.result_summary_var.set(f"语音指令执行完成: {text}")
@@ -670,6 +693,11 @@ class PipelineAppUI:
         try:
             processor = NaturalLanguageProcessor(use_deepseek=self.use_deepseek_var.get())
             command_json = processor.process_to_json(text)
+            
+            # 显示解析结果
+            self.nlp_result_text.delete("1.0", tk.END)
+            self.nlp_result_text.insert("1.0", json.dumps(command_json, ensure_ascii=False, indent=2))
+            
             result = self.service.execute_json_command(command_json)
             self._render_result(result)
             self.result_summary_var.set(f"自然语言指令执行完成: {text}")
