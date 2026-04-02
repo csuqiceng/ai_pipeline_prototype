@@ -145,31 +145,6 @@ class PipelineAppUI:
         self._build_nlp_tab(nlp_tab)
         self._build_json_tab(json_tab)
 
-        action_frame = ttk.Frame(parent)
-        action_frame.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        action_frame.columnconfigure((0, 1, 2), weight=1)
-
-        ttk.Button(
-            action_frame,
-            text="提交任务",
-            style="Primary.TButton",
-            command=self.on_submit,
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-
-        ttk.Button(
-            action_frame,
-            text="注入报警",
-            style="Secondary.TButton",
-            command=self.on_inject_alarm,
-        ).grid(row=0, column=1, sticky="ew", padx=4)
-
-        ttk.Button(
-            action_frame,
-            text="清除报警",
-            style="Secondary.TButton",
-            command=self.on_clear_alarm,
-        ).grid(row=0, column=2, sticky="ew", padx=(4, 0))
-
     def _build_task_tab(self, parent: ttk.Frame) -> None:
         input_frame = ttk.LabelFrame(parent, text="任务输入", style="Card.TLabelframe", padding=12)
         input_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
@@ -214,8 +189,16 @@ class PipelineAppUI:
         ttk.Label(vision_frame, text="置信度:").grid(row=row, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(vision_frame, textvariable=self.confidence_var, width=12).grid(row=row, column=1, sticky="ew", padx=(4, 16), pady=(8, 0))
 
+        action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
+        action_frame.grid(row=2, column=0, sticky="ew", pady=(8, 8))
+        action_frame.columnconfigure(0, weight=1)
+
+        ttk.Button(action_frame, text="提交任务", style="Primary.TButton", command=self.on_submit).grid(
+            row=0, column=0, sticky="ew"
+        )
+
         example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
-        example_frame.grid(row=2, column=0, sticky="ew")
+        example_frame.grid(row=3, column=0, sticky="ew")
         example_frame.columnconfigure((0, 1, 2), weight=1)
 
         ttk.Button(example_frame, text="抓取放置", style="Small.TButton", command=self.use_pick_example).grid(
@@ -311,11 +294,14 @@ class PipelineAppUI:
     def _build_right_panel(self, parent: ttk.Frame) -> None:
         control_frame = ttk.Frame(parent)
         control_frame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        control_frame.columnconfigure(1, weight=1)
+        control_frame.columnconfigure(0, weight=1)
 
         ttk.Label(control_frame, text="控制器连接:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left")
         ttk.Button(control_frame, text="连接", style="Primary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4))
         ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4)
+        
+        ttk.Button(control_frame, text="注入报警", style="Secondary.TButton", command=self.on_inject_alarm).pack(side="left", padx=4)
+        ttk.Button(control_frame, text="清除报警", style="Secondary.TButton", command=self.on_clear_alarm).pack(side="left", padx=4)
 
         status_card = ttk.LabelFrame(parent, text="状态概览", style="Card.TLabelframe", padding=12)
         status_card.grid(row=1, column=0, sticky="nsew")
