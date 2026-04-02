@@ -330,8 +330,8 @@ class PipelineAppUI:
         notebook = ttk.Notebook(status_card)
         notebook.grid(row=2, column=0, sticky="nsew")
 
-        self.status_text = self._build_text_tab(notebook, "  控制器状态  ")
         self.result_text = self._build_text_tab(notebook, "  执行结果  ")
+        self.status_text = self._build_text_tab(notebook, "  控制器状态  ")
         self.alarm_text = self._build_text_tab(notebook, "  报警记录  ")
         self.command_text = self._build_text_tab(notebook, "  命令历史  ")
         self.task_text = self._build_text_tab(notebook, "  任务历史  ")
