@@ -282,6 +282,7 @@ class PipelineAppUI:
         result_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(2, weight=1)
+        result_frame.rowconfigure(4, weight=1)
 
         status_row = ttk.Frame(result_frame)
         status_row.grid(row=0, column=0, sticky="ew")
@@ -292,17 +293,15 @@ class PipelineAppUI:
         self.iflytek_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=("Microsoft YaHei UI", 10))
         self.iflytek_result_text.grid(row=2, column=0, sticky="nsew")
 
-        result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
-        result_frame.grid(row=3, column=0, sticky="nsew", pady=(8, 8))
-        result_frame.columnconfigure(0, weight=1)
-        result_frame.rowconfigure(0, weight=1)
+        ttk.Separator(result_frame, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(12, 12))
 
+        ttk.Label(result_frame, text="DeepSeek解析结果:", font=("Microsoft YaHei UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=(0, 4))
         self.voice_nlp_result_text = scrolledtext.ScrolledText(result_frame, height=6, wrap="word", font=('Consolas', 9))
-        self.voice_nlp_result_text.grid(row=0, column=0, sticky="nsew")
+        self.voice_nlp_result_text.grid(row=5, column=0, sticky="nsew")
         self.voice_nlp_result_text.insert("1.0", "语音指令解析结果将显示在这里...")
         
         tips_frame = ttk.Frame(parent)
-        tips_frame.grid(row=4, column=0, sticky="ew")
+        tips_frame.grid(row=3, column=0, sticky="ew")
         ttk.Label(
             tips_frame,
             text="提示：先列出设备确认设备号，录音 3-5 秒，命令尽量简短明确",
