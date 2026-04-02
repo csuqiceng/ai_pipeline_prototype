@@ -414,12 +414,11 @@ class PipelineAppUI:
         control_frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         control_frame.columnconfigure(0, weight=1)
 
-        # 使用 pack 布局，确保按钮大小合适且文本居中
         ttk.Label(control_frame, text="控制器连接:", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left", fill="y", padx=4)
-        ttk.Button(control_frame, text="连接", style="Primary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4), fill="y")
-        ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4, fill="y")
-        ttk.Button(control_frame, text="注入报警", style="Secondary.TButton", command=self.on_inject_alarm).pack(side="left", padx=4, fill="y")
-        ttk.Button(control_frame, text="清除报警", style="Secondary.TButton", command=self.on_clear_alarm).pack(side="left", padx=4, fill="y")
+        ttk.Button(control_frame, text="连接", style="Secondary.TButton", command=self.on_connect).pack(side="left", padx=(12, 4), fill="y", ipady=4)
+        ttk.Button(control_frame, text="断开", style="Secondary.TButton", command=self.on_disconnect).pack(side="left", padx=4, fill="y", ipady=4)
+        ttk.Button(control_frame, text="注入报警", style="Secondary.TButton", command=self.on_inject_alarm).pack(side="left", padx=4, fill="y", ipady=4)
+        ttk.Button(control_frame, text="清除报警", style="Secondary.TButton", command=self.on_clear_alarm).pack(side="left", padx=4, fill="y", ipady=4)
 
         status_card = ttk.LabelFrame(parent, text="状态概览", style="Card.TLabelframe", padding=12)
         status_card.grid(row=2, column=0, sticky="nsew")
