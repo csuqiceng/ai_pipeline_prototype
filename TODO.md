@@ -18,6 +18,10 @@
 - 已将 GUI 里的语音识别操作改为后台线程执行，降低界面阻塞感
 - 已扩展 `inputs.py` 的口语规则，支持更自然的“停止 / 回零 / 抓取放置”表达
 - 已完善 `.gitignore`、`requirements.txt`、`install_deps.bat`、`install_deps.ps1` 和 `README.md`
+- 已实现 JSON 指令解析与执行功能
+- 已实现自然语言处理功能
+- 已集成 DeepSeek API，提供更高级的自然语言理解能力
+- 已将 DeepSeek API key 配置到 .env 文件中
 
 对应任务：
 
@@ -29,6 +33,9 @@
 - 部分 `S-04` 语义结构化
 - 部分 `S-05` 协议输出
 - 部分 UI 雏形任务
+- 新增 JSON 指令解析与执行功能
+- 新增自然语言处理功能
+- 新增 DeepSeek API 集成
 
 参考文档：
 

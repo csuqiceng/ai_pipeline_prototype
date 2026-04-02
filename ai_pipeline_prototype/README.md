@@ -19,6 +19,10 @@
 - `factory.py`: 执行器工厂
 - `demo.py`: 命令行演示与联调入口
 - `gui.py`: 基于 Tkinter 的轻量上位机演示界面
+- `json_command.py`: JSON 指令解析与执行
+- `natural_language_processor.py`: 自然语言处理
+- `deepseek_client.py`: DeepSeek API 客户端
+- `nlp_demo.py`: 自然语言处理演示
 
 ## 当前能力
 
@@ -33,6 +37,9 @@
 - 通过 `MotionSDKClient` 接入真实 `zmcdll` SDK
 - 在 DLL 可加载但控制器不可连接时自动回退 mock，保留联调能力
 - 提供命令行联调流程和轻量 GUI 展示
+- 支持 JSON 格式指令解析和执行
+- 支持自然语言指令解析，可将自然语言转换为 JSON 指令
+- 集成 DeepSeek API，提供更高级的自然语言理解能力
 
 ## 当前已接入的 SDK 函数
 
@@ -165,6 +172,36 @@ python -m ai_pipeline_prototype.demo --hardware-link-demo --axes 0,1,2 --homing-
 python -m ai_pipeline_prototype.gui
 ```
 
+运行 JSON 指令演示：
+
+```bash
+python -m ai_pipeline_prototype.demo --json-command
+```
+
+运行 JSON 指令完整演示：
+
+```bash
+python -m ai_pipeline_prototype.json_command_demo
+```
+
+运行自然语言处理演示：
+
+```bash
+python -m ai_pipeline_prototype.nlp_demo
+```
+
+运行带 DeepSeek API 的自然语言处理演示：
+
+```bash
+python -m ai_pipeline_prototype.nlp_demo --use-deepseek
+```
+
+运行带 DeepSeek API 的交互式演示：
+
+```bash
+python -m ai_pipeline_prototype.nlp_demo --interactive --use-deepseek
+```
+
 ## 测试建议
 
 建议按下面顺序测试：
@@ -209,3 +246,33 @@ python -m ai_pipeline_prototype.demo --hardware-link-demo --host 控制器IP
 - 确认真机动作接口更适合“点位式”还是“固定动作式”
 - 在调度层补齐急停、报警、非法状态拦截和失败处理
 - 再继续接真实视觉和语音输入
+
+## 依赖说明
+
+### 核心依赖
+
+- `xfyunsdkspeech`: 科大讯飞语音识别 SDK
+- `sounddevice` 或 `pyaudio`: 麦克风录音支持
+- `websocket-client`: WebSocket 通信支持
+- `python-dotenv`: 环境变量管理
+- `requests`: HTTP 请求支持（用于 DeepSeek API 调用）
+
+### 安装方法
+
+```bash
+pip install xfyunsdkspeech sounddevice websocket-client python-dotenv requests
+```
+
+### 环境配置
+
+在 `ai_pipeline_prototype` 目录下创建 `.env` 文件，配置以下环境变量：
+
+```bash
+# 讯飞开放平台配置
+IFLYTEK_APP_ID=你的appid
+IFLYTEK_API_KEY=你的apikey
+IFLYTEK_API_SECRET=你的apisecret
+
+# DeepSeek API配置
+DEEPSEEK_API_KEY=你的deepseek_api_key
+```
