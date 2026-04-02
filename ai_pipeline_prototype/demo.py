@@ -10,6 +10,7 @@ from ai_pipeline_prototype.dispatcher import TaskDispatcher
 from ai_pipeline_prototype.controller_service import ControllerService
 from ai_pipeline_prototype.factory import build_executor
 from ai_pipeline_prototype.inputs import VisionInputAdapter, VoiceInputAdapter
+from ai_pipeline_prototype.json_command import JSONCommand
 from ai_pipeline_prototype.planner import PlanningError, TaskPlanner
 from ai_pipeline_prototype.sdk_adapter import MotionSDKClient, MotionSDKConfig
 from ai_pipeline_prototype.voice_iflytek import IFlytekIATClient, IFlytekIATConfig, IFlytekMicrophoneConfig
@@ -226,6 +227,36 @@ def run_iflytek_list_mics(backend: str | None = None) -> None:
     print(json.dumps(devices, ensure_ascii=False, indent=2))
 
 
+def run_json_command_demo() -> None:
+    """演示JSON指令执行"""
+    service = PipelineAppService()
+    
+    # 测试MOVE指令
+    move_command = {
+        "command": "MOVE",
+        "parameters": {
+            "target": "POSITION_1",
+            "offset": {
+                "x": 100.0,
+                "y": 100.0,
+                "z": 50.0,
+                "rotation": 0.0
+            },
+            "speed": 50,
+            "relative": False
+        },
+        "timestamp": "2026-04-02T12:00:00Z"
+    }
+    
+    print("\n=== JSON Command Demo ===")
+    print("输入指令:")
+    print(json.dumps(move_command, ensure_ascii=False, indent=2))
+    
+    result = service.execute_json_command(move_command)
+    print("执行结果:")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI pipeline prototype demo")
     parser.add_argument(
@@ -260,6 +291,7 @@ def main() -> None:
         choices=["sounddevice", "pyaudio"],
         help="preferred microphone backend; defaults to auto detect",
     )
+    parser.add_argument("--json-command", action="store_true", help="run JSON command demo")
     args = parser.parse_args()
 
     axes = tuple(int(part.strip()) for part in args.axes.split(",") if part.strip())
@@ -296,6 +328,10 @@ def main() -> None:
 
     if args.iflytek_mic:
         run_iflytek_iat_mic_demo(args.mic_seconds, device=args.mic_device, backend=args.mic_backend)
+        return
+
+    if args.json_command:
+        run_json_command_demo()
         return
 
     run_pick_and_place_demo(args.mode)

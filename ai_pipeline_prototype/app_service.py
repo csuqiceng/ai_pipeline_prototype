@@ -7,6 +7,7 @@ from ai_pipeline_prototype.controller_service import ControllerService
 from ai_pipeline_prototype.dispatcher import TaskDispatcher
 from ai_pipeline_prototype.executor import MotionSDKRobotExecutor
 from ai_pipeline_prototype.inputs import VisionInputAdapter, VoiceInputAdapter, VoiceInputError
+from ai_pipeline_prototype.json_command import JSONCommand, JSONCommandExecutor
 from ai_pipeline_prototype.planner import PlanningError, TaskPlanner
 from ai_pipeline_prototype.sdk_adapter import MotionSDKClient, MotionSDKConfig
 from ai_pipeline_prototype.voice_iflytek import IFlytekIATClient, IFlytekIATConfig, IFlytekMicrophoneConfig, IFlytekRTASRError
@@ -23,6 +24,7 @@ class PipelineAppService:
         self.controller_service = ControllerService(self.client)
         self.executor = MotionSDKRobotExecutor(self.client, self.controller_service)
         self.dispatcher = TaskDispatcher(self.executor)
+        self.json_command_executor = JSONCommandExecutor(self.executor, self.controller_service)
         self.task_history: list[dict[str, Any]] = []
 
     def submit(
@@ -187,3 +189,55 @@ class PipelineAppService:
             "command_history": list(self.controller_service.command_history),
             "task_history": list(self.task_history),
         }
+
+    def execute_json_command(self, command_data: dict[str, Any]) -> dict[str, Any]:
+        """执行JSON格式的指令"""
+        try:
+            command = JSONCommand.from_dict(command_data)
+        except Exception as exc:
+            alarm = self.controller_service.report_alarm("JSON001", f"JSON指令解析失败: {exc}", level="error")
+            return {
+                "ok": False,
+                "error": str(exc),
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+
+        try:
+            result = self.json_command_executor.execute(command)
+        except Exception as exc:
+            alarm = self.controller_service.report_alarm("JSON002", f"JSON指令执行失败: {exc}", level="error")
+            payload = {
+                "ok": False,
+                "error": str(exc),
+                "command": command.to_dict(),
+                "alarm": asdict(alarm),
+                "status": asdict(self.controller_service.get_status()),
+            }
+            self.task_history.append(
+                {
+                    "ok": False,
+                    "task_id": None,
+                    "command": command.command.value,
+                    "message": str(exc),
+                }
+            )
+            return payload
+
+        payload = {
+            "ok": result.success,
+            "command": command.to_dict(),
+            "result": asdict(result),
+            "status": asdict(self.controller_service.get_status()),
+            "alarms": [asdict(item) for item in self.controller_service.get_alarm_history()],
+            "command_history": list(self.controller_service.command_history),
+        }
+        self.task_history.append(
+            {
+                "ok": result.success,
+                "task_id": result.task_id,
+                "command": command.command.value,
+                "message": result.message,
+            }
+        )
+        return payload
