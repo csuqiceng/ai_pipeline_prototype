@@ -46,8 +46,8 @@ class PipelineAppUI:
         self._iat_busy = False
         
         # 自然语言处理器
-        self.use_deepseek_var = tk.BooleanVar(value=False)
-        self.voice_auto_execute_var = tk.BooleanVar(value=False)
+        self.use_deepseek_var = tk.BooleanVar(value=True)
+        self.voice_auto_execute_var = tk.BooleanVar(value=True)
         self.nlp_input_var = tk.StringVar(value="移动到第一个位置")
         self.json_input_var = tk.StringVar(value='{"command": "MOVE", "parameters": {"target": "POSITION_1", "speed": 50}, "timestamp": "2026-04-02T12:00:00Z"}')
 
