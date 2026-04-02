@@ -473,7 +473,7 @@ class PipelineAppUI:
         )
 
         action_frame = ttk.LabelFrame(parent, text="操作", style="Card.TLabelframe", padding=12)
-        action_frame.grid(row=2, column=0, sticky="ew")
+        action_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         action_frame.columnconfigure(0, weight=1)
 
         ttk.Button(action_frame, text="执行指令", style="Primary.TButton", command=self.on_nlp_submit).grid(
@@ -481,12 +481,13 @@ class PipelineAppUI:
         )
 
         result_frame = ttk.LabelFrame(parent, text="解析结果", style="Card.TLabelframe", padding=12)
-        result_frame.grid(row=3, column=0, sticky="nsew", pady=(8, 8))
+        result_frame.grid(row=3, column=0, sticky="nsew", pady=(0, 8))
         result_frame.columnconfigure(0, weight=1)
         result_frame.rowconfigure(0, weight=1)
 
+        ttk.Label(result_frame, text="DeepSeek解析结果:", font=('Microsoft YaHei UI', 9, 'bold')).grid(row=0, column=0, sticky="w", pady=(0, 4))
         self.nlp_result_text = scrolledtext.ScrolledText(result_frame, height=8, wrap="word", font=('Consolas', 9))
-        self.nlp_result_text.grid(row=0, column=0, sticky="nsew")
+        self.nlp_result_text.grid(row=1, column=0, sticky="nsew")
         self.nlp_result_text.insert("1.0", "解析结果将显示在这里...")
         
         example_frame = ttk.LabelFrame(parent, text="快速示例", style="Card.TLabelframe", padding=12)
