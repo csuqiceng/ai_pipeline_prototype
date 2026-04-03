@@ -28,3 +28,12 @@ class ParsedCommand:
 class ModbusWriteRequest:
     start_register: int
     values: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class FlowDefinition:
+    name: str
+    steps: tuple[str, ...]
+
+    def to_dict(self) -> dict:
+        return asdict(self)
