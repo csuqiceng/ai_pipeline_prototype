@@ -25,9 +25,31 @@ class ParsedCommand:
 
 
 @dataclass(frozen=True)
-class ModbusWriteRequest:
-    start_register: int
+class VrWriteRequest:
+    start_vr: int
     values: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class VrReadRequest:
+    start_vr: int
+    count: int
+
+
+@dataclass(frozen=True)
+class FixedVrCommand:
+    trigger_vr: int
+    trigger_value: float
+    payload_start_vr: int
+    payload_values: tuple[float, ...]
+
+    def preview_dict(self) -> dict:
+        return {
+            "trigger_vr": self.trigger_vr,
+            "trigger_value": self.trigger_value,
+            "payload_start_vr": self.payload_start_vr,
+            "payload_values": list(self.payload_values),
+        }
 
 
 @dataclass(frozen=True)

@@ -7,18 +7,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .models import ModbusWriteRequest
+from .models import VrReadRequest, VrWriteRequest
 
 
 class ZMotionClientError(RuntimeError):
     pass
 
 
-class ZMotionModbusClient:
-    def __init__(self, host: str, *, repo_root: str | Path, start_register: int = 0) -> None:
+class ZMotionVrClient:
+    def __init__(self, host: str, *, repo_root: str | Path) -> None:
         self.host = host
         self.repo_root = Path(repo_root)
-        self.start_register = start_register
         self._sdk = self._load_sdk_wrapper()
         self._device = self._sdk.ZAUXDLL()
         self.connected = False
@@ -35,15 +34,22 @@ class ZMotionModbusClient:
         self._ensure_ok(ret, "disconnect")
         self.connected = False
 
-    def write_floats(self, request: ModbusWriteRequest) -> None:
+    def write_vr(self, request: VrWriteRequest) -> None:
         if not self.connected:
             raise ZMotionClientError("控制器未连接。")
-        ret = self._device.ZAux_Modbus_Set4x_Float(
-            request.start_register,
+        ret = self._device.ZAux_Direct_SetVrf(
+            request.start_vr,
             len(request.values),
             list(request.values),
         )
-        self._ensure_ok(ret, "ZAux_Modbus_Set4x_Float")
+        self._ensure_ok(ret, "ZAux_Direct_SetVrf")
+
+    def read_vr(self, request: VrReadRequest) -> list[float]:
+        if not self.connected:
+            raise ZMotionClientError("控制器未连接。")
+        ret, values = self._device.ZAux_Direct_GetVrf(request.start_vr, request.count)
+        self._ensure_ok(ret, "ZAux_Direct_GetVrf")
+        return [float(item) for item in values]
 
     def _ensure_ok(self, ret: int, action: str) -> None:
         if ret != 0:

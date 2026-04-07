@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
-from .models import FlowDefinition, ModbusWriteRequest, QueryRecord
+from .models import FixedVrCommand, FlowDefinition, QueryRecord, VrWriteRequest
 from .query_table import (
     bootstrap_query_table_json,
     load_query_table,
     save_query_table_json,
 )
-from .zmotion_client import ZMotionClientError, ZMotionModbusClient
+from .zmotion_client import ZMotionClientError, ZMotionVrClient
 from .service import RobotModbusService
 
 
@@ -23,13 +23,13 @@ class QueryTableEditorApp:
         self.root.geometry("1200x720")
         self.root.minsize(980, 620)
 
-        self.repo_root = Path(__file__).resolve().parents[2]
+        self.runtime_root = _runtime_dir()
+        self.resource_root = _resource_dir()
         self.csv_path = csv_path
         self.json_path = bootstrap_query_table_json(json_path, csv_path)
-        self.flows_path = self.repo_root / "新方案" / "data" / "flows.json"
+        self.flows_path = self.runtime_root / "data" / "flows.json"
         self.table = load_query_table(self.json_path)
-        self.host = "192.168.1.11"
-        self.service = RobotModbusService(self.json_path, start_register=0, flows_path=self.flows_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
 
         self.query_key_var = tk.StringVar()
         self.function_id_var = tk.StringVar()
@@ -42,13 +42,15 @@ class QueryTableEditorApp:
         self.ry_var = tk.StringVar(value="0")
         self.rz_var = tk.StringVar(value="0")
         self.speed_var = tk.StringVar(value="10")
-        self.host_var = tk.StringVar(value=self.host)
+        self.host_var = tk.StringVar(value="192.168.1.11")
         self.connection_var = tk.StringVar(value="检测中...")
         self.command_input_var = tk.StringVar(value="移动到位置A")
         self.send_status_var = tk.StringVar(value="等待执行命令。")
         self.flow_name_var = tk.StringVar()
         self.flow_steps_var = tk.StringVar(value="归零,home,位置A,位置B")
         self.flow_status_var = tk.StringVar(value="等待执行流程。")
+        self.vr_command_var = tk.StringVar(value="VR500=触发位, VR501-VR507=参数1-7")
+        self.vr_status_var = tk.StringVar(value="VR600-VR604")
         self.status_var = tk.StringVar(value=f"JSON 数据源: {self.json_path}")
 
         self._build_layout()
@@ -86,10 +88,14 @@ class QueryTableEditorApp:
         top_bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         top_bar.columnconfigure(1, weight=1)
         ttk.Label(top_bar, text="控制器地址:", font=("Microsoft YaHei UI", 10, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(top_bar, textvariable=self.host_var).grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Entry(top_bar, textvariable=self.host_var).grid(row=0, column=1, sticky="ew", padx=(8, 8))
         ttk.Label(top_bar, text="连接状态:", font=("Microsoft YaHei UI", 10, "bold")).grid(row=1, column=0, sticky="w", pady=(6, 0))
         ttk.Label(top_bar, textvariable=self.connection_var).grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
         ttk.Button(top_bar, text="重新检测连接", command=self._run_connection_check).grid(row=0, column=2, rowspan=2, sticky="e")
+        ttk.Label(top_bar, text="写入区:", font=("Microsoft YaHei UI", 10, "bold")).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(top_bar, textvariable=self.vr_command_var).grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+        ttk.Label(top_bar, text="反馈区:", font=("Microsoft YaHei UI", 10, "bold")).grid(row=3, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(top_bar, textvariable=self.vr_status_var).grid(row=3, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
 
         command_frame = ttk.LabelFrame(parent, text="执行命令", padding=12)
         command_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
@@ -97,7 +103,8 @@ class QueryTableEditorApp:
         ttk.Label(command_frame, text="命令文本:").grid(row=0, column=0, sticky="w")
         ttk.Entry(command_frame, textvariable=self.command_input_var).grid(row=0, column=1, sticky="ew", padx=(8, 8))
         ttk.Button(command_frame, text="解析预览", command=self._preview_command).grid(row=0, column=2, sticky="e")
-        ttk.Button(command_frame, text="发送到控制器", command=self._send_command).grid(row=1, column=2, sticky="e", pady=(10, 0))
+        ttk.Button(command_frame, text="写入VR并触发", command=self._send_command).grid(row=1, column=2, sticky="e", pady=(10, 0))
+        ttk.Button(command_frame, text="读取反馈区", command=self._read_status_block).grid(row=2, column=2, sticky="e", pady=(10, 0))
         ttk.Label(command_frame, textvariable=self.send_status_var).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         result_frame = ttk.LabelFrame(parent, text="执行预览", padding=12)
@@ -138,7 +145,7 @@ class QueryTableEditorApp:
         right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
         right.columnconfigure(1, weight=1)
 
-        ttk.Label(left, text="有效数据表(JSON)", font=("Microsoft YaHei UI", 12, "bold")).grid(
+        ttk.Label(left, text="参数模板表(JSON)", font=("Microsoft YaHei UI", 12, "bold")).grid(
             row=0, column=0, sticky="w", pady=(0, 8)
         )
 
@@ -146,16 +153,16 @@ class QueryTableEditorApp:
         self.tree = ttk.Treeview(left, columns=columns, show="headings", height=20)
         headings = {
             "query_key": "查询键",
-            "function_id": "函数序号",
-            "function_name": "函数",
+            "function_id": "记录编号",
+            "function_name": "记录类型",
             "data_format": "格式",
-            "x": "X",
-            "y": "Y",
-            "z": "Z",
-            "rx": "Rx",
-            "ry": "Ry",
-            "rz": "Rz",
-            "speed": "speed",
+            "x": "VR501",
+            "y": "VR502",
+            "z": "VR503",
+            "rx": "VR504",
+            "ry": "VR505",
+            "rz": "VR506",
+            "speed": "VR507",
         }
         widths = {
             "query_key": 120,
@@ -194,22 +201,22 @@ class QueryTableEditorApp:
         self.flow_tree.grid(row=4, column=0, sticky="nsew")
         self.flow_tree.bind("<<TreeviewSelect>>", self._on_flow_tree_select)
 
-        ttk.Label(right, text="新增/编辑 movabs 记录", font=("Microsoft YaHei UI", 12, "bold")).grid(
+        ttk.Label(right, text="新增/编辑 VR 参数模板", font=("Microsoft YaHei UI", 12, "bold")).grid(
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
         )
 
         fields = [
             ("查询键", self.query_key_var),
-            ("函数序号", self.function_id_var),
-            ("函数", self.function_name_var),
+            ("记录编号", self.function_id_var),
+            ("记录类型", self.function_name_var),
             ("格式", self.data_format_var),
-            ("X位置", self.x_var),
-            ("Y位置", self.y_var),
-            ("Z位置", self.z_var),
-            ("Rx位置", self.rx_var),
-            ("Ry位置", self.ry_var),
-            ("Rz位置", self.rz_var),
-            ("speed", self.speed_var),
+            ("VR501", self.x_var),
+            ("VR502", self.y_var),
+            ("VR503", self.z_var),
+            ("VR504", self.rx_var),
+            ("VR505", self.ry_var),
+            ("VR506", self.rz_var),
+            ("VR507", self.speed_var),
         ]
         for index, (label, variable) in enumerate(fields, start=1):
             ttk.Label(right, text=f"{label}:").grid(row=index, column=0, sticky="w", pady=4, padx=(0, 8))
@@ -226,7 +233,7 @@ class QueryTableEditorApp:
 
         ttk.Label(
             right,
-            text="说明：GUI 不修改原始 CSV；首次启动会从 CSV 导入一份 JSON，后续只保存到 JSON。",
+            text="说明：当前正式VR协议下，VR500固定为触发位；本页只维护VR501-VR507参数模板。GUI 不修改原始 CSV；首次启动会从 CSV 导入一份 JSON，后续只保存到 JSON。",
             wraplength=320,
             foreground="#666666",
         ).grid(row=len(fields) + 2, column=0, columnspan=2, sticky="w", pady=(12, 0))
@@ -267,7 +274,7 @@ class QueryTableEditorApp:
     def _reload_from_json(self) -> None:
         self.table = load_query_table(self.json_path)
         self._refresh_table()
-        self.service = RobotModbusService(self.json_path, start_register=0, flows_path=self.flows_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self._refresh_flow_list()
         self.status_var.set(f"已从 JSON 重新加载: {self.json_path}")
 
@@ -345,7 +352,7 @@ class QueryTableEditorApp:
 
     def _save_json(self) -> None:
         save_query_table_json(self.json_path, self.table)
-        self.service = RobotModbusService(self.json_path, start_register=0, flows_path=self.flows_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self._refresh_flow_list()
 
     def _parse_float(self, value: str) -> float:
@@ -356,19 +363,28 @@ class QueryTableEditorApp:
         return str(int(value)) if float(value).is_integer() else str(value)
 
     def _run_connection_check(self) -> None:
+        if not self._current_host():
+            messagebox.showwarning("地址为空", "请输入控制器地址。")
+            return
         self.connection_var.set("检测中...")
 
         def job() -> None:
-            result = self._check_controller_connection()
+            try:
+                result = self._check_controller_connection()
+            except Exception as exc:
+                result = {"ok": False, "message": f"检测异常: {exc}"}
             self.root.after(0, lambda: self._finish_connection_check(result))
 
         threading.Thread(target=job, daemon=True).start()
 
     def _check_controller_connection(self) -> dict[str, str | bool]:
-        client = ZMotionModbusClient(host=self.host, repo_root=self.repo_root)
+        try:
+            client = ZMotionVrClient(host=self._current_host(), repo_root=self.resource_root)
+        except Exception as exc:
+            return {"ok": False, "message": f"SDK加载失败: {exc}"}
         try:
             client.connect()
-            return {"ok": True, "message": f"连接成功: {self.host}"}
+            return {"ok": True, "message": f"连接成功: {self._current_host()}"}
         except ZMotionClientError as exc:
             return {"ok": False, "message": f"连接失败: {exc}"}
         except Exception as exc:
@@ -388,14 +404,14 @@ class QueryTableEditorApp:
             messagebox.showwarning("输入为空", "请输入一条命令。")
             return
         try:
-            parsed, record, request = self.service.build_request(text)
+            parsed, record, command = self.service.build_fixed_command(text)
         except Exception as exc:
             self.send_status_var.set(f"解析失败: {exc}")
             self.preview_text.delete("1.0", tk.END)
             self.preview_text.insert("1.0", str(exc))
             return
 
-        payload = self._build_preview_payload(parsed.raw_text, parsed.query_key, record, request)
+        payload = self._build_preview_payload(parsed.raw_text, parsed.query_key, record, command)
         self.preview_text.delete("1.0", tk.END)
         self.preview_text.insert("1.0", json.dumps(payload, ensure_ascii=False, indent=2))
         self.send_status_var.set(f"已解析命令: {parsed.query_key}")
@@ -419,12 +435,10 @@ class QueryTableEditorApp:
                 {
                     "step": step_name,
                     "function_id": record.function_id,
-                    "request": {
-                        "start_register": request.start_register,
-                        "values": list(request.values),
-                    },
+                    "note": "当前VR协议下，函数序号仅用于上位机记录，未写入VR500；VR500固定写1.0触发",
+                    "vr_command": command.preview_dict(),
                 }
-                for step_name, record, request in steps
+                for step_name, record, command in steps
             ],
         }
         self.flow_preview_text.delete("1.0", tk.END)
@@ -435,6 +449,9 @@ class QueryTableEditorApp:
         text = self.command_input_var.get().strip()
         if not text:
             messagebox.showwarning("输入为空", "请输入一条命令。")
+            return
+        if not self._current_host():
+            messagebox.showwarning("地址为空", "请输入控制器地址。")
             return
 
         self.send_status_var.set("发送中...")
@@ -447,24 +464,26 @@ class QueryTableEditorApp:
 
     def _execute_send(self, text: str) -> dict:
         try:
-            parsed, record, request = self.service.build_request(text)
+            parsed, record, command = self.service.build_fixed_command(text)
         except Exception as exc:
             return {"ok": False, "error": f"解析失败: {exc}"}
 
-        client = ZMotionModbusClient(host=self.host, repo_root=self.repo_root)
+        client = ZMotionVrClient(host=self._current_host(), repo_root=self.resource_root)
         try:
             client.connect()
-            client.write_floats(request)
+            client.write_vr(VrWriteRequest(start_vr=command.payload_start_vr, values=command.payload_values))
+            client.write_vr(VrWriteRequest(start_vr=command.trigger_vr, values=(command.trigger_value,)))
+            status_values = client.read_vr(self.service.build_status_read())
             return {
                 "ok": True,
                 "message": f"发送成功: {parsed.query_key}",
-                "payload": self._build_preview_payload(parsed.raw_text, parsed.query_key, record, request),
+                "payload": self._build_preview_payload(parsed.raw_text, parsed.query_key, record, command, status_values),
             }
         except Exception as exc:
             return {
                 "ok": False,
                 "error": f"发送失败: {exc}",
-                "payload": self._build_preview_payload(parsed.raw_text, parsed.query_key, record, request),
+                "payload": self._build_preview_payload(parsed.raw_text, parsed.query_key, record, command),
             }
         finally:
             try:
@@ -491,6 +510,9 @@ class QueryTableEditorApp:
         if not flow_name:
             messagebox.showwarning("未选择流程", "请先选择一个流程。")
             return
+        if not self._current_host():
+            messagebox.showwarning("地址为空", "请输入控制器地址。")
+            return
         self.flow_status_var.set("流程发送中...")
 
         def job() -> None:
@@ -505,20 +527,23 @@ class QueryTableEditorApp:
         except Exception as exc:
             return {"ok": False, "error": f"流程解析失败: {exc}"}
 
-        client = ZMotionModbusClient(host=self.host, repo_root=self.repo_root)
+        client = ZMotionVrClient(host=self._current_host(), repo_root=self.resource_root)
         try:
             client.connect()
             sent_steps = []
-            for step_name, record, request in steps:
-                client.write_floats(request)
+            for step_name, record, command in steps:
+                client.write_vr(VrWriteRequest(start_vr=command.payload_start_vr, values=command.payload_values))
+                client.write_vr(VrWriteRequest(start_vr=command.trigger_vr, values=(command.trigger_value,)))
                 sent_steps.append(
                     {
                         "step": step_name,
                         "function_id": record.function_id,
-                        "values": list(request.values),
+                        "note": "VR500固定写1.0触发；参数写入VR501-VR507",
+                        "vr_command": command.preview_dict(),
                     }
                 )
-            return {"ok": True, "message": f"流程发送成功: {flow_name}", "payload": {"flow_name": flow_name, "steps": sent_steps}}
+            status_values = client.read_vr(self.service.build_status_read())
+            return {"ok": True, "message": f"流程发送成功: {flow_name}", "payload": {"flow_name": flow_name, "steps": sent_steps, "status_block": status_values}}
         except Exception as exc:
             return {"ok": False, "error": f"流程发送失败: {exc}"}
         finally:
@@ -545,20 +570,25 @@ class QueryTableEditorApp:
         raw_text: str,
         query_key: str,
         record: QueryRecord,
-        request: ModbusWriteRequest,
+        command: FixedVrCommand,
+        status_values: list[float] | None = None,
     ) -> dict:
-        return {
+        payload = {
             "text": raw_text,
             "query_key": query_key,
             "function_id": record.function_id,
             "function_name": record.function_name,
             "data_format": record.data_format,
             "registers": list(record.registers),
-            "request": {
-                "start_register": request.start_register,
-                "values": list(request.values),
-            },
+            "note": "当前正式VR协议下，VR500固定为触发位1.0；本次发送只把7个参数写入VR501-VR507",
+            "vr_command": command.preview_dict(),
         }
+        if status_values is not None:
+            payload["vr_status"] = {
+                "start_vr": self.service.status_vr_start,
+                "values": status_values,
+            }
+        return payload
 
     def _refresh_flow_list(self) -> None:
         names = self.service.list_flow_names()
@@ -623,13 +653,74 @@ class QueryTableEditorApp:
             return
         self.flow_steps_var.set(",".join(flow.steps))
 
+    def _current_host(self) -> str:
+        return self.host_var.get().strip()
+
+    def _read_status_block(self) -> None:
+        if not self._current_host():
+            messagebox.showwarning("地址为空", "请输入控制器地址。")
+            return
+        self.send_status_var.set("读取反馈区中...")
+
+        def job() -> None:
+            result = self._execute_read_status()
+            self.root.after(0, lambda: self._finish_status_read(result))
+
+        threading.Thread(target=job, daemon=True).start()
+
+    def _execute_read_status(self) -> dict:
+        client = ZMotionVrClient(host=self._current_host(), repo_root=self.resource_root)
+        try:
+            client.connect()
+            request = self.service.build_status_read()
+            values = client.read_vr(request)
+            return {"ok": True, "payload": {"start_vr": request.start_vr, "values": values}}
+        except Exception as exc:
+            return {"ok": False, "error": f"读取反馈区失败: {exc}"}
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+    def _finish_status_read(self, result: dict) -> None:
+        if result.get("ok"):
+            self.preview_text.delete("1.0", tk.END)
+            self.preview_text.insert("1.0", json.dumps({"vr_status": result["payload"]}, ensure_ascii=False, indent=2))
+            self.send_status_var.set("读取反馈区成功")
+        else:
+            self.send_status_var.set(str(result["error"]))
+            messagebox.showerror("读取失败", str(result["error"]))
+
+
+def _runtime_dir() -> Path:
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+def _resource_dir() -> Path:
+    import sys
+
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parents[2]
+
 
 def main() -> None:
     root = tk.Tk()
-    repo_root = Path(__file__).resolve().parents[2]
+    runtime_base = _runtime_dir()
+    resource_base = _resource_dir()
+    data_dir = runtime_base / "data"
+    json_path = data_dir / "query_table.json"
+    csv_path = resource_base / "附件" / "机械臂AI地址表.csv"
+    if not csv_path.exists():
+        csv_path = json_path
     app = QueryTableEditorApp(
         root,
-        json_path=repo_root / "新方案" / "data" / "query_table.json",
-        csv_path=repo_root / "附件" / "机械臂AI地址表.csv",
+        json_path=json_path,
+        csv_path=csv_path,
     )
     root.mainloop()

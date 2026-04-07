@@ -1,0 +1,58 @@
+*********************************************************
+Windows平台：
+
+C# 32位：
+https://nas.zmotion.com.cn:36888/sharing/BeWps0BZM
+C# 64位：
+https://nas.zmotion.com.cn:36888/sharing/UNcHTEDXg
+
+C++ 32位：
+https://nas.zmotion.com.cn:36888/sharing/0s159HXX6
+C++ 64位：
+https://nas.zmotion.com.cn:36888/sharing/qutMtTNlc
+
+Labview 32位：
+https://nas.zmotion.com.cn:36888/sharing/Vfdbu1FrA
+Labview 64位：
+https://nas.zmotion.com.cn:36888/sharing/8NhOFx1Ge
+
+MATLAB 64位：
+https://nas.zmotion.com.cn:36888/sharing/Vn9zlOo4r
+
+Python 32位：
+https://nas.zmotion.com.cn:36888/sharing/qU4kB5YYP
+Python 64位：
+https://nas.zmotion.com.cn:36888/sharing/PoGU5rJ3K
+
+QT 32位：
+https://nas.zmotion.com.cn:36888/sharing/nYMQ8uEUD
+QT 64位：
+https://nas.zmotion.com.cn:36888/sharing/nu2z1V8mK
+
+VB.NET 32位：
+https://nas.zmotion.com.cn:36888/sharing/TvIc7FkUr
+VB.NET 64位：
+https://nas.zmotion.com.cn:36888/sharing/V8iQW7CvO
+
+VB6.0 32位：
+https://nas.zmotion.com.cn:36888/sharing/w9dkzyPYP
+
+易语言 32位：
+https://nas.zmotion.com.cn:36888/sharing/R3TLKGQXm
+
+*************************************************************
+Linux平台：
+
+C# 32位：
+https://nas.zmotion.com.cn:36888/sharing/2EjmSxjpW
+C# 64位：
+https://nas.zmotion.com.cn:36888/sharing/k8ilj6pzw
+
+C++ 32位：
+https://nas.zmotion.com.cn:36888/sharing/INBiRCFNN
+C++ 64位：
+https://nas.zmotion.com.cn:36888/sharing/xcIVpen1A
+
+Python：
+https://nas.zmotion.com.cn:36888/sharing/323rQ9ad0
+

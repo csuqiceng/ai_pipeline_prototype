@@ -1,0 +1,2307 @@
+RUN"RobotPara"
+DELAY(10)                           '延时10ms
+CALL NameDim()
+CALL M_OFF1()      '初始化停止自动、启动等
+CALL M_OFF2()       '初始化手动
+SETCOM(9600,8,1,0,0,4,2)                '设置串口0为modbus从端，波特率9600
+SETCOM(9600,8,1,0,1,14,2,1000)          '设置串口1为modbus主端，波特率9600
+
+CALL Mode_Joint()      '初始化轴调用
+CALL Flash_R()          '初始化flash读
+CALL LimRead()           '初始化限位读取
+
+RUN"IntTimer"             '运行时间检测程序
+RUNTASK 1,TA_Main
+RUNTASK 2,TA_Move
+RUNTASK 3,TA_Err
+RUNTASK 4,TA_ServoCom
+RUNTASK 5,TA_Out
+RUNTASK 6,TA_Mapping
+
+WHILE 1
+    MODBUS_REG(220)=CengNumL+1           '左层数显示
+	MODBUS_REG(221)=CengNumR+1           '右层数显示
+	CALL AlarmClean()                    '消警调用  
+	IF MODBUS_BIT(36) THEN				'运动暂停
+		IF READ_BIT2(23,AXISSTATUS(0))<>1  THEN
+			BASE(0)
+			MOVE_PAUSE(0)
+		ENDIF
+		
+		IF READ_BIT2(23,AXISSTATUS(1))<>1  THEN
+			BASE(1)
+			MOVE_PAUSE(0)
+		ENDIF	
+
+		IF READ_BIT2(23,AXISSTATUS(2))<>1  THEN
+			BASE(2)
+			MOVE_PAUSE(0)
+		ENDIF	
+		
+		IF READ_BIT2(23,AXISSTATUS(3))<>1  THEN
+			BASE(3)
+			MOVE_PAUSE(0)
+		ENDIF
+		
+		'IF READ_BIT2(23,AXISSTATUS(4))<>1  THEN
+			'BASE(4)
+			'MOVE_PAUSE(0)
+		'ENDIF
+		
+		'IF READ_BIT2(23,AXISSTATUS(5))<>1  THEN
+			'BASE(5)
+			'MOVE_PAUSE(0)
+		'ENDIF
+		
+		IF READ_BIT2(23,AXISSTATUS(6))<>1 THEN		
+			BASE(6,7,8,9)
+			MOVE_PAUSE(0)	
+		ENDIF
+		MODBUS_BIT(36)=0		
+	ENDIF
+	
+	IF MODBUS_BIT(37) THEN				'运动继续
+		BASE(0)	
+		MOVE_RESUME
+
+		BASE(1)	
+		MOVE_RESUME
+
+		BASE(2)	
+		MOVE_RESUME
+
+		BASE(3)	
+		MOVE_RESUME
+	
+		'BASE(1)			
+		'MOVE_RESUME			
+			
+		'BASE(2)			
+		'MOVE_RESUME
+			
+		'BASE(3)			
+		'MOVE_RESUME			
+			
+		'BASE(4)			
+		'MOVE_RESUME	
+			
+		'BASE(5)		
+		'MOVE_RESUME
+			
+		BASE(6,7,8,9)
+		MOVE_RESUME
+		
+	ENDIF
+	
+	IF MODBUS_BIT(49) THEN				'调试模式:停报警、停通信任务、位置刷新
+		IF MODBUS_BIT(32) THEN			'使能
+			IF DPOSED=0 THEN
+				CALL Mode_Joint()
+			ENDIF
+		ENDIF
+		
+		IF PROC_STATUS(4)=1 THEN
+			STOPTASK(4)
+		ENDIF
+		
+		DPOSED=1 
+		ErrCOM_J1=0
+		ErrCOM_J2=0
+		ErrCOM_J3=0
+		ErrCOM_J4=0
+		ErrCOM_J5=0
+		ErrCOM_J6=0
+	ELSE		
+		IF PROC_STATUS(4)=0 THEN
+			RUNTASK 4,TA_ServoCom
+		ENDIF			
+	ENDIF
+	
+	IF MODBUS_BIT(34) OR MODBUS_BIT(38) THEN	      '复位或启动，使能
+		MODBUS_BIT(32)=1
+	ENDIF
+
+	IF CD_PSTOP THEN						'长时间未运行，关使能
+		MODBUS_BIT(32)=0
+	ENDIF
+
+	
+	IF MODBUS_BIT(32)=0 OR (MODBUS_BIT(34)=0 AND MODBUS_BIT(213)=1 AND MODBUS_BIT(38)=0) THEN				'停使能，关输出,关手自动
+		BASE(0)
+		CANCEL(2)
+	
+		BASE(1)
+		CANCEL(2)
+	
+		BASE(6)
+		CANCEL(2)
+		
+		CALL M_OFF1()
+		CALL M_OFF2()
+		
+		HOMEGET=0
+		DPOSED=0		
+	ENDIF
+wend
+
+TA_MAIN:
+	WHILE 1
+
+	CALL LimWrite()                  '限位写
+
+	IF MODBUS_BIT(102) THEN          '品种读取
+		CALL FormRead(Num_Form)
+		MODBUS_BIT(102)=0
+	ENDIF
+	
+	IF MODBUS_BIT(103) THEN            '品种写入
+		CALL FormWrite(Num_Form)		
+		MODBUS_BIT(103)=0
+	ENDIF	
+	
+	IF MODBUS_BIT(104) THEN           '工位读取
+		CALL HomePRead(Num_HomeP)
+		MODBUS_BIT(104)=0
+	ENDIF
+	
+	IF MODBUS_BIT(105) THEN           '工位写入
+		CALL HomePWrite(Num_HomeP)
+		MODBUS_BIT(105)=0	
+	ENDIF	
+
+	IF MODBUS_BIT(150) THEN	         'FLASH_R
+		CALL Flash_R()
+		?"Flash_R()"
+		MODBUS_BIT(150)=0
+	ENDIF
+
+	IF MODBUS_BIT(151) THEN	          'FLASH_W
+		CALL Flash_W()
+		?"Flash_W()"
+		MODBUS_BIT(151)=0
+	ENDIF
+	
+	IF MODBUS_BIT(40) THEN	                  '配方选择按钮
+		IF MODBUS_BIT(41) THEN                  '右配方
+			MODBUS_REG(209)=MODBUS_REG(248)
+			FormName_R=MODBUS_REG(209)
+			MODBUS_REG(207)=Form_N(FormName_R)   '右设定包数	
+			
+		ELSE
+			MODBUS_REG(208)=MODBUS_REG(248)
+			FormName_L=MODBUS_REG(208)
+			MODBUS_REG(206)=Form_N(FormName_L)    '左设定包数	
+					
+		ENDIF
+	ENDIF
+	
+	IF MODBUS_BIT(51) THEN'左结束堆码
+		MODBUS_REG(202)=99
+		MODBUS_BIT(55)=0
+		MODBUS_BIT(51)=0
+	ENDIF
+	
+	IF MODBUS_BIT(52) THEN'右结束堆码
+		MODBUS_REG(203)=99
+		MODBUS_BIT(56)=0
+		MODBUS_BIT(52)=0
+	ENDIF	
+	
+	IF MODBUS_BIT(53) THEN'左空盘放好
+		MODBUS_REG(202)=1
+		MODBUS_BIT(55)=1
+		MODBUS_BIT(53)=0
+	ENDIF	
+	
+	IF MODBUS_BIT(54) THEN'右空盘放好
+		MODBUS_REG(203)=1
+		MODBUS_BIT(56)=1
+		MODBUS_BIT(54)=0
+	ENDIF	
+
+	CALL FormShow(Num_Form)          '品种参数显示
+	CALL HomePShow(Num_HomeP)	       '工位参数显示
+	CALL ModeGET()                     '轴、直线、错误模式显示
+	CALL LimitPara1()                  '手动限位         
+	
+
+	IF MODBUS_BIT(31) THEN								'模式切换	
+		IF MTYPE(6)<>34 THEN
+			CALL Mode_Joint()
+		ELSE
+			CALL Mode_XYZ()
+		ENDIF
+		MODBUS_BIT(31)=0
+	ENDIF
+	
+	IF MODBUS_BIT(30) THEN           '手动模式
+		CALL SPCONTROL(1)              '手动速度
+		CALL JMOVE()                   '速度控制
+		HOMEGET=0                '复位成功清除
+	ELSE
+		CALL JSTOP()          '自动模式，手动停止
+		CALL M_OFF2()	
+	ENDIF
+	
+	IF MODBUS_BIT(38) AND Enabled THEN				'复位
+		CALL HOMEMOVE(HomeX(0),HomeY(0),HomeZ(0),HomeRz(0))
+		MODBUS_BIT(38)=0
+	ENDIF	
+		
+	WEND
+END
+
+'*****************************************************************************************************************************************
+TA_Move:
+	'LOCAL LF1
+	MODBUS_REG(202)=99					'左当前包数
+	MODBUS_REG(203)=99					'右当前包数
+
+	MODBUS_REG(206)=Form_N(FormName_L)	'左设定包数
+	MODBUS_REG(207)=Form_N(FormName_R)	'右设定包数
+	MODBUS_REG(208)=FormName_L			'左配方编号
+	MODBUS_REG(209)=FormName_R			'右配方编号
+
+	WHILE 1
+	
+		IF MODBUS_REG(202)> MODBUS_REG(206) THEN									'左垛达到设定包数
+			MODBUS_BIT(47)=0														'左垛禁止
+			MODBUS_BIT(55)=0														'空盘按钮显隐
+			IF MODBUS_REG(203)< MODBUS_REG(207) AND MODBUS_BIT(48)=1THEN		'右垛未满+右垛允许
+				MODBUS_BIT(39)=1													'转右垛
+			ENDIF
+		ENDIF
+	
+		IF MODBUS_REG(203)>MODBUS_REG(207) THEN									'转左垛
+			MODBUS_BIT(48)=0														'左垛禁止
+			MODBUS_BIT(56)=0														'空盘按钮显隐
+			IF MODBUS_REG(202)< MODBUS_REG(206) AND MODBUS_BIT(47)=1THEN
+				MODBUS_BIT(39)=0
+			ENDIF
+		ENDIF	
+		
+		IF MODBUS_REG(202)>5 THEN
+			MODBUS_REG(246)=MODBUS_REG(202)-5										'L下限包数限制
+		ELSE	
+			MODBUS_REG(246)=1
+		ENDIF
+		
+		IF MODBUS_REG(203)>5 THEN
+			MODBUS_REG(247)=MODBUS_REG(203)-5										'R下限包数限制
+		ELSE
+			MODBUS_REG(247)=1
+		ENDIF
+		
+
+		CALL AllowRUN() '允许抓包运行判断
+
+		'---------------X(0)抓包点
+		'---------------X(1)中间点
+		'---------------X(2)放包点
+		IF RunAllowedL THEN
+			CALL CengBag()            '层、包设置
+			LF1=MODBUS_BIT(39)       '左右跺转换
+			X(0) =HomeX(0)            '抓包平台
+			Y(0) =HomeY(0)
+			Z(0) =HomeZ(0)
+			Rz(0)=HomeRz(0)
+
+			
+			IF LF1 THEN	
+				PX(0)=HomeX(3)					'右托盘中心
+				PY(0)=HomeY(3)
+				PZ(0)=HomeZ(3)
+				
+				BagL   =Form_L(FormName_R)		'包长
+				BagD   =Form_D(FormName_R)		'包宽
+				CengH  =Form_H(FormName_R)		'层高
+				BagOFFx=Form_P(FormName_R)		'包间隔
+				DegOffs=Form_Degoffs(FormName_R) '角偏移
+				
+				
+				HLD=(BagL+BagD)/2
+				HL =BagL/2
+				HD =BagD/2
+				
+				IF Form_Type(FormName_R)=0 THEN '右垛型
+					CALL BagR5
+				ENDIF
+				IF Form_Type(FormName_R)=1 THEN
+					CALL BagR6
+				ENDIF				
+				IF Form_Type(FormName_R)=2 THEN
+					CALL BagR8
+				ENDIF				
+				IF Form_Type(FormName_R)=3 THEN
+					CALL BagR2
+				ENDIF
+				IF Form_Type(FormName_R)=4 THEN
+					CALL BagR5_1
+				ENDIF		
+
+			ELSE
+				PX(0)=HomeX(2)					'左托盘中心
+				PY(0)=HomeY(2)
+				PZ(0)=HomeZ(2)			
+			
+				BagL   =Form_L(FormName_L)		'包长
+				BagD   =Form_D(FormName_L)		'包宽
+				CengH  =Form_H(FormName_L)		'层高
+				BagOFFx=Form_P(FormName_L)		'包间隔
+				DegOffs=Form_Degoffs(FormName_L) '角偏移	
+				
+				HLD=(BagL+BagD)/2
+				HL =BagL/2
+				HD =BagD/2	
+
+				IF Form_Type(FormName_L)=0 THEN '左垛型
+					CALL BagL5
+				ENDIF
+				IF Form_Type(FormName_L)=1 THEN
+					CALL BagL6
+				ENDIF				
+				IF Form_Type(FormName_L)=2 THEN
+					CALL BagL8
+				ENDIF				
+				IF Form_Type(FormName_L)=3 THEN
+					CALL BagL2
+				ENDIF
+				IF Form_Type(FormName_L)=4 THEN
+					CALL BagL5_1
+				ENDIF	
+				
+			ENDIF	
+			
+			CALL MidPiontCount(X(0),Y(0),Z(0),X(2),Y(2))
+			CALL Mode_XYZ()	                           '直线模式
+			CALL SPCONTROL(2)                          '自动速度
+			CALL Y_OFFSET()		                       'Y偏移量 
+
+			BASE(6,7,8,9)
+			MOVEABS(X(0),Y(0),Z(0),Rz(0))			    	'抓包点		
+			WAIT IDLE 
+			MOVE_OP(1,ON)									'抓包
+			MOVE_DELAY(150)
+			MOVE_OP(2,ON)									'压包
+
+			MOVEABS(X(0),Y(0),Z(0)+400,Rz(0))			'抓包点Z+400			
+			MOVEABS(X(1),Y(1),Z(1),Rz(1))				'中间点		
+			'MOVEABS(X(2),Y(2),Z(2),Rz(2))				'放包点
+			MOVEABS(X(2),Y(2)+OFFSY,Z(2),Rz(2))				'放包点+Y偏移
+			MOVE_OP(2,OFF)									'松压包
+			MOVE_DELAY(150)
+			MOVE_OP(1,OFF)									'松抓包
+			CALL AllowRUN()
+			CALL SPCONTROL(3)
+			BASE(6,7,8,9)		
+			MOVEABS(X(2),Y(2),Z(2)+200,Rz(2))			   '放包点Z+200，安全离开		
+			MOVEABS(X(1),Y(1),Z(1),Rz(1))				'中间点
+			MOVEABS(X(0),Y(0),Z(0)+400,Rz(0))			'抓包点Z+400
+			MOVEABS(X(0),Y(0),Z(0),Rz(0))				'抓包点						
+			WAIT IDLE	
+			
+			IF LF1 THEN
+				MODBUS_REG(203)=MODBUS_REG(203)+1         '抓包后回到抓包点，包数加1
+			ELSE
+				MODBUS_REG(202)=MODBUS_REG(202)+1
+			ENDIF
+		ENDIF	
+	WEND	
+END
+
+'*****************************************************************************************************************************************
+TA_Err:
+	WHILE 1
+		
+		'IF ENDMOVE(5)<RS_LIMIT(5) THEN
+			'MODBUS_REG(251)=111											'J6RSLIMIT
+			'MODBUS_BIT(11)=0
+		'ENDIF
+		
+		'IF ENDMOVE(5)>FS_LIMIT(5) THEN
+			'MODBUS_REG(251)=110											'J6FSLIMIT
+			'MODBUS_BIT(10)=0
+		'ENDIF
+
+		'IF ENDMOVE(4)<RS_LIMIT(4) THEN
+			'MODBUS_REG(251)=109
+			'MODBUS_BIT(9)=0
+		'ENDIF
+		
+		'IF ENDMOVE(4)>FS_LIMIT(4) THEN
+			'MODBUS_REG(251)=108
+			'MODBUS_BIT(8)=0
+		'ENDIF
+	
+		IF ENDMOVE(3)<RS_LIMIT(3) THEN
+			MODBUS_REG(251)=107
+			MODBUS_BIT(7)=0
+		ENDIF
+		
+		IF ENDMOVE(3)>FS_LIMIT(3) THEN
+			MODBUS_REG(251)=106
+			MODBUS_BIT(6)=0
+		ENDIF
+	
+		IF ENDMOVE(2)<RS_LIMIT(2) THEN
+			MODBUS_REG(251)=105
+			MODBUS_BIT(5)=0
+		ENDIF
+		
+		IF ENDMOVE(2)>FS_LIMIT(2) THEN
+			MODBUS_REG(251)=104
+			MODBUS_BIT(4)=0
+		ENDIF
+
+		IF ENDMOVE(1)<RS_LIMIT(1) THEN
+			MODBUS_REG(251)=103
+			MODBUS_BIT(3)=0
+		ENDIF
+		
+		IF ENDMOVE(1)>FS_LIMIT(1) THEN
+			MODBUS_REG(251)=102
+			MODBUS_BIT(2)=0
+		ENDIF
+	
+		IF ENDMOVE(0)<RS_LIMIT(0) THEN
+			MODBUS_REG(251)=101											'J1RSLIMIT
+			MODBUS_BIT(1)=0
+		ENDIF
+		
+		IF ENDMOVE(0)>FS_LIMIT(0) THEN
+			MODBUS_REG(251)=100											'J1FSLIIMT
+			MODBUS_BIT(0)=0
+		ENDIF
+		
+		IF MODBUS_BIT(47)=0 AND MODBUS_BIT(48)=0 AND MODBUS_BIT(34) THEN
+			'MODBUS_REG(251)=52												'左右都禁止		
+		ENDIF	
+	
+		IF MODBUS_BIT(34) OR MODBUS_BIT(38) THEN							'运行 or 复位
+			IF IN(1)=0 AND MODBUS_BIT(47) THEN		'左安全开关+左允许		
+				MODBUS_REG(251)=51											
+				MODBUS_BIT(47)=0
+			ENDIF
+	
+			IF IN(2)=0 AND MODBUS_BIT(48) THEN		'右安全开关+右允许		
+				MODBUS_REG(251)=50										
+				MODBUS_BIT(48)=0
+			ENDIF
+			
+		ENDIF
+		
+		IF CD_PawON AND Enabled AND MODBUS_BIT(34) THEN		
+			MODBUS_REG(251)=21												'抓手打开故障
+		ENDIF 
+		
+		IF Mode_XJ=2 AND Enabled AND MODBUS_BIT(32) AND MODBUS_BIT(49)=0 THEN
+			MODBUS_REG(251)=20												'正逆解错误
+		ENDIF
+
+		IF MODBUS_BIT(34) AND HOMEGET=0 THEN
+			MODBUS_REG(251)=18												'机器人未复位		
+		ENDIF
+	
+		IF IN(0)=0 AND (MODBUS_BIT(34) OR MODBUS_BIT(38)) THEN
+			MODBUS_REG(251)=16												'伺服未上电
+		ENDIF
+	
+	
+		'IF ErrCOM_J6 THEN
+			'MODBUS_REG(251)=15							'J6通信报警	
+		'ENDIF
+	
+		'IF ErrCOM_J5 THEN
+			'MODBUS_REG(251)=14							'J5通信报警	
+		'ENDIF
+	
+		IF ErrCOM_J4 THEN
+			MODBUS_REG(251)=13							'J4通信报警	
+		ENDIF
+	
+		IF ErrCOM_J3 THEN
+			MODBUS_REG(251)=12							'J3通信报警	
+		ENDIF	
+
+		IF ErrCOM_J2 THEN
+			MODBUS_REG(251)=11							'J2通信报警	
+		ENDIF
+	
+		IF ErrCOM_J1 THEN
+			MODBUS_REG(251)=10							'J1通信报警	
+		ENDIF
+	
+	
+		IF CD_Enable AND MODBUS_BIT(49)=0 THEN		'使能报警检测时间到+调试模式关
+		
+			IF IN(29)=0 THEN
+				'MODBUS_REG(251)=9						'J6使能报警
+			ENDIF	
+	
+			IF IN(28)=0 THEN
+				'MODBUS_REG(251)=8	
+			ENDIF	
+	
+			IF IN(27)=0 THEN
+				MODBUS_REG(251)=7	
+			ENDIF
+		
+			IF IN(26)=0 THEN
+				MODBUS_REG(251)=6	
+			ENDIF	
+	
+			IF IN(25)=0 THEN
+				MODBUS_REG(251)=5	
+			ENDIF	
+	
+			IF IN(24)=0 THEN
+				MODBUS_REG(251)=4			    'J1使能报警
+			ENDIF
+	
+		ENDIF
+	
+		IF IN(21) THEN
+			MODBUS_REG(251)=3														'柜体急停已按下
+		ENDIF
+	
+		IF IN(23)=0 THEN															'示教器急停已按下
+			MODBUS_REG(251)=2
+		ENDIF
+	
+		IF OP(0) AND IN(0)=0 AND CD_PWON THEN
+			MODBUS_BIT(33)=0
+			MODBUS_REG(251)=1														'上电报警
+		ENDIF
+
+
+	
+		IF (MODBUS_REG(251)>=100 AND MODBUS_REG(251)<120) THEN					'不同报警值对应的输出
+			IF MODBUS_BIT(213)=0 AND MODBUS_BIT(30)=0 AND MODBUS_BIT(34)=1 THEN	'是否暂停反馈+自动模式+运行中
+				MODBUS_BIT(36)=1
+			ENDIF
+			HOMEGET=0
+			MODBUS_BIT(34)=0
+		ENDIF
+	
+		IF (MODBUS_REG(251)>49 AND MODBUS_REG(251)<52) THEN						'安全开关触发暂停按钮
+			IF MODBUS_BIT(213)=0 THEN					'是否暂停反馈
+				MODBUS_BIT(36)=1
+			ENDIF
+		ENDIF
+		
+		IF (MODBUS_REG(251)>0 AND MODBUS_REG(251)<22) THEN						'不同报警值对应的输出
+			MODBUS_BIT(32)=0														'关使能
+			MODBUS_BIT(34)=0														'关运行
+			MODBUS_BIT(38)=0														'关复位
+			
+			IF MODBUS_REG(251)<>19  THEN
+				HOMEGET=0
+			ENDIF
+		ENDIF
+		
+
+
+		IF MODBUS_REG(251)=0 THEN
+			IF MODBUS_BIT(33) THEN
+				IF MODBUS_BIT(34) THEN
+					MODBUS_REG(253)=2  											'使能警示灯绿色：上电并运行中
+				ELSE
+					MODBUS_REG(253)=4  											'运行警示灯红色：上电未运行
+				ENDIF
+			ELSE
+				MODBUS_REG(253)=0													'运行警示灯不亮：未上电
+			ENDIF
+		ELSE
+			MODBUS_REG(254)=1														'信息栏红色
+			MODBUS_REG(253)=1+8													'报警警示灯黄色+蜂鸣器：报警
+		ENDIF
+
+	WEND
+END
+
+'****************************************************************************************************************************************
+TA_ServoCom:
+	WHILE 1
+		'IF MODBUS_REG(251)=9 THEN
+			'CALL MB_R(6,4122,1,260)
+		'ENDIF
+
+		'IF MODBUS_REG(251)=8 THEN
+			'CALL MB_R(5,4122,1,259)
+		'ENDIF
+
+		IF MODBUS_REG(251)=7 THEN
+			CALL MB_R(4,4122,1,258)
+		ENDIF
+
+		IF MODBUS_REG(251)=6 THEN
+			CALL MB_R(3,4122,1,257)
+		ENDIF
+
+		IF MODBUS_REG(251)=5 THEN
+			CALL MB_R(2,4122,1,256)
+		ENDIF
+
+		IF MODBUS_REG(251)=4 THEN
+			CALL MB_R(1,4122,1,255)      '1# 驱动器报警代码
+		ENDIF	
+	
+		IF MODBUS_BIT(50) OR MODBUS_BIT(32) THEN	'位置读取:手动读 OR 使能
+			IF DPOSED=0 THEN
+				CALL DPOS_RD()
+			ENDIF
+		ENDIF
+		
+
+	WEND
+END
+
+'*****************************************************************************************************************************************
+TA_Out:
+	WHILE 1
+	IF (DPOSED AND MODBUS_BIT(32)) THEN		'位置读取成功+使能
+		OP(12,ON)								'使能输出
+		OP(13,ON)
+		OP(14,ON)
+		OP(15,ON)
+		
+	ELSE
+		OP(12,OFF)								'使能关闭
+		OP(13,OFF)
+		OP(14,OFF)
+		OP(15,OFF)
+		
+	ENDIF
+
+	IF MODBUS_BIT(33) THEN										'伺服上电	
+		OP(0,ON)
+	ELSE	
+		OP(0,OFF)
+		CALL M_OFF1()
+		CALL M_OFF2()
+	ENDIF
+	
+	IF (OP(12) AND IN(24)) THEN
+		OP(6,ON)
+	ELSE
+		OP(6,OFF)
+	ENDIF
+	
+	IF (OP(13) AND IN(25)) THEN
+		OP(7,ON)
+	ELSE
+		OP(7,OFF)
+	ENDIF
+	
+	IF (OP(14) AND IN(26)) THEN
+		OP(8,ON)
+	ELSE
+		OP(8,OFF)
+	ENDIF
+	
+	IF (OP(15) AND IN(27)) THEN
+		OP(9,ON)
+	ELSE
+		OP(9,OFF)
+	ENDIF
+	
+	'IF (OP(16) AND IN(28)) THEN
+		'OP(10,ON)
+	'ELSE
+		'OP(10,OFF)
+	'ENDIF	
+		
+	'IF (OP(17) AND IN(29)) THEN
+		'OP(11,ON)
+	'ELSE
+		'OP(11,OFF)
+	'ENDIF
+
+	IF (IN(24) AND IN(25) AND IN(26) AND IN(27) ) OR (MODBUS_BIT(49) AND MODBUS_BIT(32)) THEN			'使能反馈 or (调试模式+使能)
+		Enabled=1
+	ELSE
+		Enabled=0
+	ENDIF
+	
+	WEND
+END
+
+'*****************************************************************************************************************************************
+TA_Mapping:
+	WHILE 1
+	
+		Num_Form =MODBUS_REG(248)'编号_配方
+		Num_HomeP=MODBUS_REG(249)'编号_堆码设置
+	
+		MODBUS_BIT(210)=HOMEGET							'复位成功
+		
+		IF MODBUS_REG(202)>MODBUS_REG(206) THEN					'左满垛显示
+			MODBUS_BIT(211)=1
+		ELSE
+			MODBUS_BIT(211)=0
+		ENDIF
+	
+		IF MODBUS_REG(203)>MODBUS_REG(207) THEN					'右满垛显示
+			MODBUS_BIT(212)=1
+		ELSE
+			MODBUS_BIT(212)=0
+		ENDIF
+		
+		IF READ_BIT2(23,AXISSTATUS(0))=1 OR READ_BIT2(23,AXISSTATUS(1))=1 OR READ_BIT2(23,AXISSTATUS(6))=1 THEN
+			MODBUS_BIT(213)=1    '暂停状态
+		ELSE	
+			MODBUS_BIT(213)=0
+		ENDIF
+            
+			'MODBUS_IEEE(244)=RZ(2)
+			IF -(DPOS(0)-DPOS(3))>=0 THEN
+				MODBUS_IEEE(244)=-(DPOS(0)-DPOS(3))
+			ELSE
+				MODBUS_IEEE(244)=-(DPOS(0)-DPOS(3))+360
+			ENDIF
+
+	
+		
+		MODBUS_REG(204)=Form_Type(FormName_L)
+		MODBUS_REG(205)=Form_Type(FormName_R)		
+		MODBUS_REG(250)=Mode_XJ
+
+	WEND
+END
+
+'*****************************************************************************************************************************************
+'*****************************************************************************************************************************************
+'*****************************************************************************************************************************************
+'*****************************************************************************************************************************************
+'*************************************************************************************************************************
+'*****************************************************************************************************************************************
+'*****************************************************************************************************************************************
+'*****************************************************************************************************************************************
+SUB Mode_Joint()
+	IF MTYPE(6)<>34 THEN
+		BASE(6,7,8,9) 				'选择虚拟轴号
+		CONNREFRAME(3,0,0,1,2,3) 		'启动正解连接。
+		WAIT LOADED 
+		DELAY(1000)
+		?"New_JOINT"
+	ELSE
+		'?"old_JOINT"
+	ENDIF
+END SUB
+
+SUB Mode_XYZ()
+	IF MTYPE(0)<>33 THEN
+		BASE(0,1,2,3) 					'选择关节轴号
+		CONNFRAME(3,0,6,7,8,9) 		'启动逆解连接。
+		WAIT LOADED
+		DELAY(1000)
+		?"New_XYZ"
+	ELSE
+		'?"old_XYZ"
+	ENDIF	
+END SUB
+
+SUB JOG_MOVE(M0,M1,J)
+	IF MODBUS_BIT(M0)=ON THEN
+		FWD_JOG(J)=30
+	ELSE
+		FWD_JOG(J)=-1
+	ENDIF
+ 
+	IF MODBUS_BIT(M1)=ON THEN
+		REV_JOG(J)=30
+	ELSE
+		REV_JOG(J)=-1
+	ENDIF
+	
+	IF (MODBUS_BIT(M0)=ON AND MODBUS_BIT(M1)=ON) OR (MODBUS_BIT(M0)=OFF AND MODBUS_BIT(M1)=OFF) THEN
+		FWD_JOG(J)=-1
+		REV_JOG(J)=-1
+		MODBUS_BIT(M0)=OFF
+		MODBUS_BIT(M1)=OFF
+	ENDIF
+	
+END SUB
+
+SUB  NameDim()
+	GLOBAL DPOSED,HOMEGET,Enabled,Mode_XJ
+	GLOBAL X(100),Y(100),Z(100),Rx(100),Ry(100),Rz(100)
+	GLOBAL PX(100),PY(100),PZ(100),PRx(100),PRy(100),PRz(100),XRz(100)
+
+	GLOBAL LimF(60),LimR(60),Form_L(60),Form_D(60),Form_H(60),Form_P(60),Form_N(60),Form_Type(60),Form_Degoffs(60),HomeX(60),HomeY(60),HomeZ(60),HomeRz(60)
+	GLOBAL SP_Max,SP_Per,SP_ACC,SP_DEC,Ry0,ACC_Down,DEC_Down,ACC_Up,DEC_Up,ACC_Move,DEC_Move
+	GLOBAL MJ,MX,PR,RunAllowedL,LM
+	GLOBAL Num_Form,Num_HomeP	
+	GLOBAL DegOffs,A1(20)
+	GLOBAL BagNumL,CengNumL,CengHL,FormName_L,BagNumR,CengNumR,CengHR,FormName_R
+	GLOBAL BagL,BagD,CengH,BagOFFx,DegOffs	
+	
+	DIM HLD,HL,HD
+	DIM X2,Y2,Z2,SS
+	DIM NumL_BagCeng,NumR_BagCeng
+	DIM ErrCOM_J1,ErrCOM_J2,ErrCOM_J3,ErrCOM_J4,ErrCOM_J5,ErrCOM_J6
+	GLOBAL L_ALL_YOFFS,R_ALL_YOFFS,OFFSY,LF1
+END SUB
+
+SUB DPOS_RD()
+
+	'必须为轴模式才能更新Dpos
+	DPOSED=0
+	'ErrCOM_J1=1		'各轴通信状态置1，等待通信成功后置零
+	'ErrCOM_J2=1
+	'ErrCOM_J3=1
+	'ErrCOM_J4=1
+	'ErrCOM_J5=1
+	'ErrCOM_J6=1
+
+	CALL Mode_Joint()
+		
+	CALL MB_R(1,4127,2,400)
+	ErrCOM_J1=RETURN  
+
+	CALL MB_R(2,4127,2,402)
+	ErrCOM_J2=RETURN 
+
+	CALL MB_R(3,4127,2,404) 
+	ErrCOM_J3=RETURN 
+ 
+	CALL MB_R(4,4127,2,406)
+	ErrCOM_J4=RETURN 
+	'ErrCOM_J4=0											'屏蔽不使用的第4轴
+	
+	'CALL MB_R(5,4127,2,408)
+	'ErrCOM_J5=RETURN   
+
+	'CALL MB_R(6,4127,2,410)
+	'ErrCOM_J6=RETURN  
+
+	IF (ErrCOM_J1=0 AND ErrCOM_J2=0 AND ErrCOM_J3=0 AND ErrCOM_J4=0 ) THEN
+		DPOS(0)=MODBUS_LONG(400)*45/(RT0*1048576)
+		DPOS(1)=MODBUS_LONG(402)*45/(RT1*1048576)
+		DPOS(2)=MODBUS_LONG(404)*45/(RT2*1048576)-9.162
+		DPOS(3)=MODBUS_LONG(406)*45/(RT3*1048576)
+		'DPOS(4)=MODBUS_LONG(408)*45/(RT4*1048576)
+		'DPOS(5)=MODBUS_LONG(410)*45/(RT5*1048576)
+		
+		DPOSED=1			
+		?"位置刷新成功"
+	ELSE
+		DPOSED=0		
+		?"位置刷新失败"		
+	ENDIF
+	
+END SUB
+
+SUB MB_R(Adr,ST,Len,R)               '伺服通信读子程序,Adr站号，ST起始地址，Len长度，R存放地址
+	LOCAL C
+	MODBUSM_DES(Adr,1)                                         
+	MODBUSM_REGGET(ST,Len,R)                             
+	WAIT UNTIL MODBUSM_STATE<>1	
+	DELAY(50)
+	RETURN MODBUSM_STATE
+END SUB
+
+SUB MB_W(Adr,ST,Len,W)               '伺服通信写子程序,Adr站号，ST起始地址，Len长度，W写字地址
+	MODBUSM_DES(Adr,1)                                          
+	MODBUSM_REGSET(ST,Len,W)                             
+	WAIT UNTIL MODBUSM_STATE<>1 
+	IF MODBUSM_STATE=0 THEN
+		?"#写入正常"Adr
+	ELSEIF MODBUSM_STATE=2 THEN
+		?"#写入超时"Adr
+	ELSEIF MODBUSM_STATE=3 THEN
+		?"#写入错误"Adr
+	ENDIF
+	
+	DELAY(50)
+END SUB
+
+SUB ModeGET()
+	IF MTYPE(6)=34 THEN
+		Mode_XJ=0
+	ELSEIF MTYPE(0)=33 THEN
+		Mode_XJ=1
+	ELSE
+		Mode_XJ=2
+	ENDIF	
+END SUB
+
+SUB LimitPara1()	
+	IF SP_Per>100 THEN	'速度保护限制
+		SP_Per=50   'SP_per 速度百分比
+	ENDIF
+	
+	IF SP_Per<0   THEN
+		SP_Per=10
+	ENDIF
+	
+	CALL J_Limit(0,LimF(0),LimR(0),MODBUS_BIT(0),MODBUS_BIT(1))
+	CALL J_Limit(1,LimF(1),LimR(1),MODBUS_BIT(2),MODBUS_BIT(3))
+	CALL J_Limit(2,LimF(2),LimR(2),MODBUS_BIT(4),MODBUS_BIT(5))
+	CALL J_Limit(3,LimF(3),LimR(3),MODBUS_BIT(6),MODBUS_BIT(7))
+	'CALL J_Limit(4,LimF(4),LimR(4),MODBUS_BIT(8),MODBUS_BIT(9))
+	'CALL J_Limit(5,LimF(5),LimR(5),MODBUS_BIT(10),MODBUS_BIT(11))
+	
+	CALL J_Limit(6,LimF(6),LimR(6),MODBUS_BIT(0),MODBUS_BIT(1))
+	CALL J_Limit(7,LimF(7),LimR(7),MODBUS_BIT(2),MODBUS_BIT(3))
+	CALL J_Limit(8,LimF(8),LimR(8),MODBUS_BIT(4),MODBUS_BIT(5))
+	CALL J_Limit(9,LimF(9),LimR(9),MODBUS_BIT(6),MODBUS_BIT(7))
+	'CALL J_Limit(10,LimF(10),LimR(10),MODBUS_BIT(8),MODBUS_BIT(9))
+	'CALL J_Limit(11,LimF(11),LimR(11),MODBUS_BIT(10),MODBUS_BIT(11))	
+END SUB
+
+SUB J_Limit(J,LF,LR,MF,MR)
+	LOCAL S
+	IF DECEL(J)<>0 AND IDLE(J)=0 THEN
+		S=MSPEED(J)*MSPEED(J)/2/DECEL(J)+0.5
+	ENDIF
+	
+	IF MODBUS_BIT(30) THEN
+		FS_LIMIT(J)=LF-S'手动时提前停
+		RS_LIMIT(J)=LR+S
+	ELSE
+		FS_LIMIT(J)=LF
+		RS_LIMIT(J)=LR	
+	ENDIF	
+END SUB
+
+SUB HOMEMOVE(HX,HY,HZ,HRz)
+	BASE(0)
+	CANCEL(2)
+	
+	BASE(1)
+	CANCEL(2)
+		
+	BASE(6)
+	CANCEL(2)
+	
+	HOMEGET=0
+	OP(1,OFF)
+	OP(2,OFF)
+	CALL Mode_Joint()
+	
+	BASE(1,2)
+	ACCEL=50,50
+	DECEL=50,50
+	FORCE_SPEED=10,10
+
+	MOVEABSSP(0,0)
+	WAIT IDLE	
+	
+	BASE(0,1,2,3)
+	ACCEL=50,50,50,50
+	DECEL=50,50,50,50
+	FORCE_SPEED=10,10,10,10
+
+	MOVEABSSP(0,0,0,HRz)
+	WAIT IDLE
+
+	MOVE_DELAY(800)
+	WAIT IDLE
+	
+	CALL Mode_XYZ()
+	
+	BASE(0,1,2,3)
+	ACCEL=500,500,500,500
+	DECEL=500,500,500,500
+	SPEED=100,100,100,100
+	
+	BASE(6,7,8,9)
+	ACCEL=1500,1500,1500,1500
+	DECEL=1500,1500,1500,1500
+	FORCE_SPEED=300,300,300,300	
+
+	MOVEABSSP(HX,HY,HZ+300,HRz)			
+
+	WAIT IDLE
+	IF ABS(DPOS(6)-HX)<0.1 AND ABS(DPOS(7)-HY)<0.1 AND ABS(DPOS(8)-HZ)<300.1  AND ABS(DPOS(9)-HRz)<0.1 AND MTYPE(0)=33 THEN
+		HOMEGET=1	
+	ELSE
+		HOMEGET=0
+	ENDIF	
+END SUB
+
+SUB JMOVE()
+	IF MTYPE(6)=34 THEN
+		CALL JOG_MOVE(0,1,0)
+		CALL JOG_MOVE(2,3,1)	
+		CALL JOG_MOVE(4,5,2)
+		CALL JOG_MOVE(6,7,3)
+		'CALL JOG_MOVE(8,9,4)
+		'CALL JOG_MOVE(10,11,5)	
+	ENDIF
+	
+	IF MTYPE(0)=33 THEN
+		CALL JOG_MOVE(0,1,6)
+		CALL JOG_MOVE(2,3,7)	
+		CALL JOG_MOVE(4,5,8)
+		CALL JOG_MOVE(6,7,9)
+		'CALL JOG_MOVE(8,9,10)
+		'CALL JOG_MOVE(10,11,11)
+	ENDIF
+END SUB
+
+SUB SPCONTROL(A)
+	LOCAL SPJA,ACJA,DEJA
+	LOCAL SPJX,ACJX,DEJX
+	LOCAL SPRA,ACRA,DERA
+	LOCAL SPRX,ACRX,DERX
+	LOCAL Per
+	LOCAL Ro1,Ro2,Ro3,Ro4,Ro5,Ro6
+	Ro1=1
+	Ro2=0.907
+	Ro3=0.956
+	Ro4=1.369
+	Ro5=1.376
+	Ro6=1.880
+
+	Per=SP_Per/100
+	
+	
+	SPJA=SP_Max*Per/2
+	ACJA=SP_ACC*SPJA				 
+	DEJA=SP_DEC*SPJA				
+	
+	SPJX=SP_Max*30*Per/2
+	ACJX=SP_ACC*SPJX                
+	DEJX=SP_DEC*SPJX				 
+	
+	SPRA=SP_Max*Per
+	ACRA=SP_ACC*SPRA				
+	DERA=SP_DEC*SPRA				
+
+	SPRX=SP_Max*30*Per
+	ACRX=SP_ACC*SPRX				 
+	DERX=SP_DEC*SPRX		 		
+	
+	IF A=1 THEN
+		IF Mode_XJ=0 THEN
+			BASE(0,1,2,3)
+			SPEED	 =SPJA,SPJA,SPJA,SPJA'手动轴模式
+			JOGSPEED=SPJA,SPJA,SPJA,SPJA
+			ACCEL	 =ACJA,ACJA,ACJA,ACJA
+			DECEL	 =DEJA,DEJA,DEJA,DEJA
+	
+			BASE(6,7,8,9)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+		ELSEIF Mode_XJ=1 THEN
+			BASE(0,1,2,3)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+		
+			BASE(6,7,8,9)
+			SPEED	 =SPJX,SPJX,SPJX,SPJA'手动XYZ模式
+			JOGSPEED=SPJX,SPJX,SPJX,SPJA
+			ACCEL   =ACJX,ACJX,ACJX,ACJX
+			DECEL   =DEJX,DEJX,DEJX,DEJX
+		
+		ENDIF
+	ENDIF
+	
+	IF A=2 THEN
+		IF Mode_XJ=0 THEN
+			BASE(0,1,2,3)
+			SPEED=SPRA,SPRA,SPRA,SPRA'自动轴模式
+			ACCEL=ACRA,ACRA,ACRA,ACRA
+			DECEL=DERA,DERA,DERA,DERA
+	
+			BASE(6,7,8,9)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+			
+		ELSEIF Mode_XJ=1 THEN
+			BASE(0,1,2,3)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+		
+			BASE(6,7,8,9)
+			SPEED=SPRX,SPRX,SPRX,SPRA'自动XYZ模式
+			ACCEL=ACRX,ACRX,ACRX,ACRA
+			DECEL=DERX,DERX,DERX,DERA	
+	
+		ENDIF
+	ENDIF
+	
+	IF A=3 THEN
+		IF Mode_XJ=0 THEN
+			BASE(0,1,2,3,)
+			SPEED=SPRA,SPRA,SPRA,SPRA
+			ACCEL=ACRA,ACRA,ACRA,ACRA
+			DECEL=DERA,DERA,DERA,DERA
+	
+			BASE(6,7,8,9)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+			
+		ELSEIF Mode_XJ=1 THEN
+			BASE(0,1,2,3)
+			SPEED=3000,3000,3000,3000
+			ACCEL=3000,3000,3000,3000
+			DECEL=3000,3000,3000,3000
+		
+			BASE(6,7,8,9)
+			FORCE_SPEED=SPRX,SPRX,SPRX,SPRA
+			ACCEL=ACRX,ACRX,ACRX,ACRA
+			DECEL=DERX*0.5,DERX*0.5,DERX*0.5,DERA*0.5
+	
+		ENDIF
+						 
+						 
+	ENDIF	
+	
+END SUB
+
+SUB ACCCONTROL(A)
+	LOCAL Per,RUN_SP,RUN_ACC,RUN_DEC
+	
+	Per=SP_Per/100
+	RUN_SP =SP_Max*30*Per
+	
+	IF A=0 THEN
+		RUN_ACC=ACC_Down*RUN_SP
+		RUN_DEC=DEC_Down*RUN_SP
+	ENDIF
+	
+	IF A=1 THEN
+		RUN_ACC=ACC_Up*RUN_SP
+		RUN_DEC=DEC_UP*RUN_SP
+	ENDIF
+	
+	IF A=2 THEN
+		RUN_ACC=ACC_Move*RUN_SP
+		RUN_DEC=DEC_Move*RUN_SP
+	ENDIF
+	
+	BASE(0,1,2,3)
+	SPEED=3000,3000,3000,3000
+	ACCEL=3000,3000,3000,3000
+	DECEL=3000,3000,3000,3000
+	
+	BASE(6,7,8,9)
+	MOVE_PARA(SPEED,6,RUN_SP)
+	MOVE_PARA(SPEED,7,RUN_SP)
+	MOVE_PARA(SPEED,8,RUN_SP)
+	MOVE_PARA(SPEED,9,RUN_SP)	
+	'MOVE_PARA(SPEED,11,RUN_SP)		
+	
+	MOVE_PARA(ACCEL,6,RUN_ACC)
+	MOVE_PARA(ACCEL,7,RUN_ACC)	
+	MOVE_PARA(ACCEL,8,RUN_ACC)	
+	MOVE_PARA(ACCEL,9,RUN_ACC)	
+	'MOVE_PARA(ACCEL,11,RUN_ACC)	
+	
+	MOVE_PARA(DECEL,6,RUN_DEC)
+	MOVE_PARA(DECEL,7,RUN_DEC)
+	MOVE_PARA(DECEL,8,RUN_DEC)
+	MOVE_PARA(DECEL,9,RUN_DEC)
+	'MOVE_PARA(DECEL,11,RUN_DEC)
+	
+END SUB
+
+SUB	 JSTOP()
+	FWD_JOG(0)=-1
+	REV_JOG(0)=-1
+	FWD_JOG(1)=-1
+	REV_JOG(1)=-1
+	FWD_JOG(2)=-1
+	REV_JOG(2)=-1
+	FWD_JOG(3)=-1
+	REV_JOG(3)=-1
+	
+	FWD_JOG(6)=-1
+	REV_JOG(6)=-1
+	FWD_JOG(7)=-1
+	REV_JOG(7)=-1
+	FWD_JOG(8)=-1
+	REV_JOG(8)=-1
+	FWD_JOG(9)=-1
+	REV_JOG(9)=-1
+END SUB
+
+SUB CengBag()
+	IF Form_Type(FormName_L)=0 THEN
+		NumL_BagCeng=5 'L5单层包数
+	ENDIF
+	
+	IF Form_Type(FormName_L)=1 THEN
+		NumL_BagCeng=6 'L6单层包数
+	ENDIF
+	
+	IF Form_Type(FormName_L)=2 THEN
+		NumL_BagCeng=8 'L8单层包数
+	ENDIF	
+	
+	IF Form_Type(FormName_L)=3 THEN
+		NumL_BagCeng=2 'L2单层包数
+	ENDIF	
+	
+	IF Form_Type(FormName_L)=4 THEN
+		NumL_BagCeng=5 'L5_1单层包数
+	ENDIF	
+	
+	IF Form_Type(FormName_R)=0 THEN
+		NumR_BagCeng=5 'R5单层包数
+	ENDIF
+	
+	IF Form_Type(FormName_R)=1 THEN
+		NumR_BagCeng=6 'R6单层包数
+	ENDIF
+	
+	IF Form_Type(FormName_R)=2 THEN
+		NumR_BagCeng=8 'R8单层包数
+	ENDIF	
+	
+	IF Form_Type(FormName_R)=3 THEN
+		NumR_BagCeng=2 'R2单层包数
+	ENDIF	
+	
+	IF Form_Type(FormName_R)=4 THEN
+		NumR_BagCeng=5 'R5_1单层包数
+	ENDIF
+	
+	IF (MODBUS_REG(203) MOD NumR_BagCeng)=0 THEN            '右跺层数  cengNumr
+		CengNumR=(MODBUS_REG(203) \ NumR_BagCeng) -1
+	ELSE
+		CengNumR=MODBUS_REG(203) \ NumR_BagCeng
+	ENDIF
+		
+	IF CengNumR<0 THEN
+		CengNumR=0
+	ENDIF	
+	
+	IF MODBUS_REG(202) MOD NumL_BagCeng =0 THEN              '右跺层数  cengNumr
+		CengNumL=(MODBUS_REG(202) \ NumL_BagCeng) -1	
+	ELSE
+		CengNumL=(MODBUS_REG(202) \ NumL_BagCeng)
+	ENDIF
+	
+	IF CengNumL<0 THEN
+		CengNumL=0
+	ENDIF
+
+	
+	
+	IF (Form_Type(FormName_L)=0 OR Form_Type(FormName_L)=2  OR Form_Type(FormName_L)=4) THEN'L5/L8/L5_1
+		IF MODBUS_REG(202) MOD (NumL_BagCeng*2) =0 THEN
+			BagNumL=(NumL_BagCeng*2)
+		ELSE
+			BagNumL=MODBUS_REG(202) MOD (NumL_BagCeng*2)
+		ENDIF		
+	ENDIF
+	
+	IF Form_Type(FormName_L)=1 THEN'L6
+		IF CengNumL=5000 THEN
+			IF MODBUS_REG(202) MOD (NumL_BagCeng*2) =0 THEN
+				BagNumL=(NumL_BagCeng*2)
+			ELSE
+				BagNumL=MODBUS_REG(202) MOD (NumL_BagCeng*2)
+			ENDIF				
+		ELSE
+			IF MODBUS_REG(202) MOD (NumL_BagCeng) =0 THEN
+				BagNumL=(NumL_BagCeng)
+			ELSE
+				BagNumL=MODBUS_REG(202) MOD (NumL_BagCeng)
+			ENDIF			
+		ENDIF
+	ENDIF
+	
+	IF Form_Type(FormName_L)=3 THEN'L2
+		IF MODBUS_REG(202) MOD (NumL_BagCeng) =0 THEN
+			BagNumL=(NumL_BagCeng)
+		ELSE
+			BagNumL=MODBUS_REG(202) MOD (NumL_BagCeng)
+		ENDIF
+		
+		IF (MODBUS_REG(202)= MODBUS_REG(206)) THEN
+			BagNumL=3				
+		ENDIF				
+	ENDIF	
+
+
+	
+	IF (Form_Type(FormName_R)=0 OR Form_Type(FormName_R)=2  OR Form_Type(FormName_R)=4) THEN'R5/R8/R5_1
+		IF MODBUS_REG(203) MOD (NumR_BagCeng*2) =0  THEN
+			BagNumR=(NumR_BagCeng*2)
+		ELSE
+			BagNumR=MODBUS_REG(203) MOD (NumR_BagCeng*2)
+		ENDIF
+	ENDIF
+
+	IF Form_Type(FormName_R)=1 THEN'R6
+		IF CengNumR=5000 THEN
+			IF MODBUS_REG(203) MOD (NumR_BagCeng*2) =0 THEN
+				BagNumR=(NumR_BagCeng*2)
+			ELSE
+				BagNumR=MODBUS_REG(203) MOD (NumR_BagCeng*2)
+			ENDIF				
+		ELSE
+			IF MODBUS_REG(203) MOD (NumR_BagCeng) =0 THEN
+				BagNumR=(NumR_BagCeng)
+			ELSE
+				BagNumR=MODBUS_REG(203) MOD (NumR_BagCeng)
+			ENDIF			
+		ENDIF		
+	ENDIF
+		
+	IF Form_Type(FormName_R)=3 THEN'R2
+		IF MODBUS_REG(203) MOD (NumR_BagCeng) =0  THEN
+			BagNumR=(NumR_BagCeng)
+		ELSE
+			BagNumR=MODBUS_REG(203) MOD (NumR_BagCeng)
+		ENDIF	
+		
+		IF (MODBUS_REG(203)= MODBUS_REG(207)) THEN
+			BagNumR=3				
+		ENDIF	
+	ENDIF	
+	
+END SUB
+
+SUB MidPiontCount(X0,Y0,Z0,X1,Y1)
+	LOCAL S,DegP
+
+	S=ABS(X0*Y1-X1*Y0)/SQR((X1-X0)*(X1-X0)+(Y1-Y0)*(Y1-Y0))
+	SS=S
+	IF S<1600 THEN
+		X2=1200
+		IF Y1>0 THEN
+			Y2=1120
+		ELSE	
+			Y2=-1120
+		ENDIF	
+	ELSE
+		X2=1200
+		Y2=(1120-X0)*(Y1-Y0)/(X1-X0)+Y0
+	ENDIF
+	
+		
+	DegP=SQR((1200-X0)*(1200-X0)+(Y2-Y0)*(Y2-Y0)+(Z2-Z0)*(Z2-Z0))/(SQR((X1-1200)*(X1-1200)+(Y1-Y2)*(Y1-Y2))+SQR((1200-X0)*(1200-X0)+(Y2-Y0)*(Y2-Y0)+(Z2-Z0)*(Z2-Z0)))
+	
+	X(1) =X2
+	Y(1) =Y2
+	Z(1) =Z(2)+300
+	Rz(1)=Rz(2)*DegP
+	
+	IF Z(1)<Z(0)+800 THEN										'下几层中间点不能低于抓包平台800
+		Z(1)=Z(0)+800
+	ENDIF
+	
+	'DRz(3)-相对运动角度
+	'DRz(2)-绝对运动位置
+END SUB
+
+GLOBAL SUB DegA(Deg1,Deg2,X1,Y1)'抓手放包相对抓包点的运动角度
+	'Deg1-抓包平台角度
+	'Deg2-放包点角度
+	'X1Y1-放包XY
+	lOCAL P
+	IF Y1>0 THEN
+		P=Deg2-Deg1+ACOS(X1/SQR((X1)*(X1)+(Y1)*(Y1)))*(180/PI)
+		IF P>180 THEN
+			P=P-360
+		ENDIF
+		IF P<-180 THEN
+			P=P+360	
+		ENDIF
+	ELSE
+		P=Deg2-Deg1-ACOS(X1/SQR((X1)*(X1)+(Y1)*(Y1)))*(180/PI)
+		IF P>180 THEN
+			P=P-360
+		ENDIF
+		IF P<-180 THEN
+			P=P+360	
+		ENDIF
+	ENDIF	
+	'P=-P
+	RETURN P
+END SUB
+
+GLOBAL SUB DegB(Deg2,X1,Y1)'抓手放包绝对位置
+	lOCAL P
+	IF Y1>0 THEN
+		P=Deg2+ACOS(X1/SQR((X1)*(X1)+(Y1)*(Y1)))*(180/PI)
+		IF P>180 THEN
+			P=P-360
+		ENDIF
+		IF P<-180 THEN
+			P=P+360	
+		ENDIF
+	ELSE
+		P=Deg2-ACOS(X1/SQR((X1)*(X1)+(Y1)*(Y1)))*(180/PI)
+		IF P>180 THEN
+			P=P-360
+		ENDIF
+		IF P<-180 THEN
+			P=P+360	
+		ENDIF
+	ENDIF	
+	
+	RETURN P
+END SUB
+
+
+
+SUB AllowRUN()    
+		IF MODBUS_BIT(32) AND HOMEGET AND MODBUS_BIT(33) AND Enabled  AND MODBUS_BIT(34) THEN      '使能，复位成功，使能成功，启动
+			IF MODBUS_BIT(35) OR CD_Get THEN     '虚拟感应，抓包感应
+				IF (MODBUS_BIT(39)=0 AND MODBUS_BIT(47) AND (MODBUS_REG(202)<= MODBUS_REG(206))) OR (MODBUS_BIT(39)=1 AND MODBUS_BIT(48) AND (MODBUS_REG(203)<= MODBUS_REG(207))) THEN
+					RunAllowedL=1      '左跺或右跺，允许、包数不够
+				ELSE
+					RunAllowedL=0
+				ENDIF
+			ELSE
+				RunAllowedL=0
+			ENDIF		
+		ELSE
+			RunAllowedL=0		
+		ENDIF
+
+END SUB
+
+SUB AlarmClean()
+	IF MODBUS_BIT(42) THEN						'消警
+		MODBUS_REG(251)=0		
+		MODBUS_REG(253)=0
+		
+		MODBUS_REG(224)=0
+		MODBUS_REG(225)=0
+		MODBUS_REG(226)=0
+		MODBUS_REG(227)=0
+		MODBUS_REG(228)=0
+		MODBUS_REG(229)=0
+		ErrCOM_J1=0
+		ErrCOM_J2=0
+		ErrCOM_J3=0
+		ErrCOM_J4=0
+		ErrCOM_J5=0
+		ErrCOM_J6=0
+		
+	ENDIF
+END SUB
+
+SUB M_OFF1()
+	MODBUS_BIT(30)=0
+	MODBUS_BIT(31)=0
+	MODBUS_BIT(32)=0
+	MODBUS_BIT(34)=0
+	MODBUS_BIT(35)=0
+	MODBUS_BIT(36)=0
+	MODBUS_BIT(37)=0
+END SUB
+
+SUB M_OFF2()
+	MODBUS_BIT(0)=0
+	MODBUS_BIT(1)=0
+	MODBUS_BIT(2)=0
+	MODBUS_BIT(3)=0
+	MODBUS_BIT(4)=0
+	MODBUS_BIT(5)=0
+	MODBUS_BIT(6)=0
+	MODBUS_BIT(7)=0
+	MODBUS_BIT(8)=0
+	MODBUS_BIT(9)=0
+	MODBUS_BIT(10)=0
+	MODBUS_BIT(11)=0	
+END SUB
+
+SUB LimRead()
+	LOCAL A,B
+	FOR A= 0 TO 11
+		MODBUS_IEEE(12+ A*2)=LimF(A)
+		MODBUS_IEEE(36+ A*2)=LimR(A)	
+	NEXT	
+	MODBUS_IEEE(60)=SP_Per
+	MODBUS_IEEE(62)=SP_Max
+	MODBUS_IEEE(64)=SP_ACC
+	MODBUS_IEEE(66)=SP_DEC
+
+	MODBUS_IEEE(70)=Ry0
+	
+	MODBUS_IEEE(72)=ACC_Down
+	MODBUS_IEEE(74)=DEC_Down
+	MODBUS_IEEE(76)=ACC_Up
+	MODBUS_IEEE(78)=DEC_Up
+	MODBUS_IEEE(80)=ACC_Move
+	MODBUS_IEEE(82)=DEC_Move
+	MODBUS_IEEE(84)=L_ALL_YOFFS	
+	MODBUS_IEEE(86)=R_ALL_YOFFS	
+END SUB
+
+SUB LimWrite()
+	LOCAL A,B
+	FOR A= 0 TO 11
+		LimF(A)=MODBUS_IEEE(12+ A*2)
+		LimR(A)=MODBUS_IEEE(36+ A*2)
+	NEXT
+	
+	SP_Per =MODBUS_IEEE(60)
+	SP_Max =MODBUS_IEEE(62)
+	SP_ACC =MODBUS_IEEE(64)
+	SP_DEC =MODBUS_IEEE(66)
+
+	Ry0    =MODBUS_IEEE(70)
+	
+	ACC_Down=MODBUS_IEEE(72)
+	DEC_Down=MODBUS_IEEE(74)
+	ACC_Up  =MODBUS_IEEE(76)
+	DEC_Up  =MODBUS_IEEE(78)
+	ACC_Move=MODBUS_IEEE(80)
+	DEC_Move=MODBUS_IEEE(82)
+	L_ALL_YOFFS=MODBUS_IEEE(84)
+	R_ALL_YOFFS=MODBUS_IEEE(86)	
+			
+END SUB
+
+SUB Flash_R()
+	FLASH_READ  100,Form_L(0,50),Form_D(0,50),Form_H(0,50),Form_P(0,50),Form_N(0,50),Form_Type(0,50),Form_Degoffs(0,50),HomeX(0,50),HomeY(0,50),HomeZ(0,50),HomeRz(0,50),LimF(0,50),LimR(0,50),SP_Max,SP_Per,SP_ACC,SP_DEC,FormName_L,FormName_R,Ry0,ACC_Down,DEC_Down,ACC_Up,DEC_Up,ACC_Move,DEC_Move,L_ALL_YOFFS,R_ALL_YOFFS                           
+	DELAY(200)
+	CALL LimRead()
+
+END SUB
+
+SUB Flash_W()
+	FLASH_WRITE 100,Form_L(0,50),Form_D(0,50),Form_H(0,50),Form_P(0,50),Form_N(0,50),Form_Type(0,50),Form_Degoffs(0,50),HomeX(0,50),HomeY(0,50),HomeZ(0,50),HomeRz(0,50),LimF(0,50),LimR(0,50),SP_Max,SP_Per,SP_ACC,SP_DEC,FormName_L,FormName_R,Ry0,ACC_Down,DEC_Down,ACC_Up,DEC_Up,ACC_Move,DEC_Move,L_ALL_YOFFS,R_ALL_YOFFS
+	DELAY(200)
+	CALL LimWrite()
+END SUB
+
+
+SUB FormRead(A)
+	MODBUS_IEEE(300)=Form_L(A)
+	MODBUS_IEEE(302)=Form_D(A)
+	MODBUS_IEEE(304)=Form_H(A)	
+	MODBUS_IEEE(306)=Form_P(A)	
+	MODBUS_IEEE(308)=Form_N(A)
+	MODBUS_REG(310)=Form_Type(A)
+	MODBUS_IEEE(340)=Form_Degoffs(A)	
+	
+END SUB
+
+SUB FormWrite(A)
+	Form_L(A)=MODBUS_IEEE(300)
+	Form_D(A)=MODBUS_IEEE(302)	
+	Form_H(A)=MODBUS_IEEE(304)
+	Form_P(A)=MODBUS_IEEE(306)
+	Form_N(A)=MODBUS_IEEE(308)
+	Form_Type(A)=MODBUS_REG(310)
+	Form_Degoffs(A)=MODBUS_IEEE(340)	
+END SUB
+
+SUB FormShow(A)
+	MODBUS_IEEE(312)=Form_L(A)
+	MODBUS_IEEE(314)=Form_D(A)
+	MODBUS_IEEE(316)=Form_H(A)	
+	MODBUS_IEEE(318)=Form_P(A)	
+	MODBUS_IEEE(320)=Form_N(A)
+	MODBUS_REG(322)=Form_Type(A)
+	MODBUS_IEEE(342)=Form_Degoffs(A)	
+END SUB
+
+SUB HomePRead(A)
+	MODBUS_IEEE(324)=HomeX(A)
+	MODBUS_IEEE(326)=HomeY(A)
+	MODBUS_IEEE(328)=HomeZ(A)	
+	MODBUS_IEEE(330)=HomeRz(A)	
+END SUB
+
+SUB HomePWrite(A)
+	HomeX(A)=MODBUS_IEEE(324)
+	HomeY(A)=MODBUS_IEEE(326)
+	HomeZ(A)=MODBUS_IEEE(328)
+	HomeRz(A)=MODBUS_IEEE(330)
+END SUB
+
+SUB HomePShow(A)
+	MODBUS_IEEE(332)=HomeX(A)
+	MODBUS_IEEE(334)=HomeY(A)
+	MODBUS_IEEE(336)=HomeZ(A)	
+	MODBUS_IEEE(338)=HomeRz(A)	
+END SUB
+
+GLOBAL SUB P_CountL()
+	DegB(A1(1),PX(1),PY(1))
+		PRz(1)=RETURN
+	DegB(A1(2),PX(2),PY(2))
+		PRz(2)=RETURN		
+	DegB(A1(3),PX(3),PY(3))
+		PRz(3)=RETURN
+	DegB(A1(4),PX(4),PY(4))
+		PRz(4)=RETURN
+	DegB(A1(5),PX(5),PY(5))
+		PRz(5)=RETURN
+	DegB(A1(6),PX(6),PY(6))
+		PRz(6)=RETURN
+	DegB(A1(7),PX(7),PY(7))
+		PRz(7)=RETURN		
+	DegB(A1(8),PX(8),PY(8))
+		PRz(8)=RETURN
+	DegB(A1(9),PX(9),PY(9))
+		PRz(9)=RETURN
+	DegB(A1(10),PX(10),PY(10))
+		PRz(10)=RETURN	
+	DegB(A1(11),PX(11),PY(11))
+		PRz(11)=RETURN
+	DegB(A1(12),PX(12),PY(12))
+		PRz(12)=RETURN	
+	DegB(A1(13),PX(13),PY(13))
+		PRz(13)=RETURN
+	DegB(A1(14),PX(14),PY(14))
+		PRz(14)=RETURN	
+	DegB(A1(15),PX(15),PY(15))
+		PRz(15)=RETURN
+	DegB(A1(16),PX(16),PY(16))
+		PRz(16)=RETURN
+END SUB
+
+GLOBAL SUB P_CountR()
+	DegB(A1(1),PX(1),PY(1))
+		PRz(1)=RETURN
+	DegB(A1(2),PX(2),PY(2))
+		PRz(2)=RETURN		
+	DegB(A1(3),PX(3),PY(3))
+		PRz(3)=RETURN
+	DegB(A1(4),PX(4),PY(4))
+		PRz(4)=RETURN
+	DegB(A1(5),PX(5),PY(5))
+		PRz(5)=RETURN
+	DegB(A1(6),PX(6),PY(6))
+		PRz(6)=RETURN
+	DegB(A1(7),PX(7),PY(7))
+		PRz(7)=RETURN		
+	DegB(A1(8),PX(8),PY(8))
+		PRz(8)=RETURN
+	DegB(A1(9),PX(9),PY(9))
+		PRz(9)=RETURN
+	DegB(A1(10),PX(10),PY(10))
+		PRz(10)=RETURN	
+	DegB(A1(11),PX(11),PY(11))
+		PRz(11)=RETURN
+	DegB(A1(12),PX(12),PY(12))
+		PRz(12)=RETURN	
+	DegB(A1(13),PX(13),PY(13))
+		PRz(13)=RETURN
+	DegB(A1(14),PX(14),PY(14))
+		PRz(14)=RETURN	
+	DegB(A1(15),PX(15),PY(15))
+		PRz(15)=RETURN
+	DegB(A1(16),PX(16),PY(16))
+		PRz(16)=RETURN
+END SUB
+
+SUB BagL5()
+	'BagOFFx:抓心X轴偏移，当包长短，料包中心往X轴负方向偏移，所以>0,
+	'BagNumL-包编号0-16
+
+	'单层基准 -90，-90，-180，-180，-180
+	'双层基准 -90,90,0,0,0
+	'左---A1=DegOffs+基准	
+	'物料从前方来，标签再前(远离码垛机)，底部靠近码垛机，DegOffs=0
+	'抓手顺时针偏移45°，左右垛DegOffs=-45，DegOffs-设置偏移角度
+	
+	PX(1)=PX(0)+HLD-HD
+	PX(2)=PX(1)
+	PX(3)=PX(0)-HLD+HL+BagOFFx
+	PX(4)=PX(3)
+	PX(5)=PX(3)
+	
+	PX(6)=PX(0)-HLD+HD
+	PX(7)=PX(6)
+	PX(8)=PX(0)+HLD-HL-BagOFFx
+	PX(9)=PX(8)
+	PX(10)=PX(8)	
+	
+	PY(1)=PY(0)+HL-BagOFFx/2
+	PY(2)=PY(0)-HL+BagOFFx/2
+	PY(3)=PY(0)+HD*2
+	PY(4)=PY(0)-HD*2
+	PY(5)=PY(0)
+	
+	PY(6)=PY(1)
+	PY(7)=PY(2)
+	PY(8)=PY(3)
+	PY(9)=PY(4)
+	PY(10)=PY(5)
+	
+	A1(1)=-DegOffs				
+	A1(2)=-DegOffs+180
+	A1(3)=-DegOffs+90
+	A1(4)=-DegOffs+90
+	A1(5)=-DegOffs+90
+	
+	A1(6)=-DegOffs
+	A1(7)=-DegOffs+180
+	A1(8)=-DegOffs-90		
+	A1(9)=-DegOffs-90
+	A1(10)=-DegOffs-90	
+
+	CALL P_CountL
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)
+	
+	X(2) =PX(BagNumL)
+	Y(2) =PY(BagNumL)
+	Z(2) =CengNumL*CengH+PZ(0)
+	Rz(2)=PRz(BagNumL)
+
+	IF Z(2)<680 AND (BagNumL=1 OR BagNumL=3 OR BagNumL=6 OR BagNumL=8)  THEN '边上几包没法下降太多  
+		Z(2)=680
+	ENDIF
+	
+END SUB
+
+SUB BagR5()
+
+	HLD=(BagL+BagD)/2
+	HL =BagL/2
+	HD =BagD/2
+	
+	PX(1)=PX(0)+HLD-HD
+	PX(2)=PX(1)
+	PX(3)=PX(0)-HLD+HL+BagOFFx
+	PX(4)=PX(3)
+	PX(5)=PX(3)
+	
+	PX(6)=PX(0)-HLD+HD
+	PX(7)=PX(6)
+	PX(8)=PX(0)+HLD-HL- BagOFFx
+	PX(9)=PX(8)
+	PX(10)=PX(8)	
+	
+	PY(1)=PY(0)-HL+BagOFFx/2
+	PY(2)=PY(0)+HL-BagOFFx/2
+	PY(3)=PY(0)-HD*2
+	PY(4)=PY(0)+HD*2
+	PY(5)=PY(0)
+	
+	PY(6)=PY(1)
+	PY(7)=PY(2)
+	PY(8)=PY(3)
+	PY(9)=PY(4)
+	PY(10)=PY(5)
+	
+	A1(1)=-DegOffs-180				
+	A1(2)=-DegOffs
+	A1(3)=-DegOffs+90
+	A1(4)=-DegOffs+90
+	A1(5)=-DegOffs+90
+	
+	A1(6)=-DegOffs-180
+	A1(7)=-DegOffs
+	A1(8)=-DegOffs-90	
+	A1(9)=-DegOffs-90
+	A1(10)=-DegOffs-90	
+	
+	CALL P_CountR
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)
+	
+	X(2) =PX(BagNumR)
+	Y(2) =PY(BagNumR)
+	Z(2) =CengNumR*CengH+PZ(0)
+	Rz(2)=PRz(BagNumR)
+
+	IF Z(2)<680 AND (BagNumR=1 OR BagNumR=3 OR BagNumR=6 OR BagNumR=8)  THEN '边上几包没法下降太多
+		Z(2)=680
+	ENDIF
+	
+END SUB
+
+SUB BagL6()
+	PX(1)=PX(0)-HD*2
+	PX(2)=PX(1)
+	PX(3)=PX(0)+HD*2
+	PX(4)=PX(3)
+	PX(5)=PX(0)
+	PX(6)=PX(0)
+	
+	PX(7)=PX(1)
+	PX(8)=PX(2)	
+	PX(9)=PX(3)
+	PX(10)=PX(4)		
+	PX(11)=PX(5)
+	PX(12)=PX(6)
+		
+	'PX(7)=PX(0)-HL-BagOFFx
+	'PX(8)=PX(0)+HL+BagOFFx		
+	'PX(9) =PX(7)
+	'PX(10)=PX(8)
+	'PX(11)=PX(7)
+	'PX(12)=PX(8)
+		
+	PY(1)=PY(0)+HL+BagOFFx
+	PY(2)=PY(0)-HL-BagOFFx
+	PY(3)=PY(1)
+	PY(4)=PY(2)
+	PY(5)=PY(1)
+	PY(6)=PY(2)
+	
+	PY(7)=PY(1)
+	PY(8)=PY(2)
+	PY(9)=PY(3)
+	PY(10)=PY(4)
+	PY(11)=PY(5)
+	PY(12)=PY(6)	
+	
+	'PY(7)=PY(0)+HD*2+60
+	'PY(8)=PY(7)	
+	'PY(9) =PY(0)-HD*2
+	'PY(10)=PY(9)
+	'PY(11)=PY(0)
+	'PY(12)=PY(0)
+
+	A1(1)=-DegOffs				
+	A1(2)=-DegOffs+180
+	A1(3)=A1(1)
+	A1(4)=A1(2)
+	A1(5)=A1(1)
+	A1(6)=A1(2)
+	
+	A1(7)=A1(1)
+	A1(8)=A1(2)	
+	A1(9)=A1(3)	
+	A1(10)=A1(4)
+	A1(11)=A1(5)	
+	A1(12)=A1(6)
+		
+	'A1(7)=-DegOffs-180
+	'A1(8)=-DegOffs		
+	'A1(9)=A1(7)
+	'A1(10)=A1(8)
+	'A1(11)=A1(7)
+	'A1(12)=A1(8)
+	
+	CALL P_CountL
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	
+	X(2) =PX(BagNumL)
+	Y(2) =PY(BagNumL)
+	Z(2) =CengNumL*CengH+PZ(0)
+	Rz(2)=PRz(BagNumL)
+
+	IF Z(2)<600 AND (BagNumL=1 OR BagNumL=3)  THEN '边上几包没法下降太多
+		Z(2)=600
+	ENDIF
+END SUB
+
+SUB BagR6()
+	PX(1)=PX(0)-HD*2
+	PX(2)=PX(1)
+	PX(3)=PX(0)+HD*2
+	PX(4)=PX(3)
+	PX(5)=PX(0)
+	PX(6)=PX(0)
+	
+	PX(7)=PX(0)-HL-BagOFFx
+	PX(8)=PX(0)+HL+BagOFFx		
+	PX(9) =PX(7)
+	PX(10)=PX(8)
+	PX(11)=PX(7)
+	PX(12)=PX(8)
+		
+	PY(1)=PY(0)-HL-BagOFFx
+	PY(2)=PY(0)+HL+BagOFFx
+	PY(3)=PY(1)
+	PY(4)=PY(2)
+	PY(5)=PY(1)
+	PY(6)=PY(2)
+	
+	PY(7)=PY(0)-HD*2
+	PY(8)=PY(7)	
+	PY(9) =PY(0)+HD*2
+	PY(10)=PY(9)
+	PY(11)=PY(0)
+	PY(12)=PY(0)
+	
+	A1(1)=-DegOffs-180				
+	A1(2)=-DegOffs
+	A1(3)=A1(1)
+	A1(4)=A1(2)
+	A1(5)=A1(1)
+	A1(6)=A1(2)
+	
+	A1(7)=A1(1)
+	A1(8)=A1(2)		
+	A1(9)=A1(3)
+	A1(10)=A1(4)
+	A1(11)=A1(5)
+	A1(12)=A1(6)
+	
+	CALL P_CountR
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	
+	X(2) =PX(BagNumR)
+	Y(2) =PY(BagNumR)
+	Z(2) =CengNumR*CengH+PZ(0)
+	Rz(2)=PRz(BagNumR)
+
+	IF Z(2)<650 AND (BagNumR=1 OR BagNumR=3)  THEN '边上几包没法下降太多
+		Z(2)=650
+	ENDIF
+END SUB
+
+SUB BagL8()
+	PX(1)=PX(0)-HL
+	PX(2)=PX(0)+HD*3
+	PX(3)=PX(0)+HL
+	PX(4)=PX(0)-HD*3
+	PX(5)=PX(1)
+	PX(6)=PX(0)+HD+BagOFFx
+	PX(7)=PX(3)	
+	PX(8)=PX(0)-HD-BagOFFx
+	
+	PX(9) =PX(4)
+	PX(10)=PX(3)
+	PX(11)=PX(2)
+	PX(12)=PX(1)
+	PX(13)=PX(8)
+	PX(14)=PX(3)
+	PX(15)=PX(6)
+	PX(16)=PX(1)
+		
+	PY(1)=PY(0)+HD*3
+	PY(2)=PY(0)+HL
+	PY(3)=PY(0)-HD*3
+	PY(4)=PY(0)-HL
+	PY(5)=PY(0)+HD+BagOFFx
+	PY(6)=PY(2)
+	PY(7)=PY(0)-HD-BagOFFx
+	PY(8)=PY(4)
+	
+	PY(9) =PY(2)
+	PY(10)=PY(1)
+	PY(11)=PY(4)
+	PY(12)=PY(3)
+	PY(13)=PY(2)	
+	PY(14)=PY(5)
+	PY(15)=PY(4)
+	PY(16)=PY(7)
+
+	A1(1)=-DegOffs-90				
+	A1(2)=-DegOffs+180
+	A1(3)=-DegOffs+90
+	A1(4)=-DegOffs
+	A1(5)=A1(1)
+	A1(6)=A1(2)
+	A1(7)=A1(3)
+	A1(8)=A1(4)
+	
+	A1(9)=-DegOffs+180
+	A1(10)=-DegOffs+90
+	A1(11)=-DegOffs	
+	A1(12)=-DegOffs-90
+	A1(13)=A1(9)	
+	A1(14)=A1(10)
+	A1(15)=A1(11)
+	A1(16)=A1(12)
+	
+	CALL P_CountL
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)
+	PRZ(11)=A1(11)
+	PRZ(12)=A1(12)	
+	PRZ(13)=A1(13)
+	PRZ(14)=A1(14)
+	PRZ(15)=A1(15)
+	PRZ(16)=A1(16)
+	
+	X(2) =PX(BagNumL)
+	Y(2) =PY(BagNumL)
+	Z(2) =CengNumL*CengH+PZ(0)
+	Rz(2)=PRz(BagNumL)
+
+	IF Z(2)<670 AND (BagNumL=1 OR BagNumL=2 OR BagNumL=5 OR BagNumL=6 OR BagNumL=9 OR BagNumL=10 OR BagNumL=13 OR BagNumL=14)  THEN '边上几包没法下降太多
+		Z(2)=670
+	ENDIF
+END SUB
+
+SUB BagR8()
+	PX(1)=PX(0)-HL
+	PX(2)=PX(0)+HD*3
+	PX(3)=PX(0)+HL
+	PX(4)=PX(0)-HD*3
+	PX(5)=PX(1)
+	PX(6)=PX(0)+HD+BagOFFx
+	PX(7)=PX(3)	
+	PX(8)=PX(0)-HD-BagOFFx
+	
+	PX(9) =PX(4)
+	PX(10)=PX(3)
+	PX(11)=PX(2)
+	PX(12)=PX(1)
+	PX(13)=PX(8)
+	PX(14)=PX(3)
+	PX(15)=PX(6)
+	PX(16)=PX(1)
+		
+	PY(1)=PY(0)-HD*3
+	PY(2)=PY(0)-HL
+	PY(3)=PY(0)+HD*3
+	PY(4)=PY(0)+HL
+	PY(5)=PY(0)-HD-BagOFFx
+	PY(6)=PY(2)
+	PY(7)=PY(0)+HD+BagOFFx
+	PY(8)=PY(4)
+	
+	PY(9) =PY(2)
+	PY(10)=PY(1)
+	PY(11)=PY(4)
+	PY(12)=PY(3)
+	PY(13)=PY(2)	
+	PY(14)=PY(5)
+	PY(15)=PY(4)
+	PY(16)=PY(7)
+
+	A1(1)=-DegOffs-90				
+	A1(2)=-DegOffs
+	A1(3)=-DegOffs+90
+	A1(4)=-DegOffs-180
+	A1(5)=A1(1)
+	A1(6)=A1(2)
+	A1(7)=A1(3)
+	A1(8)=A1(4)
+	
+	A1(9)=-DegOffs
+	A1(10)=-DegOffs+90
+	A1(11)=-DegOffs-180	
+	A1(12)=-DegOffs-90
+	A1(13)=A1(9)	
+	A1(14)=A1(10)
+	A1(15)=A1(11)
+	A1(16)=A1(12)
+
+	
+	CALL P_CountR
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)
+	PRZ(11)=A1(11)
+	PRZ(12)=A1(12)
+	PRZ(13)=A1(13)
+	PRZ(14)=A1(14)
+	PRZ(15)=A1(15)
+	PRZ(16)=A1(16)
+		
+	X(2) =PX(BagNumR)
+	Y(2) =PY(BagNumR)
+	Z(2) =CengNumR*CengH+PZ(0)
+	Rz(2)=PRz(BagNumR)
+
+	IF Z(2)<670 AND (BagNumR=1 OR BagNumR=2 OR BagNumR=5 OR BagNumR=6 OR BagNumR=9 OR BagNumR=10 OR BagNumR=13 OR BagNumR=14)  THEN '边上几包没法下降太多  
+		Z(2)=670
+	ENDIF
+END SUB
+
+SUB BagL2()
+	PX(1)=PX(0)-HD
+	PX(2)=PX(0)+HD	
+	PX(3)=PX(0)-BagOFFx	
+	
+	PY(1)=PY(0)+BagOFFx
+	PY(2)=PY(1)
+	PY(3)=PY(0)
+	
+	A1(1)=-DegOffs
+	A1(2)=-DegOffs
+	A1(3)=-DegOffs+90
+
+	CALL P_CountL
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	
+	X(2) =PX(BagNumL)
+	Y(2) =PY(BagNumL)
+	Z(2) =CengNumL*CengH+PZ(0)
+	Rz(2)=PRz(BagNumL)
+
+END SUB
+
+SUB BagR2()
+	PX(1)=PX(0)-HD
+	PX(2)=PX(0)+HD	
+	PX(3)=PX(0)-BagOFFx		
+	
+	PY(1)=PY(0)-BagOFFx
+	PY(2)=PY(1)
+	PY(3)=PY(0)
+
+	A1(1)=-DegOffs
+	A1(2)=-DegOffs
+	A1(3)=-DegOffs+90
+
+	CALL P_CountR
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	
+	X(2) =PX(BagNumR)
+	Y(2) =PY(BagNumR)
+	Z(2) =CengNumR*CengH+PZ(0)
+	Rz(2)=PRz(BagNumR)
+		
+END SUB
+
+SUB BagL5_1()
+	PX(1)=PX(0)-HL-BagOFFx
+	PX(2)=PX(0)+HL+BagOFFx
+	PX(3)=PX(0)-HD*2
+	PX(4)=PX(0)+HD*2
+	PX(5)=PX(0)
+	
+	PX(6)=PX(1)
+	PX(7)=PX(2)
+	PX(8)=PX(3)
+	PX(9)=PX(4)
+	PX(10)=PX(5)	
+	
+	PY(1)=PY(0)-HLD+HD
+	PY(2)=PY(1)
+	PY(3)=PY(0)+HLD-HL+BagOFFx
+	PY(4)=PY(3)
+	PY(5)=PY(3)
+	
+	PY(6)=PY(0)+HLD-HD
+	PY(7)=PY(6)
+	PY(8)=PY(0)-HLD+HL-BagOFFx
+	PY(9)=PY(8)
+	PY(10)=PY(8)
+	
+	A1(1)=-DegOffs+90				
+	A1(2)=-DegOffs-90
+	A1(3)=-DegOffs
+	A1(4)=-DegOffs
+	A1(5)=-DegOffs
+	
+	A1(6)=-DegOffs+90
+	A1(7)=-DegOffs-90
+	A1(8)=-DegOffs+180	
+	A1(9)=-DegOffs+180
+	A1(10)=-DegOffs+180
+	
+	CALL P_CountL
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)
+	
+	X(2) =PX(BagNumL)
+	Y(2) =PY(BagNumL)
+	Z(2) =CengNumL*CengH+PZ(0)
+	Rz(2)=PRz(BagNumL)	
+END SUB
+
+SUB BagR5_1()
+	PX(1)=PX(0)-HL-BagOFFx
+	PX(2)=PX(0)+HL+BagOFFx
+	PX(3)=PX(0)-HD*2
+	PX(4)=PX(0)+HD*2
+	PX(5)=PX(0)
+	
+	PX(6)=PX(1)
+	PX(7)=PX(2)
+	PX(8)=PX(3)
+	PX(9)=PX(4)
+	PX(10)=PX(5)	
+	
+	PY(1)=PY(0)+HLD-HD
+	PY(2)=PY(1)
+	PY(3)=PY(0)-HLD+HL-BagOFFx
+	PY(4)=PY(3)
+	PY(5)=PY(3)
+	
+	PY(6)=PY(0)-HLD+HD
+	PY(7)=PY(6)
+	PY(8)=PY(0)+HLD-HL-BagOFFx
+	PY(9)=PY(8)
+	PY(10)=PY(8)
+	
+	A1(1)=-DegOffs+90	
+	A1(2)=-DegOffs-90
+	A1(3)=-DegOffs-180
+	A1(4)=-DegOffs-180
+	A1(5)=-DegOffs-180
+	
+	A1(6)=-DegOffs+90		
+	A1(7)=-DegOffs-90
+	A1(8)=-DegOffs	
+	A1(9)=-DegOffs	
+	A1(10)=-DegOffs	
+		
+	CALL P_CountR
+	PRZ(1)=A1(1)
+	PRZ(2)=A1(2)
+	PRZ(3)=A1(3)
+	PRZ(4)=A1(4)
+	PRZ(5)=A1(5)
+	PRZ(6)=A1(6)
+	PRZ(7)=A1(7)
+	PRZ(8)=A1(8)
+	PRZ(9)=A1(9)
+	PRZ(10)=A1(10)	
+	
+	X(2) =PX(BagNumR)
+	Y(2) =PY(BagNumR)
+	Z(2) =CengNumR*CengH+PZ(0)
+	Rz(2)=PRz(BagNumR)		
+END SUB
+
+SUB Y_OFFSET()
+	IF LF1 THEN 
+	    OFFSY=R_ALL_YOFFS/10*(CengNumR+1)
+	ELSE	
+        OFFSY=L_ALL_YOFFS/10*(CengNumL+1)
+	ENDIF
+END SUB
