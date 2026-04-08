@@ -198,3 +198,66 @@
 - 当前项目最大短板已经不是缺能力，而是缺稳定性保障
 - 如果没有这两块，后续接真实控制器和真实语音输入时风险会很高
 - 这一步做完后，项目会从“能演示”进一步变成“更可维护、可联调、可扩展”
+
+
+
+
+错误
+
+
+================================================================
+  Bug 记录：发送失败 - 'int' object is not callable
+================================================================
+
+【报错信息】
+  发送失败：int object is not callable
+
+【出错文件】
+  dist/Windows Python（64位）/Windows Python（64位）/zmcdll/zauxdllPython.py
+  第 3809 行
+
+【出错函数】
+  ZAUXDLL.ZAux_Direct_GetVrf()
+
+【出错代码】
+  value = ctypes.c_float * numes()
+
+【错误原因】
+  numes 是 int 类型的参数（例如传入 5），代码误写为 numes()，
+  把整数当成函数调用，Python 因此抛出 'int' object is not callable。
+
+  调用链路：
+  GUI "写入VR并触发" 按钮
+    → _send_command() → _execute_send()
+      → client.write_vr(...)  （成功）
+      → client.read_vr(...)   （在此处报错）
+        → self._device.ZAux_Direct_GetVrf(start_vr, count)
+          → value = ctypes.c_float * numes()   ← numes 是 int，加 () 导致报错
+
+【修复方法】
+
+  文件：dist/Windows Python（64位）/Windows Python（64位）/zmcdll/zauxdllPython.py
+  位置：ZAux_Direct_GetVrf 方法内，约第 3809 行
+
+  修改前（错误）：
+      value = ctypes.c_float * numes()
+
+  修改后（正确）：
+      value = (ctypes.c_float * numes)()
+
+  说明：
+  - ctypes.c_float * numes 创建一个长度为 numes 的 float 数组类型
+  - 外面的 () 才是实例化该数组
+  - 对比同文件 ZAux_Direct_SetVrf（第 3794 行）的正确写法：
+      pfValuearry = (ctypes.c_float * len(pfValue))(*pfValue)
+
+【修复后完整函数】
+
+  def ZAux_Direct_GetVrf(self, vrstartnum, numes):
+      value = (ctypes.c_float * numes)()
+      ret = zauxdll.ZAux_Direct_GetVrf(self.handle, ctypes.c_int(vrstartnum), ctypes.c_int(numes),
+                                       ctypes.byref(value))
+      return ret, value
+
+【记录时间】2026-04-08
+
