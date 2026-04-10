@@ -51,6 +51,7 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
             query_key=query_key,
             function_id=function_id,
             registers=registers,  # type: ignore[arg-type]
+            template_type="fixed" if function_id >= 5000 else "parametric",
         )
 
     if not table:
@@ -85,6 +86,17 @@ def load_query_table_json(path: str | Path) -> dict[str, QueryRecord]:
             registers=registers,  # type: ignore[arg-type]
             function_name=str(item.get("function_name", "movabs")),
             data_format=str(item.get("data_format", "IEE")),
+            template_type=str(item.get("template_type", "parametric")),
+            keywords=str(item.get("keywords", "")),
+            description=str(item.get("description", "")),
+            pos_id=int(item.get("pos_id", 0)),
+            device_id=int(item.get("device_id", 1)),
+            acc_percent=float(item.get("acc_percent", 40.0)),
+            safety_level=int(item.get("safety_level", 5)),
+            io_grip=int(item.get("io_grip", 0)),
+            io_door=int(item.get("io_door", 0)),
+            ext_p1=float(item.get("ext_p1", 0.0)),
+            ext_p2=float(item.get("ext_p2", 0.0)),
         )
 
     if not table:
@@ -102,6 +114,17 @@ def save_query_table_json(path: str | Path, table: dict[str, QueryRecord]) -> No
                 "function_id": record.function_id,
                 "function_name": record.function_name,
                 "data_format": record.data_format,
+                "template_type": record.template_type,
+                "keywords": record.keywords,
+                "description": record.description,
+                "pos_id": record.pos_id,
+                "device_id": record.device_id,
+                "acc_percent": record.acc_percent,
+                "safety_level": record.safety_level,
+                "io_grip": record.io_grip,
+                "io_door": record.io_door,
+                "ext_p1": record.ext_p1,
+                "ext_p2": record.ext_p2,
                 "registers": list(record.registers),
             }
             for record in sorted(table.values(), key=lambda item: item.query_key)

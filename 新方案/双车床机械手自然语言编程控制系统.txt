@@ -1,0 +1,184 @@
+一、系统总体架构概述
+本系统采用"自然语言指令输入 → QT上位机解析 → 安全逻辑校验 → 寄存器指令下发 → 控制器执行
+→ 实时状态回传 → 异常安全保护"的全闭环自动化控制架构，专为双车床+上下料机械手流水线设
+计。
+二、VR寄存器映射表
+2.1 核心通讯协议寄存器映射
+VR地址 字段名称 数据类型 读写权限 说明与单位 备注
+VR[0] CMD_CODE UINT16 R/W 命令码 写入即触发，执行完需清零
+VR[1] TASK_ID UINT16 R/W 任务序列号 用于匹配请求与响应
+VR[2] POS_X FLOAT R/W X轴坐标(mm) 绝对/相对取决于命令码
+VR[3] POS_Y FLOAT R/W Y轴坐标(mm)
+VR[4] POS_Z FLOAT R/W Z轴坐标(mm)
+VR[5] ROT_RX FLOAT R/W 姿态RX(角度) 绕X轴旋转
+VR[6] ROT_RY FLOAT R/W 姿态RY(角度) 绕Y轴旋转
+VR[7] ROT_RZ FLOAT R/W 姿态RZ(角度) 绕Z轴旋转
+VR[8] SPD_PCT UINT16 R/W 速度百分比(0-100) 控制器端换算实际速度
+VR[9] ACC_PCT UINT16 R/W 加速度百分比(0-100) 控制器端换算实际加速度
+VR[10] DEV_ID UINT16 R/W 设备/工位ID 1=机床1, 2=机床2, 3=原料台
+VR[11] IO_GRIP UINT16 R/W 夹爪动作 0=松开, 1=夹紧
+VR[12] IO_DOOR UINT16 R/W 机床门动作 0=关, 1=开
+VR[13] EXT_P1 FLOAT R/W 扩展参数1(如延时ms)
+VR[14] EXT_P2 FLOAT R/W 扩展参数2(如力度)
+VR[15] SAFETY_LV UINT16 R/W 安全等级(1-5) 5=最高安全，<3禁止自动
+VR[16] RESULT INT16 R 执行结果 0=成功, -1=失败, >0=错误码
+VR[17] STATUS UINT16 R 忙闲状态 0=空闲, 1=运行中, 2=暂停
+VR[18] CUR_X FLOAT R 当前实际X 用于QT界面实时显示
+VR[19] CUR_Y FLOAT R 当前实际Y 用于QT界面实时显示
+VR[20] CUR_Z FLOAT R 当前实际Z 用于QT界面实时显示
+VR[21] CUR_RX FLOAT R 当前实际RX
+VR[22] CUR_RY FLOAT R 当前实际RY
+VR[23] CUR_RZ FLOAT R 当前实际RZ
+VR[24] ALM_CODE UINT16 R 报警代码 详见报警定义表
+VR[25] IO_STAT UINT16 R IO状态位 位0:门1, 位1:门2, 位2:夹爪...
+三、命令码定义表
+3.1 基础运动指令
+命令码
+(VR[0]) 助记符 自然语言示例 JSON关键字段 对应动作逻辑
+1001 MOVE_ABS
+"移动到原料1号，速度
+40%" x,y,z,rx,ry,rz,speed MOVEABS六轴绝对
+运动
+1002 MOVE_REL "Z轴向上抬升50mm" z,speed(相对增量) MOVEREL相对运动
+1003 HOME "回原点"
+speed=30(强制低
+速)
+HOME回零操作
+3.2 功能与IO指令
+命令码(VR[0]) 助记符 自然语言示例 JSON关键字段 对应动作逻辑
+1004 GRIP_SET "夹紧工件"/"松开夹爪" io_grip:1/0 SET/RESET输出端口
+1005 DOOR_CTRL "打开机床1门" dev_id:1,io_door:1 控制机床门IO
+1006 WAIT_MS "等待2秒" ext_p1:2000 DELAY延时
+1007 CHECK_IN "检测是否到位" dev_id:1 读取输入信号(INPUT)
+1008 EMG_RESET "复位报警" alm_code:0 RESET清除报警
+四、标准JSON结构定义
+4.1 通用指令JSON格式
+{
+ "taskId": 1001,
+ "cmd": "MOVE_ABS",
+ "code": 1001,
+ "params": {
+ "x": 120.5,
+ "y": 80.0,
+ "z": 45.0,
+ "rx": 0.0,
+ "ry": 0.0,
+ "rz": 0.0,
+ "speedPercent": 30,
+ "accPercent": 40,
+ "posId": 2
+ },
+ "safetyLevel": 5,
+ "desc": "绝对移动到原料1号取料位"
+}
+4.2 JSON字段说明
+字段名称 数据类型 必填 说明
+taskId Integer 是 任务序列号，用于指令匹配
+cmd String 是 命令助记符(MOVE_ABS/GRIP_SET等)
+code Integer 是 命令码(对应VR[0]值)
+params Object 是 参数对象
+params.x Float 是 X轴坐标
+params.y Float 是 Y轴坐标
+params.z Float 是 Z轴坐标
+字段名称 数据类型 必填 说明
+params.rx Float 是 RX姿态角度
+params.ry Float 是 RY姿态角度
+params.rz Float 是 RZ姿态角度
+params.speedPercent Integer 是 速度百分比(0-100)
+params.accPercent Integer 是 加速度百分比(0-100)
+params.posId Integer 否 工位ID
+safetyLevel Integer 是 安全等级(1-5)
+desc String 是 指令描述
+五、设备ID与工位定义
+5.1 设备ID映射
+ID值 设备名称 说明
+1 MACHINE_1 机床1
+2 MACHINE_2 机床2
+3 RAW_MATERIAL 原料台
+4 FINISHED_PART 成品台
+5 BUFFER_ZONE 缓冲区
+5.2 工位坐标定义
+工位ID 工位名称 X(mm) Y(mm) Z(mm) RX(°) RY(°) RZ(°) 说明
+1 RAW_PICK_1 0.0 300.0 50.0 0.0 0.0 0.0 原料1号取料位
+2 MACHINE_1_IN 200.0 50.0 10.0 180.0 0.0 0.0 机床1内部位置
+3 MACHINE_2_IN 200.0 -50.0 10.0 180.0 0.0 0.0 机床2内部位置
+4 SAFE_POINT 0.0 0.0 200.0 0.0 0.0 0.0 安全点
+5 GRIP_OPEN 0.0 0.0 100.0 0.0 0.0 0.0 夹爪打开位置
+六、安全等级定义
+6.1 安全等级标准
+等级 名称 允许操作 说明
+1 极度危险 仅紧急停止 系统严重故障
+2 高度危险 手动低速操作 存在安全隐患
+3 中等风险 调试模式操作 需人工监控
+4 低风险 自动运行(限速) 基本安全
+5 完全安全 全功能自动运行 最高安全等级
+6.2 安全校验规则
+速度限制规则：
+调试模式：最大30%
+自动模式：最大100%
+安全等级<3：强制限制为20%
+坐标校验规则：
+X轴范围：-300mm ~ 300mm
+Y轴范围：-300mm ~ 300mm
+Z轴范围：0mm ~ 300mm
+超出范围指令自动拦截
+七、状态监控与报警体系
+7.1 状态码定义
+状态码(VR[17]) 状态名称 说明
+0 IDLE 系统空闲，可接收新指令
+1 RUNNING 正在执行运动指令
+2 PAUSED 指令暂停状态
+3 FAULT 系统故障状态
+7.2 报警代码定义
+报警码(VR[24]) 报警名称 等级 处理方式
+0 NORMAL 提示 无报警
+101 DOOR_OPEN 警告 机床门未关闭
+102 OUT_OF_RANGE 错误 坐标超出安全范围
+103 SPEED_LIMIT 错误 速度超出限制
+104 GRIPPER_FAULT 紧急 夹爪故障
+105 EMERGENCY_STOP 紧急 急停按钮触发
+106 COLLISION_DETECTED 紧急 碰撞检测触发
+八、自然语言解析规则
+8.1 核心解析原则
+指令铁律：
+1. 无参数指令一律禁止
+2. 移动必须带XYZ+RXRYRZ
+3. 速度、加速度必须使用百分比(0-100)
+4. 所有IO动作必须带编号和状态
+5. 调试模式速度≤30%
+8.2 自然语言关键词映射
+自然语言关键词 解析目标 映射值
+移动到 MOVE_ABS VR[0]=1001
+回原点 HOME VR[0]=1003
+夹紧 GRIP_SET=1 VR[11]=1
+松开 GRIP_SET=0 VR[11]=0
+打开 DOOR_CTRL=1 VR[12]=1
+关闭 DOOR_CTRL=0 VR[12]=0
+等待 WAIT_MS VR[13]=延时毫秒数
+速度 SPD_PCT VR[8]=百分比数值
+加速度 ACC_PCT VR[9]=百分比数值
+九、系统配置参数
+9.1 运动参数配置
+参数名称 参数值 说明
+最大速度 100 mm/s 系统允许的最大速度
+最大加速度 200 mm/s² 系统允许的最大加速度
+调试模式速度上限 30% 调试模式强制限制
+默认速度 50% 系统默认运行速度
+默认加速度 60% 系统默认加速度
+9.2 通讯参数配置
+参数名称 参数值 说明
+通讯周期 100ms QT界面刷新周期
+心跳检测 500ms 心跳检测间隔
+指令超时 5000ms 指令执行超时时间
+重连间隔 1000ms 断线重连间隔
+数据包长度 64字节 定长数据包
+十、总结
+本配置文档定义了双车床机械手自然语言编程控制系统的完整通讯协议、数据结构和安全规范，包
+括：
+1. 完整的VR寄存器映射表：定义了控制器与上位机之间的数据交换标准
+2. 标准化的JSON字典：统一了自然语言解析后的数据结构
+3. 严格的安全保护机制：从指令校验到运动执行的全流程安全控制
+4. 完善的异常处理体系：定义了完整的报警和处理策略
+此配置文档可直接用于QT上位机开发、控制器编程和系统调试，确保系统的稳定性、安全性和可维
+护性。
+（AI生成）

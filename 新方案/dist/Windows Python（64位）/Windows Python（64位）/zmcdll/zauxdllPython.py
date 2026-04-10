@@ -3806,7 +3806,7 @@ class ZAUXDLL:
         :Return:错误码,返回的读取值，多个时必须分配空间。 type: int32,float
 
         '''
-        value = ctypes.c_float * numes()
+        value = (ctypes.c_float * numes)()
         ret = zauxdll.ZAux_Direct_GetVrf(self.handle, ctypes.c_int(vrstartnum), ctypes.c_int(numes),
                                          ctypes.byref(value))
         return ret, value
