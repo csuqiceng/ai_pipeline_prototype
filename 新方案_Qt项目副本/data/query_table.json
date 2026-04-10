@@ -1,0 +1,242 @@
+{
+  "records": [
+    {
+      "query_key": "home",
+      "function_id": 1003,
+      "function_name": "HOME",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "home,回原点",
+      "description": "回原点",
+      "registers": [
+        1380.0,
+        0.0,
+        1350.0,
+        0.0,
+        83.0,
+        0.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置A",
+      "function_id": 1001,
+      "function_name": "MOVE_ABS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "A点,位置A,移动到A点",
+      "description": "绝对移动到A点",
+      "registers": [
+        1400.0,
+        -1.0,
+        1380.0,
+        1.0,
+        80.0,
+        1.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置B",
+      "function_id": 1001,
+      "function_name": "MOVE_ABS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "B点,位置B,移动到B点",
+      "description": "绝对移动到B点",
+      "registers": [
+        1410.0,
+        -2.0,
+        1385.0,
+        2.0,
+        78.0,
+        3.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置C",
+      "function_id": 1001,
+      "function_name": "MOVE_ABS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "C点,位置C,移动到C点",
+      "description": "绝对移动到C点",
+      "registers": [
+        1500.0,
+        15.0,
+        1400.0,
+        1.0,
+        75.0,
+        1.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置D",
+      "function_id": 1001,
+      "function_name": "MOVE_ABS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "D点,位置D,移动到D点",
+      "description": "绝对移动到D点",
+      "registers": [
+        1600.0,
+        30.0,
+        1450.0,
+        10.0,
+        50.0,
+        20.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置E",
+      "function_id": 1001,
+      "function_name": "MOVE_ABS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "E点,位置E,移动到E点",
+      "description": "绝对移动到E点",
+      "registers": [
+        1700.0,
+        -30.0,
+        1800.0,
+        20.0,
+        40.0,
+        50.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "位置X",
+      "function_id": 1002,
+      "function_name": "MOVE_REL",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "位置X,相对移动",
+      "description": "相对移动到X位置",
+      "registers": [
+        5.0,
+        5.0,
+        5.0,
+        1.0,
+        1.0,
+        1.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "延时",
+      "function_id": 1006,
+      "function_name": "WAIT_MS",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "延时,等待",
+      "description": "延时动作",
+      "registers": [
+        500.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "query_key": "归零",
+      "function_id": 1003,
+      "function_name": "HOME",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "归零,回零",
+      "description": "归零动作",
+      "registers": [
+        1352.0,
+        2.0,
+        1300.0,
+        2.0,
+        95.0,
+        3.0,
+        10.0
+      ]
+    },
+    {
+      "query_key": "抓取",
+      "function_id": 1004,
+      "function_name": "GRIP_SET",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "抓取,夹紧",
+      "description": "抓取动作",
+      "io_grip": 1,
+      "registers": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "query_key": "放下",
+      "function_id": 1004,
+      "function_name": "GRIP_SET",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "放下,松开",
+      "description": "放下动作",
+      "io_grip": 0,
+      "registers": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "query_key": "机床1开门",
+      "function_id": 1005,
+      "function_name": "DOOR_CTRL",
+      "data_format": "IEE",
+      "template_type": "fixed",
+      "keywords": "机床1开门,开门",
+      "description": "固定函数型无参数指令：机床1开门",
+      "device_id": 1,
+      "io_door": 1,
+      "registers": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "query_key": "固定函数5001",
+      "function_id": 5001,
+      "function_name": "FIXED_FUNC",
+      "data_format": "IEE",
+      "template_type": "fixed",
+      "keywords": "5001,固定函数",
+      "description": "调用控制器内部固化函数5001",
+      "registers": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ]
+}

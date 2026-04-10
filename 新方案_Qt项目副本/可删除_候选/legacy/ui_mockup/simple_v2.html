@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>双车床机械手控制系统 - 第一版简版原型 V2</title>
+  <style>
+    :root {
+      --bg: #25d9e0;
+      --panel: rgba(255, 255, 255, 0.34);
+      --panel-strong: rgba(255, 255, 255, 0.58);
+      --line: #2d2d2d;
+      --btn: #ececec;
+      --shadow: #666;
+      --ok: #43e74f;
+      --warn: #ffe46d;
+      --danger: #ef5a5a;
+      --nav: #cfcfcf;
+      --active: #46eef4;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: #111;
+      font-family: "Microsoft YaHei UI", "SimHei", sans-serif;
+    }
+
+    .app {
+      width: 1280px;
+      min-height: 690px;
+      margin: 0 auto;
+      border: 2px solid #222;
+      display: grid;
+      grid-template-rows: 64px 1fr 34px;
+      background: var(--bg);
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: 220px 1fr 220px;
+      align-items: center;
+      padding: 4px 12px;
+      border-bottom: 2px solid #222;
+    }
+
+    .brand {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .top-status {
+      text-align: right;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 96px 1fr 150px;
+      min-height: 0;
+    }
+
+    .nav {
+      display: grid;
+      grid-template-rows: 88px 88px;
+      background: var(--nav);
+      border-right: 2px solid #222;
+    }
+
+    .nav button {
+      border: 0;
+      border-bottom: 2px solid #888;
+      background: transparent;
+      font-size: 22px;
+      cursor: pointer;
+    }
+
+    .nav button.active {
+      background: var(--active);
+      font-weight: 700;
+    }
+
+    .content {
+      padding: 10px;
+      overflow: auto;
+    }
+
+    .page {
+      display: none;
+      gap: 10px;
+    }
+
+    .page.active {
+      display: grid;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 2px solid var(--line);
+      padding: 10px;
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      text-align: center;
+      font-size: 22px;
+    }
+
+    .tip {
+      margin-bottom: 8px;
+      padding: 7px 9px;
+      font-size: 14px;
+      line-height: 1.45;
+      border: 1px dashed #666;
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .run-top {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 10px;
+    }
+
+    .command-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .command-card {
+      min-height: 128px;
+      padding: 12px;
+      border: 2px solid #444;
+      background: rgba(255, 255, 255, 0.44);
+      display: grid;
+      gap: 6px;
+    }
+
+    .command-title {
+      text-align: center;
+      font-size: 21px;
+      font-weight: 700;
+    }
+
+    .command-sub {
+      text-align: center;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .tag-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      padding: 3px 7px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid #555;
+      background: var(--panel-strong);
+    }
+
+    .btn {
+      min-height: 42px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: var(--btn);
+      box-shadow: 3px 3px 0 var(--shadow);
+      font-size: 17px;
+      cursor: pointer;
+    }
+
+    .btn.green { background: var(--ok); }
+    .btn.yellow { background: var(--warn); }
+    .btn.red { background: var(--danger); color: #fff; }
+
+    .info-list {
+      display: grid;
+      gap: 6px;
+      font-size: 16px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 8px;
+      border: 1px solid #666;
+      background: rgba(255, 255, 255, 0.34);
+    }
+
+    .run-bottom {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.22);
+      font-size: 14px;
+    }
+
+    th, td {
+      border: 1px solid #555;
+      padding: 5px 7px;
+      text-align: center;
+    }
+
+    th {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .manage-top {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .manage-bottom {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 10px;
+    }
+
+    .tree {
+      display: grid;
+      gap: 6px;
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .tree-item {
+      padding: 8px 10px;
+      border: 1px solid #666;
+      background: rgba(255, 255, 255, 0.4);
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .tree-item.active {
+      border: 3px solid #c40000;
+      background: rgba(255, 255, 255, 0.86);
+      font-weight: 700;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 120px 1fr 120px 1fr;
+      gap: 7px 9px;
+      align-items: center;
+      font-size: 15px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 34px;
+      padding: 6px 8px;
+      border: 1px solid #666;
+      background: rgba(255, 255, 255, 0.78);
+      font-size: 15px;
+    }
+
+    textarea {
+      min-height: 58px;
+      resize: vertical;
+      grid-column: span 3;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .json-box {
+      min-height: 120px;
+      padding: 8px;
+      border: 1px solid #666;
+      background: rgba(255, 255, 255, 0.48);
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .right-panel {
+      border-left: 2px solid #222;
+      padding: 10px 8px;
+      display: grid;
+      grid-template-rows: repeat(6, 56px) 1fr;
+      gap: 8px;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: 1fr 250px;
+      align-items: center;
+      padding: 0 12px;
+      border-top: 2px solid #222;
+      background: rgba(255, 255, 255, 0.12);
+      font-size: 17px;
+    }
+
+    .footer .time {
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">双车床机械手<br>第一版页面原型 V2</div>
+      <div class="title">双车床机械手自然语言编程控制系统</div>
+      <div class="top-status" id="topStatus">第一版：固定指令 + 后台模板</div>
+    </header>
+
+    <main class="main">
+      <aside class="nav">
+        <button class="active" data-page="run">运行</button>
+        <button data-page="manage">后台</button>
+      </aside>
+
+      <section class="content">
+        <div class="page active" id="page-run">
+          <div class="run-top">
+            <div class="panel">
+              <h3>固定指令执行页</h3>
+              <div class="tip">第一版只做少量固定按钮，不做复杂自然语言输入。支持参数型指令与固定函数型无参数指令。</div>
+              <div class="command-grid" id="commandGrid"></div>
+            </div>
+
+            <div class="panel">
+              <h3>执行摘要</h3>
+              <div class="info-list">
+                <div class="info-row"><span>当前模式</span><span id="modeText">自动</span></div>
+                <div class="info-row"><span>忙闲状态</span><span id="busyText">空闲</span></div>
+                <div class="info-row"><span>执行结果</span><span id="resultText">0</span></div>
+                <div class="info-row"><span>报警码</span><span id="alarmCode">ERR_000</span></div>
+                <div class="info-row"><span>系统说明</span><span id="alarmText">系统正常</span></div>
+                <div class="info-row"><span>当前任务ID</span><span id="taskText">1001</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="run-bottom">
+            <div class="panel">
+              <h3>机械手状态</h3>
+              <div class="info-list">
+                <div class="info-row"><span>X</span><span id="robotX">1250.0</span></div>
+                <div class="info-row"><span>Y</span><span id="robotY">-22.0</span></div>
+                <div class="info-row"><span>Z</span><span id="robotZ">1488.0</span></div>
+                <div class="info-row"><span>RX / RY / RZ</span><span id="robotR">0 / 0 / 90</span></div>
+                <div class="info-row"><span>速度 / 加速度</span><span id="robotSpeed">30% / 40%</span></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>第一版边界</h3>
+              <div class="info-list">
+                <div class="info-row"><span>支持</span><span>固定指令按钮</span></div>
+                <div class="info-row"><span>支持</span><span>后台模板管理</span></div>
+                <div class="info-row"><span>支持</span><span>5001 固定函数</span></div>
+                <div class="info-row"><span>暂不做</span><span>自由自然语言</span></div>
+                <div class="info-row"><span>暂不做</span><span>视觉联动</span></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>最近执行记录</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>任务ID</th>
+                    <th>指令码</th>
+                    <th>类型</th>
+                    <th>结果</th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="page" id="page-manage">
+          <div class="manage-top">
+            <div class="panel">
+              <h3>后台作用</h3>
+              <div class="info-list">
+                <div class="info-row"><span>用途</span><span>维护按钮与模板映射</span></div>
+                <div class="info-row"><span>支持</span><span>参数型指令</span></div>
+                <div class="info-row"><span>支持</span><span>固定函数型无参数</span></div>
+                <div class="info-row"><span>示例</span><span>5001 固定函数</span></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>当前选中模板</h3>
+              <div class="info-list">
+                <div class="info-row"><span>显示名称</span><span id="currentName">绝对移动到 A 点</span></div>
+                <div class="info-row"><span>指令码</span><span id="currentCode">1001</span></div>
+                <div class="info-row"><span>指令类型</span><span id="currentCmd">MOVE_ABS</span></div>
+                <div class="info-row"><span>模板分类</span><span id="currentType">参数型指令</span></div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>后台操作</h3>
+              <div class="toolbar" style="margin-top:0;">
+                <button class="btn" id="newBtn">新增</button>
+                <button class="btn green" id="saveBtn">保存</button>
+                <button class="btn yellow" id="cloneBtn">另存为</button>
+                <button class="btn red" id="deleteBtn">删除</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="manage-bottom">
+            <div class="panel">
+              <h3>指令模板列表</h3>
+              <div class="tip">维护“按钮显示名 -> 指令码 -> 参数模板”的对应关系。</div>
+              <div class="tree" id="templateList"></div>
+            </div>
+
+            <div class="panel">
+              <h3>工程师后台管理</h3>
+              <div class="form-grid">
+                <div>显示名称</div><input id="nameInput" />
+                <div>指令码</div><input id="codeInput" type="number" />
+
+                <div>指令类型</div>
+                <select id="cmdInput">
+                  <option>MOVE_ABS</option>
+                  <option>MOVE_SAFE</option>
+                  <option>LATHE_DOOR_OPEN</option>
+                  <option>LATHE_DOOR_CLOSE</option>
+                  <option>FIXED_FUNC</option>
+                </select>
+
+                <div>模板分类</div>
+                <select id="templateTypeInput">
+                  <option value="parametric">参数型指令</option>
+                  <option value="fixed">固定函数型无参数指令</option>
+                </select>
+
+                <div>自然语言关键词</div><input id="keywordsInput" />
+                <div>工位ID</div><input id="posIdInput" type="number" />
+
+                <div>X</div><input id="xInput" type="number" step="0.1" />
+                <div>Y</div><input id="yInput" type="number" step="0.1" />
+
+                <div>Z</div><input id="zInput" type="number" step="0.1" />
+                <div>RX</div><input id="rxInput" type="number" step="0.1" />
+
+                <div>RY</div><input id="ryInput" type="number" step="0.1" />
+                <div>RZ</div><input id="rzInput" type="number" step="0.1" />
+
+                <div>速度%</div><input id="speedInput" type="number" />
+                <div>加速度%</div><input id="accInput" type="number" />
+
+                <div>设备ID</div><input id="deviceIdInput" type="number" />
+                <div>安全等级</div><input id="safetyInput" type="number" min="1" max="5" />
+
+                <div>说明</div><textarea id="descInput"></textarea>
+              </div>
+
+              <div class="panel" style="margin-top:10px;">
+                <h3>结构化 JSON 预览</h3>
+                <div class="json-box" id="jsonPreview"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right-panel">
+        <button class="btn" id="powerBtn">上电</button>
+        <button class="btn green" id="startBtn">启动</button>
+        <button class="btn" id="stopBtn">停机</button>
+        <button class="btn yellow" id="pauseBtn">暂停</button>
+        <button class="btn" id="resumeBtn">继续</button>
+        <button class="btn red" id="estopBtn">急停</button>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <div id="footerStatus">第一版原型 V2 | 固定指令 + 后台模板管理</div>
+      <div class="time" id="timeText"></div>
+    </footer>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "robot_mockup_v3_templates";
+    const HISTORY_KEY = "robot_mockup_v3_history";
+
+    const defaultTemplates = [
+      { id: crypto.randomUUID(), name: "绝对移动到 A 点", code: 1001, cmd: "MOVE_ABS", templateType: "parametric", keywords: "A点,移动到A点", posId: 1, deviceId: 1, x: 120.5, y: 80.0, z: 45.0, rx: 0.0, ry: 0.0, rz: 90.0, speedPercent: 30, accPercent: 40, safetyLevel: 5, desc: "绝对移动到 A 点" },
+      { id: crypto.randomUUID(), name: "绝对移动到 B 点", code: 1001, cmd: "MOVE_ABS", templateType: "parametric", keywords: "B点,移动到B点", posId: 2, deviceId: 1, x: 220.0, y: 66.0, z: 52.0, rx: 0.0, ry: 0.0, rz: 90.0, speedPercent: 30, accPercent: 40, safetyLevel: 5, desc: "绝对移动到 B 点" },
+      { id: crypto.randomUUID(), name: "回安全点", code: 1003, cmd: "MOVE_SAFE", templateType: "parametric", keywords: "回安全点,安全点", posId: 9, deviceId: 1, x: 0.0, y: 0.0, z: 0.0, rx: 0.0, ry: 0.0, rz: 0.0, speedPercent: 20, accPercent: 20, safetyLevel: 5, desc: "回安全点" },
+      { id: crypto.randomUUID(), name: "机床1开门", code: 3001, cmd: "LATHE_DOOR_OPEN", templateType: "fixed", keywords: "机床1开门,开门", posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speedPercent: 0, accPercent: 0, safetyLevel: 5, desc: "固定函数型无参数指令" },
+      { id: crypto.randomUUID(), name: "固定函数 5001", code: 5001, cmd: "FIXED_FUNC", templateType: "fixed", keywords: "5001,固定函数", posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speedPercent: 0, accPercent: 0, safetyLevel: 5, desc: "调用控制器内部已固化好的固定位置/参数执行函数" }
+    ];
+
+    const state = {
+      templates: loadData(STORAGE_KEY, defaultTemplates),
+      history: loadData(HISTORY_KEY, []),
+      selectedId: null,
+      taskId: 1001,
+      machine: { x: 1250.0, y: -22.0, z: 1488.0, rx: 0.0, ry: 0.0, rz: 90.0, speedPercent: 30, accPercent: 40, mode: "自动", busy: false }
+    };
+
+    const dom = {
+      navButtons: document.querySelectorAll(".nav button"),
+      pages: document.querySelectorAll(".page"),
+      commandGrid: document.getElementById("commandGrid"),
+      historyBody: document.getElementById("historyBody"),
+      templateList: document.getElementById("templateList"),
+      jsonPreview: document.getElementById("jsonPreview"),
+      footerStatus: document.getElementById("footerStatus"),
+      timeText: document.getElementById("timeText"),
+      topStatus: document.getElementById("topStatus"),
+      robotX: document.getElementById("robotX"),
+      robotY: document.getElementById("robotY"),
+      robotZ: document.getElementById("robotZ"),
+      robotR: document.getElementById("robotR"),
+      modeText: document.getElementById("modeText"),
+      busyText: document.getElementById("busyText"),
+      resultText: document.getElementById("resultText"),
+      alarmCode: document.getElementById("alarmCode"),
+      alarmText: document.getElementById("alarmText"),
+      taskText: document.getElementById("taskText"),
+      currentName: document.getElementById("currentName"),
+      currentCode: document.getElementById("currentCode"),
+      currentCmd: document.getElementById("currentCmd"),
+      currentType: document.getElementById("currentType"),
+      nameInput: document.getElementById("nameInput"),
+      codeInput: document.getElementById("codeInput"),
+      cmdInput: document.getElementById("cmdInput"),
+      templateTypeInput: document.getElementById("templateTypeInput"),
+      keywordsInput: document.getElementById("keywordsInput"),
+      posIdInput: document.getElementById("posIdInput"),
+      xInput: document.getElementById("xInput"),
+      yInput: document.getElementById("yInput"),
+      zInput: document.getElementById("zInput"),
+      rxInput: document.getElementById("rxInput"),
+      ryInput: document.getElementById("ryInput"),
+      rzInput: document.getElementById("rzInput"),
+      speedInput: document.getElementById("speedInput"),
+      accInput: document.getElementById("accInput"),
+      deviceIdInput: document.getElementById("deviceIdInput"),
+      safetyInput: document.getElementById("safetyInput"),
+      descInput: document.getElementById("descInput"),
+      newBtn: document.getElementById("newBtn"),
+      saveBtn: document.getElementById("saveBtn"),
+      cloneBtn: document.getElementById("cloneBtn"),
+      deleteBtn: document.getElementById("deleteBtn"),
+      powerBtn: document.getElementById("powerBtn"),
+      startBtn: document.getElementById("startBtn"),
+      stopBtn: document.getElementById("stopBtn"),
+      pauseBtn: document.getElementById("pauseBtn"),
+      resumeBtn: document.getElementById("resumeBtn"),
+      estopBtn: document.getElementById("estopBtn")
+    };
+
+    init();
+
+    function init() {
+      bindNavigation();
+      bindManageActions();
+      bindSystemActions();
+      state.selectedId = state.templates[0]?.id ?? null;
+      renderAll();
+      updateClock();
+      setInterval(updateClock, 1000);
+    }
+
+    function loadData(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.templates));
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history.slice(0, 20)));
+    }
+
+    function bindNavigation() {
+      dom.navButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          dom.navButtons.forEach((b) => b.classList.remove("active"));
+          dom.pages.forEach((p) => p.classList.remove("active"));
+          button.classList.add("active");
+          document.getElementById(`page-${button.dataset.page}`).classList.add("active");
+        });
+      });
+    }
+
+    function bindManageActions() {
+      dom.newBtn.addEventListener("click", () => {
+        state.selectedId = null;
+        fillForm(emptyTemplate());
+        renderJsonPreview();
+      });
+
+      dom.saveBtn.addEventListener("click", () => {
+        const item = collectForm();
+        if (!item.name.trim()) {
+          alert("显示名称不能为空");
+          return;
+        }
+        if (!state.selectedId) {
+          item.id = crypto.randomUUID();
+          state.templates.unshift(item);
+          state.selectedId = item.id;
+        } else {
+          item.id = state.selectedId;
+          const idx = state.templates.findIndex((v) => v.id === state.selectedId);
+          if (idx >= 0) state.templates[idx] = item;
+        }
+        persist();
+        renderAll();
+        setFooter(`已保存模板：${item.name}`);
+      });
+
+      dom.cloneBtn.addEventListener("click", () => {
+        const item = collectForm();
+        item.id = crypto.randomUUID();
+        item.name = `${item.name} - 副本`;
+        state.templates.unshift(item);
+        state.selectedId = item.id;
+        persist();
+        renderAll();
+        setFooter(`已另存模板：${item.name}`);
+      });
+
+      dom.deleteBtn.addEventListener("click", () => {
+        if (!state.selectedId) return;
+        const current = state.templates.find((v) => v.id === state.selectedId);
+        if (!current) return;
+        state.templates = state.templates.filter((v) => v.id !== state.selectedId);
+        state.selectedId = state.templates[0]?.id ?? null;
+        persist();
+        renderAll();
+        setFooter(`已删除模板：${current.name}`);
+      });
+
+      [
+        dom.nameInput, dom.codeInput, dom.cmdInput, dom.templateTypeInput, dom.keywordsInput,
+        dom.posIdInput, dom.xInput, dom.yInput, dom.zInput, dom.rxInput, dom.ryInput,
+        dom.rzInput, dom.speedInput, dom.accInput, dom.deviceIdInput, dom.safetyInput, dom.descInput
+      ].forEach((el) => el.addEventListener("input", renderJsonPreview));
+    }
+
+    function bindSystemActions() {
+      dom.powerBtn.addEventListener("click", () => setFooter("系统已上电"));
+      dom.startBtn.addEventListener("click", () => {
+        state.machine.mode = "自动";
+        renderStatus();
+        setFooter("系统启动");
+      });
+      dom.stopBtn.addEventListener("click", () => {
+        state.machine.busy = false;
+        renderStatus();
+        setFooter("系统停机");
+      });
+      dom.pauseBtn.addEventListener("click", () => {
+        state.machine.busy = false;
+        renderStatus();
+        setFooter("当前任务已暂停");
+      });
+      dom.resumeBtn.addEventListener("click", () => {
+        state.machine.busy = true;
+        renderStatus();
+        setFooter("当前任务继续运行");
+      });
+      dom.estopBtn.addEventListener("click", () => {
+        state.machine.busy = false;
+        dom.alarmCode.textContent = "ERR_900";
+        dom.alarmText.textContent = "急停触发";
+        dom.resultText.textContent = "9";
+        renderStatus();
+        setFooter("急停触发，系统锁定");
+      });
+    }
+
+    function renderAll() {
+      renderCommandGrid();
+      renderTemplateList();
+      renderHistory();
+      renderSelection();
+      renderJsonPreview();
+      renderStatus();
+    }
+
+    function renderCommandGrid() {
+      dom.commandGrid.innerHTML = "";
+      state.templates.slice(0, 6).forEach((item) => {
+        const card = document.createElement("div");
+        card.className = "command-card";
+        card.innerHTML = `
+          <div class="command-title">${escapeHtml(item.name)}</div>
+          <div class="tag-row">
+            <span class="tag">指令码 ${item.code}</span>
+            <span class="tag">${escapeHtml(item.cmd)}</span>
+          </div>
+          <div class="command-sub">${escapeHtml(item.desc || "")}</div>
+          <div class="tag-row">
+            <span class="tag">${item.templateType === "fixed" ? "固定函数型无参数指令" : "参数型指令"}</span>
+          </div>
+          <button class="btn ${item.templateType === "fixed" ? "yellow" : "green"}">执行</button>
+        `;
+        card.querySelector("button").addEventListener("click", () => executeTemplate(item.id));
+        dom.commandGrid.appendChild(card);
+      });
+    }
+
+    function renderTemplateList() {
+      dom.templateList.innerHTML = "";
+      state.templates.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = `tree-item${item.id === state.selectedId ? " active" : ""}`;
+        div.innerHTML = `
+          <div>${escapeHtml(item.name)}</div>
+          <div class="tag-row" style="justify-content:flex-start; margin-top:4px;">
+            <span class="tag">${item.code}</span>
+            <span class="tag">${item.templateType === "fixed" ? "固定函数型无参数指令" : "参数型指令"}</span>
+          </div>
+        `;
+        div.addEventListener("click", () => {
+          state.selectedId = item.id;
+          renderSelection();
+          renderTemplateList();
+        });
+        dom.templateList.appendChild(div);
+      });
+    }
+
+    function renderHistory() {
+      dom.historyBody.innerHTML = "";
+      const rows = state.history.length ? state.history : [
+        { taskId: 1001, code: 1001, type: "参数型指令", result: "待执行" }
+      ];
+      rows.slice(0, 8).forEach((item) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${item.taskId}</td>
+          <td>${item.code}</td>
+          <td>${escapeHtml(item.type)}</td>
+          <td>${escapeHtml(item.result)}</td>
+        `;
+        dom.historyBody.appendChild(tr);
+      });
+    }
+
+    function renderSelection() {
+      const current = state.templates.find((v) => v.id === state.selectedId) || emptyTemplate();
+      fillForm(current);
+      dom.currentName.textContent = current.name || "-";
+      dom.currentCode.textContent = current.code || "-";
+      dom.currentCmd.textContent = current.cmd || "-";
+      dom.currentType.textContent = current.templateType === "fixed" ? "固定函数型无参数指令" : "参数型指令";
+    }
+
+    function renderJsonPreview() {
+      dom.jsonPreview.textContent = JSON.stringify(buildPayload(collectForm()), null, 2);
+    }
+
+    function renderStatus() {
+      dom.robotX.textContent = state.machine.x.toFixed(1);
+      dom.robotY.textContent = state.machine.y.toFixed(1);
+      dom.robotZ.textContent = state.machine.z.toFixed(1);
+      dom.robotR.textContent = `${state.machine.rx} / ${state.machine.ry} / ${state.machine.rz}`;
+      dom.robotSpeed.textContent = `${state.machine.speedPercent}% / ${state.machine.accPercent}%`;
+      dom.modeText.textContent = state.machine.mode;
+      dom.busyText.textContent = state.machine.busy ? "运行中" : "空闲";
+      dom.taskText.textContent = state.taskId;
+      dom.topStatus.textContent = state.machine.busy ? "第一版：任务运行中" : "第一版：固定指令 + 后台模板";
+    }
+
+    function executeTemplate(id) {
+      const item = state.templates.find((v) => v.id === id);
+      if (!item) return;
+
+      state.machine.busy = true;
+      dom.alarmCode.textContent = "ERR_000";
+      dom.alarmText.textContent = "系统正常";
+      dom.resultText.textContent = "0";
+
+      if (item.templateType === "parametric") {
+        state.machine.x = Number(item.x || 0);
+        state.machine.y = Number(item.y || 0);
+        state.machine.z = Number(item.z || 0);
+        state.machine.rx = Number(item.rx || 0);
+        state.machine.ry = Number(item.ry || 0);
+        state.machine.rz = Number(item.rz || 0);
+        state.machine.speedPercent = Number(item.speedPercent || 0);
+        state.machine.accPercent = Number(item.accPercent || 0);
+      }
+
+      state.history.unshift({
+        taskId: state.taskId,
+        code: item.code,
+        type: item.templateType === "fixed" ? "固定函数型无参数指令" : "参数型指令",
+        result: "成功"
+      });
+      state.taskId += 1;
+
+      persist();
+      renderHistory();
+      renderStatus();
+      setFooter(`已执行：${item.name}`);
+    }
+
+    function buildPayload(item) {
+      const fixed = item.templateType === "fixed";
+      return {
+        taskId: state.taskId,
+        code: Number(item.code || 0),
+        cmd: item.cmd,
+        templateType: item.templateType,
+        params: fixed ? {
+          deviceId: Number(item.deviceId || 0),
+          posId: Number(item.posId || 0)
+        } : {
+          x: Number(item.x || 0),
+          y: Number(item.y || 0),
+          z: Number(item.z || 0),
+          rx: Number(item.rx || 0),
+          ry: Number(item.ry || 0),
+          rz: Number(item.rz || 0),
+          speedPercent: Number(item.speedPercent || 0),
+          accPercent: Number(item.accPercent || 0),
+          deviceId: Number(item.deviceId || 0),
+          posId: Number(item.posId || 0)
+        },
+        safetyLevel: Number(item.safetyLevel || 5),
+        desc: item.desc || item.name
+      };
+    }
+
+    function collectForm() {
+      return {
+        name: dom.nameInput.value.trim(),
+        code: Number(dom.codeInput.value || 0),
+        cmd: dom.cmdInput.value,
+        templateType: dom.templateTypeInput.value,
+        keywords: dom.keywordsInput.value.trim(),
+        posId: Number(dom.posIdInput.value || 0),
+        deviceId: Number(dom.deviceIdInput.value || 0),
+        x: Number(dom.xInput.value || 0),
+        y: Number(dom.yInput.value || 0),
+        z: Number(dom.zInput.value || 0),
+        rx: Number(dom.rxInput.value || 0),
+        ry: Number(dom.ryInput.value || 0),
+        rz: Number(dom.rzInput.value || 0),
+        speedPercent: Number(dom.speedInput.value || 0),
+        accPercent: Number(dom.accInput.value || 0),
+        safetyLevel: Number(dom.safetyInput.value || 5),
+        desc: dom.descInput.value.trim()
+      };
+    }
+
+    function fillForm(item) {
+      dom.nameInput.value = item.name ?? "";
+      dom.codeInput.value = item.code ?? 1001;
+      dom.cmdInput.value = item.cmd ?? "MOVE_ABS";
+      dom.templateTypeInput.value = item.templateType ?? "parametric";
+      dom.keywordsInput.value = item.keywords ?? "";
+      dom.posIdInput.value = item.posId ?? 0;
+      dom.deviceIdInput.value = item.deviceId ?? 1;
+      dom.xInput.value = item.x ?? 0;
+      dom.yInput.value = item.y ?? 0;
+      dom.zInput.value = item.z ?? 0;
+      dom.rxInput.value = item.rx ?? 0;
+      dom.ryInput.value = item.ry ?? 0;
+      dom.rzInput.value = item.rz ?? 0;
+      dom.speedInput.value = item.speedPercent ?? 0;
+      dom.accInput.value = item.accPercent ?? 0;
+      dom.safetyInput.value = item.safetyLevel ?? 5;
+      dom.descInput.value = item.desc ?? "";
+    }
+
+    function emptyTemplate() {
+      return {
+        name: "",
+        code: 1001,
+        cmd: "MOVE_ABS",
+        templateType: "parametric",
+        keywords: "",
+        posId: 0,
+        deviceId: 1,
+        x: 0,
+        y: 0,
+        z: 0,
+        rx: 0,
+        ry: 0,
+        rz: 0,
+        speedPercent: 30,
+        accPercent: 40,
+        safetyLevel: 5,
+        desc: ""
+      };
+    }
+
+    function setFooter(text) {
+      dom.footerStatus.textContent = `${text} | 第一版简版原型 V2`;
+    }
+
+    function updateClock() {
+      dom.timeText.textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+  </script>
+</body>
+</html>

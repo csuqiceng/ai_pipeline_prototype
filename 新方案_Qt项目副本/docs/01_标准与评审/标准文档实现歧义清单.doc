@@ -1,0 +1,264 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>标准文档实现歧义清单</title>
+<style>
+body { font-family: "Microsoft YaHei", SimSun, sans-serif; font-size: 12pt; line-height: 1.6; }
+h1 { font-size: 20pt; }
+h2 { font-size: 14pt; margin-top: 18pt; }
+p, li { margin: 6pt 0; }
+code { font-family: Consolas, monospace; }
+pre { background: #f5f5f5; padding: 8pt; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+<h1>标准文档实现歧义清单</h1>
+
+<p>对应标准来源：</p>
+<ul>
+  <li>双车床机械手自然语言编程控制系统.pdf</li>
+  <li>双车床机械手自然语言编程控制系统.txt</li>
+</ul>
+
+<p>本文档不修改标准正文，只整理当前标准在工程实现时存在的歧义点，供后续评审确认。</p>
+
+<h2>1. <code>DEV_ID</code> 与 <code>posId</code> 的关系不清</h2>
+<p>标准中同时存在：</p>
+<ul>
+  <li><code>VR[10] DEV_ID = 设备/工位ID</code></li>
+  <li>JSON 中 <code>params.posId = 工位ID</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li><code>posId</code> 是否最终直接写入 <code>VR[10]</code></li>
+  <li><code>VR[10]</code> 是否只用于设备ID，<code>posId</code> 仅在上位机内部使用</li>
+  <li>如果两者都存在，控制器实际应读取哪一个字段</li>
+</ul>
+<p>这会直接影响：</p>
+<ul>
+  <li>上位机 JSON 到 VR 的映射方式</li>
+  <li>后台模板设计</li>
+  <li>控制器内部查表方式</li>
+</ul>
+
+<h2>2. <code>TASK_ID</code> 说用于请求/响应匹配，但反馈区没有任务号</h2>
+<p>标准中定义：</p>
+<ul>
+  <li><code>VR[1] TASK_ID</code></li>
+  <li>说明：用于匹配请求与响应</li>
+</ul>
+<p>但反馈区只定义了：</p>
+<ul>
+  <li><code>VR[16] RESULT</code></li>
+  <li><code>VR[17] STATUS</code></li>
+  <li><code>VR[18]~VR[23] CUR_*</code></li>
+  <li><code>VR[24] ALM_CODE</code></li>
+  <li><code>VR[25] IO_STAT</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li>响应中没有回传任务号字段</li>
+  <li>上位机如何确认当前响应对应哪个请求</li>
+</ul>
+<p>这会直接影响：</p>
+<ul>
+  <li>指令队列实现</li>
+  <li>异步响应匹配</li>
+  <li>日志关联</li>
+</ul>
+
+<h2>3. <code>EMG_RESET</code> 需要 <code>alm_code</code>，但输入区没有对应寄存器</h2>
+<p>标准命令表中定义：</p>
+<ul>
+  <li><code>1008 EMG_RESET</code></li>
+  <li>JSON关键字段：<code>alm_code:0</code></li>
+</ul>
+<p>但指令区 <code>VR[0]~VR[15]</code> 中没有专门的报警清除码输入字段。</p>
+<p>当前歧义：</p>
+<ul>
+  <li><code>alm_code</code> 应写入哪个 VR</li>
+  <li>是否复用 <code>EXT_P1</code></li>
+  <li>还是 <code>EMG_RESET</code> 实际无需携带报警码</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>上位机 JSON 组包</li>
+  <li>下位机复位逻辑</li>
+</ul>
+
+<h2>4. “无参数指令一律禁止” 与固定函数/回零命令存在冲突</h2>
+<p>标准 8.1 写明：</p>
+<ul>
+  <li><code>无参数指令一律禁止</code></li>
+</ul>
+<p>但当前命令体系和业务需求中又存在明显接近无参数或固定语义的命令：</p>
+<ul>
+  <li><code>HOME</code></li>
+  <li><code>EMG_RESET</code></li>
+  <li>业务上明确提到的 <code>5001 固定函数</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li>是真的完全禁止无参数指令</li>
+  <li>还是允许“固定函数型无参数指令”</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>后台模板字段设计</li>
+  <li>运行页按钮逻辑</li>
+  <li>控制器固定函数调用方式</li>
+</ul>
+
+<h2>5. <code>MOVE_REL</code> 的参数定义不完整</h2>
+<p>标准中定义：</p>
+<ul>
+  <li><code>1002 MOVE_REL</code></li>
+  <li>示例：<code>Z轴向上抬升50mm</code></li>
+  <li>JSON关键字段：<code>z,speed(相对增量)</code></li>
+</ul>
+<p>但寄存器区仍固定有：</p>
+<ul>
+  <li><code>POS_X</code></li>
+  <li><code>POS_Y</code></li>
+  <li><code>POS_Z</code></li>
+  <li><code>ROT_RX</code></li>
+  <li><code>ROT_RY</code></li>
+  <li><code>ROT_RZ</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li><code>MOVE_REL</code> 是否只填写变化轴，未填写轴默认 <code>0</code></li>
+  <li>是否支持 <code>RX/RY/RZ</code> 相对增量</li>
+  <li>是否必须全轴都写</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>自然语言解析</li>
+  <li>JSON 构造</li>
+  <li>控制器解释方式</li>
+</ul>
+
+<h2>6. 通用 JSON 示例容易被误解为“所有命令都必须带完整位置参数”</h2>
+<p>标准中的通用 JSON 示例是 <code>MOVE_ABS</code>：</p>
+<pre>{
+  "taskId": 1001,
+  "cmd": "MOVE_ABS",
+  "code": 1001,
+  "params": {
+    "x": 120.5,
+    "y": 80.0,
+    "z": 45.0,
+    "rx": 0.0,
+    "ry": 0.0,
+    "rz": 0.0,
+    "speedPercent": 30,
+    "accPercent": 40,
+    "posId": 2
+  },
+  "safetyLevel": 5,
+  "desc": "绝对移动到原料1号取料位"
+}</pre>
+<p>但以下命令并不适合要求完整位置字段：</p>
+<ul>
+  <li><code>GRIP_SET</code></li>
+  <li><code>DOOR_CTRL</code></li>
+  <li><code>WAIT_MS</code></li>
+  <li><code>CHECK_IN</code></li>
+  <li><code>EMG_RESET</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li>该 JSON 是否只是“移动类示例”</li>
+  <li>还是所有命令统一用这套必填结构</li>
+</ul>
+
+<h2>7. <code>IO_STAT</code> 位定义不完整</h2>
+<p>标准当前只写：</p>
+<ul>
+  <li><code>位0:门1, 位1:门2, 位2:夹爪...</code></li>
+</ul>
+<p>当前歧义：</p>
+<ul>
+  <li>bit2 具体代表什么</li>
+  <li>是否还有急停位、限位位、夹爪有料位、卡盘位</li>
+  <li>状态页应如何逐位解释</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>Qt 界面状态显示</li>
+  <li>报警联动</li>
+  <li>调试判断</li>
+</ul>
+
+<h2>8. <code>R/W</code> 容易引起误解</h2>
+<p>标准表中很多寄存器权限写为 <code>R/W</code>。</p>
+<p>当前歧义：</p>
+<ul>
+  <li>是否允许 PC 和控制器都修改同一寄存器</li>
+  <li>还是仅表示“从系统角度可读写”，但实际分工不同</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>上下位机职责边界</li>
+  <li>通信实现方式</li>
+</ul>
+
+<h2>9. 数据类型定义和实际传输方式之间存在歧义</h2>
+<p>标准中同时使用了：</p>
+<ul>
+  <li><code>UINT16</code></li>
+  <li><code>INT16</code></li>
+  <li><code>FLOAT</code></li>
+</ul>
+<p>但当前项目实际通信链路和 SDK 调用多处按浮点处理。</p>
+<p>当前歧义：</p>
+<ul>
+  <li>这些类型是“物理传输类型”</li>
+  <li>还是“业务解释类型”</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>上位机编码方式</li>
+  <li>下位机解析方式</li>
+  <li>日志展示方式</li>
+</ul>
+
+<h2>10. 设备ID与工位定义之间缺少明确映射规则</h2>
+<p>标准中有：</p>
+<ul>
+  <li><code>5.1 设备ID映射</code></li>
+  <li><code>5.2 工位坐标定义</code></li>
+</ul>
+<p>但未明确：</p>
+<ul>
+  <li><code>posId = 2</code> 时，<code>DEV_ID</code> 应是什么</li>
+  <li>上位机是否应先把 <code>posId</code> 展开成坐标</li>
+  <li>控制器是否需要内部维护工位表</li>
+</ul>
+<p>这会影响：</p>
+<ul>
+  <li>后台页面设计</li>
+  <li>JSON 与 VR 的关系</li>
+  <li>控制器内部逻辑复杂度</li>
+</ul>
+
+<h2>当前最优先需要确认的 4 个点</h2>
+<ol>
+  <li><code>DEV_ID</code> 与 <code>posId</code> 的关系</li>
+  <li><code>TASK_ID</code> 是否需要在反馈区回传</li>
+  <li><code>EMG_RESET</code> 的 <code>alm_code</code> 应写入哪个字段</li>
+  <li>是否允许固定函数型无参数指令，例如 <code>5001</code></li>
+</ol>
+
+<h2>建议</h2>
+<p>在继续推进“最终标准协议”实现前，建议先对上述 4 个关键点做一次评审冻结。</p>
+<p>冻结后再统一：</p>
+<ul>
+  <li>Qt 页面字段</li>
+  <li>JSON 结构化预览</li>
+  <li>VR 组包逻辑</li>
+  <li>控制器解析逻辑</li>
+</ul>
+
+</body>
+</html>
