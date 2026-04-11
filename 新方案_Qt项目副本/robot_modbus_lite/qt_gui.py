@@ -39,13 +39,17 @@ except ModuleNotFoundError:
 from .models import QueryRecord, VrWriteRequest
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
+from .system_config import (
+    AxisRangeConfig,
+    ensure_system_config_json,
+    load_system_config,
+    save_system_config,
+    validate_system_config,
+)
 from .zmotion_client import ZMotionVrClient
 
 
 COMMAND_TYPES = ["MOVE_ABS", "MOVE_REL", "HOME", "GRIP_SET", "DOOR_CTRL", "WAIT_MS", "CHECK_IN", "EMG_RESET", "FIXED_FUNC"]
-X_RANGE = (-300.0, 300.0)
-Y_RANGE = (-300.0, 300.0)
-Z_RANGE = (0.0, 300.0)
 SYSTEM_COMMANDS = {
     "上电": ("power_on", "系统已上电"),
     "启动": ("auto_start", "系统启动"),
@@ -70,6 +74,7 @@ class RobotQtWindow(QMainWindow):
         *,
         json_path: Path,
         csv_path: Path,
+        system_config_path: Path | None = None,
         client_factory: Callable[[str, Path], ZMotionVrClient] | None = None,
     ) -> None:
         super().__init__()
@@ -79,6 +84,8 @@ class RobotQtWindow(QMainWindow):
         self.runtime_root = _runtime_dir()
         self.resource_root = _resource_dir()
         self.json_path = bootstrap_query_table_json(json_path, csv_path)
+        self.system_config_path = ensure_system_config_json(system_config_path or (self.runtime_root / "data" / "system_config.json"))
+        self.axis_ranges = load_system_config(self.system_config_path)
         self.table = load_query_table(self.json_path)
         self.service = RobotModbusService(self.json_path)
         self._client_factory = client_factory or (lambda host, repo_root: ZMotionVrClient(host=host, repo_root=repo_root))
@@ -308,6 +315,8 @@ class RobotQtWindow(QMainWindow):
         self.history_table.setHorizontalHeaderLabels(["任务ID", "指令码", "指令类型", "结果"])
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         history_group = QGroupBox("最近执行记录")
         history_group.setObjectName("panel")
         hist_layout = QVBoxLayout(history_group)
@@ -453,6 +462,34 @@ class RobotQtWindow(QMainWindow):
         self.preview_edit.setReadOnly(True)
         preview_layout.addWidget(self.preview_edit)
 
+        config_group = QGroupBox("系统参数")
+        config_group.setObjectName("subPanel")
+        config_layout = QFormLayout(config_group)
+        self.range_x_min_edit = QLineEdit()
+        self.range_x_max_edit = QLineEdit()
+        self.range_y_min_edit = QLineEdit()
+        self.range_y_max_edit = QLineEdit()
+        self.range_z_min_edit = QLineEdit()
+        self.range_z_max_edit = QLineEdit()
+        for label, widget in [
+            ("X最小", self.range_x_min_edit),
+            ("X最大", self.range_x_max_edit),
+            ("Y最小", self.range_y_min_edit),
+            ("Y最大", self.range_y_max_edit),
+            ("Z最小", self.range_z_min_edit),
+            ("Z最大", self.range_z_max_edit),
+        ]:
+            config_layout.addRow(label + ":", widget)
+        config_buttons = QHBoxLayout()
+        config_save_btn = QPushButton("保存范围")
+        config_save_btn.clicked.connect(self._save_system_config)
+        config_reload_btn = QPushButton("重载范围")
+        config_reload_btn.clicked.connect(self._load_system_config_into_form)
+        config_buttons.addWidget(config_save_btn)
+        config_buttons.addWidget(config_reload_btn)
+        config_layout.addRow(config_buttons)
+        preview_layout.addWidget(config_group)
+
         bottom_layout.addWidget(left, 1)
         bottom_layout.addWidget(middle, 1)
         bottom_layout.addWidget(preview_group, 1)
@@ -468,6 +505,7 @@ class RobotQtWindow(QMainWindow):
         self.cmd_combo.currentTextChanged.connect(self._render_preview)
         self.template_type_combo.currentTextChanged.connect(self._render_preview)
         self.template_type_combo.currentTextChanged.connect(self._sync_template_type_mode)
+        self._load_system_config_into_form()
 
         return page
 
@@ -491,10 +529,6 @@ class RobotQtWindow(QMainWindow):
 
         log_summary = self._make_info_group("日志摘要")
         log_summary.setObjectName("panel")
-        self.log_count_label = QLabel("0")
-        self.log_last_time_label = QLabel("-")
-        log_summary.layout().addRow("日志条数", self.log_count_label)
-        log_summary.layout().addRow("最近时间", self.log_last_time_label)
 
         action_box = QGroupBox("日志操作")
         action_box.setObjectName("panel")
@@ -634,7 +668,7 @@ class RobotQtWindow(QMainWindow):
                 ("IO状态位", self.io_status_label), ("当前任务ID", self.task_label),
             ]:
                 layout.addRow(label + ":", widget)
-        else:
+        elif title == "当前选中模板":
             self.current_name_label = QLabel("-")
             self.current_code_label = QLabel("-")
             self.current_cmd_label = QLabel("-")
@@ -642,6 +676,14 @@ class RobotQtWindow(QMainWindow):
             for label, widget in [
                 ("显示名称", self.current_name_label), ("指令码", self.current_code_label),
                 ("指令类型", self.current_cmd_label), ("模板分类", self.current_type_label),
+            ]:
+                layout.addRow(label + ":", widget)
+        elif title == "日志摘要":
+            self.log_count_label = QLabel("0")
+            self.log_last_time_label = QLabel("-")
+            for label, widget in [
+                ("日志条数", self.log_count_label),
+                ("最近时间", self.log_last_time_label),
             ]:
                 layout.addRow(label + ":", widget)
         return group
@@ -657,6 +699,42 @@ class RobotQtWindow(QMainWindow):
         if self.table:
             self.current_key = sorted(self.table)[0]
             self._load_record_into_form(self.table[self.current_key])
+
+    def _load_system_config_into_form(self) -> None:
+        self.axis_ranges = load_system_config(self.system_config_path)
+        self.range_x_min_edit.setText(self._fmt(self.axis_ranges.x[0]))
+        self.range_x_max_edit.setText(self._fmt(self.axis_ranges.x[1]))
+        self.range_y_min_edit.setText(self._fmt(self.axis_ranges.y[0]))
+        self.range_y_max_edit.setText(self._fmt(self.axis_ranges.y[1]))
+        self.range_z_min_edit.setText(self._fmt(self.axis_ranges.z[0]))
+        self.range_z_max_edit.setText(self._fmt(self.axis_ranges.z[1]))
+
+    def _collect_system_config(self) -> AxisRangeConfig:
+        def num(text: str) -> float:
+            return float(text.strip()) if text.strip() else 0.0
+
+        return AxisRangeConfig(
+            x=(num(self.range_x_min_edit.text()), num(self.range_x_max_edit.text())),
+            y=(num(self.range_y_min_edit.text()), num(self.range_y_max_edit.text())),
+            z=(num(self.range_z_min_edit.text()), num(self.range_z_max_edit.text())),
+        )
+
+    def _save_system_config(self) -> None:
+        try:
+            config = self._collect_system_config()
+        except ValueError:
+            QMessageBox.warning(self, "保存失败", "系统范围必须是数字。")
+            self._append_log("后台", "保存范围", "失败", "系统范围必须是数字")
+            return
+        validation_error = validate_system_config(config)
+        if validation_error:
+            QMessageBox.warning(self, "保存失败", validation_error)
+            self._append_log("后台", "保存范围", "失败", validation_error)
+            return
+        save_system_config(self.system_config_path, config)
+        self.axis_ranges = config
+        self.status_label.setText(f"已保存系统范围配置: {self.system_config_path}")
+        self._append_log("后台", "保存范围", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
 
     def _load_record_into_form(self, record: QueryRecord) -> None:
         standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
@@ -682,6 +760,7 @@ class RobotQtWindow(QMainWindow):
         self.safety_edit.setText(str(record.safety_level))
         self.desc_edit.setText(record.description)
         self._sync_template_type_mode(record.template_type)
+        self._update_current_template_info(record, standard_command.code, standard_command.cmd)
         self._render_preview()
 
     def _collect_record(self) -> QueryRecord:
@@ -719,9 +798,12 @@ class RobotQtWindow(QMainWindow):
         payload["queryKey"] = record.query_key
         payload["keywords"] = record.keywords
         self.preview_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+        self._update_current_template_info(record, standard_command.code, standard_command.cmd)
+
+    def _update_current_template_info(self, record: QueryRecord, code: int, cmd: str) -> None:
         self.current_name_label.setText(record.query_key or "-")
-        self.current_code_label.setText(str(standard_command.code) if record.query_key else "-")
-        self.current_cmd_label.setText(standard_command.cmd or "-")
+        self.current_code_label.setText(str(code) if record.query_key else "-")
+        self.current_cmd_label.setText(cmd or "-")
         self.current_type_label.setText("固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令")
 
     def _refresh_all(self) -> None:
@@ -764,7 +846,7 @@ class RobotQtWindow(QMainWindow):
     def _refresh_history(self) -> None:
         self.history_table.setRowCount(0)
         rows = self.history or [{"task": 1001, "code": 1001, "type": "参数型指令", "result": "待执行"}]
-        for row_index, row in enumerate(rows[:8]):
+        for row_index, row in enumerate(rows):
             self.history_table.insertRow(row_index)
             for col_index, key in enumerate(["task", "code", "type", "result"]):
                 self.history_table.setItem(row_index, col_index, QTableWidgetItem(str(row[key])))
@@ -916,11 +998,16 @@ class RobotQtWindow(QMainWindow):
     def _on_template_selected(self) -> None:
         items = self.template_tree.selectedItems()
         if not items:
+            self._append_log("后台", "选择模板", "失败", "没有选中任何模板")
             return
         key = items[0].text(0)
         if key in self.table:
+            standard_command = self.service.build_standard_command_from_record(self.table[key], task_id=self.task_id)
+            self._append_log("后台", "选择模板", "成功", f"{key} / {standard_command.code} / {standard_command.cmd}")
             self.current_key = key
             self._load_record_into_form(self.table[key])
+        else:
+            self._append_log("后台", "选择模板", "失败", f"模板不存在: {key}")
 
     def _check_connection(self) -> None:
         host = self.host_edit.text().strip()
@@ -1196,12 +1283,12 @@ class RobotQtWindow(QMainWindow):
         if self.protocol_combo.currentText() == "最终标准协议":
             standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             if standard_command.code == 1001:
-                if not (X_RANGE[0] <= record.registers[0] <= X_RANGE[1]):
-                    return f"X 坐标超出最终标准范围 {X_RANGE}。"
-                if not (Y_RANGE[0] <= record.registers[1] <= Y_RANGE[1]):
-                    return f"Y 坐标超出最终标准范围 {Y_RANGE}。"
-                if not (Z_RANGE[0] <= record.registers[2] <= Z_RANGE[1]):
-                    return f"Z 坐标超出最终标准范围 {Z_RANGE}。"
+                if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
+                    return f"X 坐标超出最终标准范围 {self.axis_ranges.x}。"
+                if not (self.axis_ranges.y[0] <= record.registers[1] <= self.axis_ranges.y[1]):
+                    return f"Y 坐标超出最终标准范围 {self.axis_ranges.y}。"
+                if not (self.axis_ranges.z[0] <= record.registers[2] <= self.axis_ranges.z[1]):
+                    return f"Z 坐标超出最终标准范围 {self.axis_ranges.z}。"
         return None
 
     @staticmethod
@@ -1251,10 +1338,13 @@ def main() -> None:
     runtime_base = _runtime_dir()
     resource_base = _resource_dir()
     data_dir = runtime_base / "data"
+    if not data_dir.exists():
+        data_dir = resource_base / "data"
     json_path = data_dir / "query_table.json"
+    system_config_path = data_dir / "system_config.json"
     csv_path = resource_base / "附件" / "机械臂AI地址表.csv"
     if not csv_path.exists():
         csv_path = json_path
-    window = RobotQtWindow(json_path=json_path, csv_path=csv_path)
+    window = RobotQtWindow(json_path=json_path, csv_path=csv_path, system_config_path=system_config_path)
     window.show()
     sys.exit(app.exec())
