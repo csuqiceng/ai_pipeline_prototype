@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
@@ -38,6 +39,14 @@ try:
     from mock_controller import MockZMotionVrClient
 except ModuleNotFoundError:
     from ..mock_controller import MockZMotionVrClient
+from .avoidance_config import (
+    AvoidanceConfig,
+    SafePoint,
+    ensure_avoidance_config_json,
+    load_avoidance_config,
+    save_avoidance_config,
+    validate_safe_point,
+)
 from .models import QueryRecord, VrWriteRequest
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
@@ -89,7 +98,9 @@ class RobotQtWindow(QMainWindow):
         self.resource_root = _resource_dir()
         self.json_path = bootstrap_query_table_json(json_path, csv_path)
         self.system_config_path = ensure_system_config_json(system_config_path or (self.runtime_root / "data" / "system_config.json"))
+        self.avoidance_config_path = ensure_avoidance_config_json(self.runtime_root / "data" / "avoidance_rules.json")
         self.axis_ranges = load_system_config(self.system_config_path)
+        self.avoidance_config = load_avoidance_config(self.avoidance_config_path)
         self.table = load_query_table(self.json_path)
         self.service = RobotModbusService(self.json_path)
         self._client_factory = client_factory or (lambda host, repo_root: ZMotionVrClient(host=host, repo_root=repo_root))
@@ -97,6 +108,7 @@ class RobotQtWindow(QMainWindow):
         self.logs: list[dict[str, str]] = []
         self.task_id = 1001
         self.current_key: str | None = None
+        self.current_safe_point_key: str | None = None
         self.robot_x = "1250.0"
         self.robot_y = "0.0"
         self.robot_z = "860.0"
@@ -399,9 +411,9 @@ class RobotQtWindow(QMainWindow):
             row = index // 2
             col = index % 2
             action_layout.addWidget(btn, row, col)
-        top_layout.addWidget(self.backend_info)
-        top_layout.addWidget(self.current_info)
-        top_layout.addWidget(action_box, 0)
+        top_layout.addWidget(self.backend_info, 2)
+        top_layout.addWidget(self.current_info, 2)
+        top_layout.addWidget(action_box, 1)
         layout.addWidget(top)
 
         bottom = QWidget()
@@ -521,11 +533,91 @@ class RobotQtWindow(QMainWindow):
         config_buttons.addWidget(config_save_btn)
         config_buttons.addWidget(config_reload_btn)
         config_layout.addRow(config_buttons)
-        preview_layout.addWidget(config_group)
+        avoidance_group = QGroupBox("安全中间点")
+        avoidance_group.setObjectName("subPanel")
+        avoidance_layout = QVBoxLayout(avoidance_group)
+        avoidance_rule_form = QFormLayout()
+        self.avoidance_mode_combo = QComboBox()
+        self.avoidance_mode_combo.addItems(["关闭", "自动判断", "每次都经过中间点"])
+        self.rule_rx_threshold_edit = QLineEdit("30")
+        self.rule_ry_threshold_edit = QLineEdit("30")
+        self.rule_rz_threshold_edit = QLineEdit("45")
+        self.rule_low_z_threshold_edit = QLineEdit("150")
+        self.rule_xy_move_threshold_edit = QLineEdit("100")
+        for label, widget in [
+            ("规避模式", self.avoidance_mode_combo),
+            ("RX变化>=", self.rule_rx_threshold_edit),
+            ("RY变化>=", self.rule_ry_threshold_edit),
+            ("RZ变化>=", self.rule_rz_threshold_edit),
+            ("低位Z<", self.rule_low_z_threshold_edit),
+            ("XY移动>", self.rule_xy_move_threshold_edit),
+        ]:
+            avoidance_rule_form.addRow(label + ":", widget)
+        avoidance_layout.addLayout(avoidance_rule_form)
+
+        avoidance_split = QWidget()
+        avoidance_split_layout = QHBoxLayout(avoidance_split)
+        avoidance_split_layout.setContentsMargins(0, 0, 0, 0)
+        avoidance_split_layout.setSpacing(8)
+
+        self.safe_point_tree = QTreeWidget()
+        self.safe_point_tree.setHeaderLabels(["中间点", "说明"])
+        self.safe_point_tree.itemSelectionChanged.connect(self._on_safe_point_selected)
+        avoidance_split_layout.addWidget(self.safe_point_tree, 1)
+
+        safe_point_editor = QWidget()
+        safe_point_form = QFormLayout(safe_point_editor)
+        self.safe_point_name_edit = QLineEdit()
+        self.safe_point_x_edit = QLineEdit("0")
+        self.safe_point_y_edit = QLineEdit("0")
+        self.safe_point_z_edit = QLineEdit("0")
+        self.safe_point_rx_edit = QLineEdit("0")
+        self.safe_point_ry_edit = QLineEdit("0")
+        self.safe_point_rz_edit = QLineEdit("0")
+        self.safe_point_speed_edit = QLineEdit("20")
+        self.safe_point_acc_edit = QLineEdit("20")
+        self.safe_point_desc_edit = QLineEdit()
+        for label, widget in [
+            ("名称", self.safe_point_name_edit),
+            ("X", self.safe_point_x_edit),
+            ("Y", self.safe_point_y_edit),
+            ("Z", self.safe_point_z_edit),
+            ("RX", self.safe_point_rx_edit),
+            ("RY", self.safe_point_ry_edit),
+            ("RZ", self.safe_point_rz_edit),
+            ("速度%", self.safe_point_speed_edit),
+            ("加速度%", self.safe_point_acc_edit),
+            ("说明", self.safe_point_desc_edit),
+        ]:
+            safe_point_form.addRow(label + ":", widget)
+
+        safe_point_buttons = QGridLayout()
+        safe_point_new_btn = QPushButton("新增中间点")
+        safe_point_new_btn.clicked.connect(self._new_safe_point)
+        safe_point_save_btn = QPushButton("保存中间点")
+        safe_point_save_btn.clicked.connect(self._save_safe_point)
+        safe_point_delete_btn = QPushButton("删除中间点")
+        safe_point_delete_btn.clicked.connect(self._delete_safe_point)
+        safe_point_save_cfg_btn = QPushButton("保存规避配置")
+        safe_point_save_cfg_btn.clicked.connect(self._save_avoidance_config_only)
+        safe_point_buttons.addWidget(safe_point_new_btn, 0, 0)
+        safe_point_buttons.addWidget(safe_point_save_btn, 0, 1)
+        safe_point_buttons.addWidget(safe_point_delete_btn, 1, 0)
+        safe_point_buttons.addWidget(safe_point_save_cfg_btn, 1, 1)
+        safe_point_form.addRow(safe_point_buttons)
+
+        avoidance_split_layout.addWidget(safe_point_editor, 1)
+        avoidance_layout.addWidget(avoidance_split)
+
+        right_tabs = QTabWidget()
+        right_tabs.setObjectName("panel")
+        right_tabs.addTab(preview_group, "JSON预览")
+        right_tabs.addTab(config_group, "系统参数")
+        right_tabs.addTab(avoidance_group, "安全中间点")
 
         bottom_layout.addWidget(left, 1)
         bottom_layout.addWidget(middle, 1)
-        bottom_layout.addWidget(preview_group, 1)
+        bottom_layout.addWidget(right_tabs, 1)
         layout.addWidget(bottom, 1)
 
         for widget in [
@@ -539,6 +631,7 @@ class RobotQtWindow(QMainWindow):
         self.template_type_combo.currentTextChanged.connect(self._render_preview)
         self.template_type_combo.currentTextChanged.connect(self._sync_template_type_mode)
         self._load_system_config_into_form()
+        self._load_avoidance_config_into_form()
 
         return page
 
@@ -788,6 +881,175 @@ class RobotQtWindow(QMainWindow):
         self.axis_ranges = config
         self.status_label.setText(f"已保存系统范围配置: {self.system_config_path}")
         self._append_log("后台", "保存范围", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
+
+    def _load_avoidance_config_into_form(self) -> None:
+        self.avoidance_config = load_avoidance_config(self.avoidance_config_path)
+        mode_text = {
+            "off": "关闭",
+            "auto": "自动判断",
+            "always": "每次都经过中间点",
+        }.get(self.avoidance_config.mode, "关闭")
+        self.avoidance_mode_combo.setCurrentText(mode_text)
+        self.rule_rx_threshold_edit.setText(self._fmt(self.avoidance_config.rx_threshold))
+        self.rule_ry_threshold_edit.setText(self._fmt(self.avoidance_config.ry_threshold))
+        self.rule_rz_threshold_edit.setText(self._fmt(self.avoidance_config.rz_threshold))
+        self.rule_low_z_threshold_edit.setText(self._fmt(self.avoidance_config.low_z_threshold))
+        self.rule_xy_move_threshold_edit.setText(self._fmt(self.avoidance_config.xy_move_threshold))
+        self._refresh_safe_point_tree()
+        if self.current_safe_point_key and self.current_safe_point_key in self.avoidance_config.safe_points:
+            self._load_safe_point_into_form(self.avoidance_config.safe_points[self.current_safe_point_key])
+        elif self.avoidance_config.safe_points:
+            first_key = sorted(self.avoidance_config.safe_points)[0]
+            self.current_safe_point_key = first_key
+            self._load_safe_point_into_form(self.avoidance_config.safe_points[first_key])
+        else:
+            self._new_safe_point()
+
+    def _refresh_safe_point_tree(self) -> None:
+        self.safe_point_tree.clear()
+        for point in sorted(self.avoidance_config.safe_points.values(), key=lambda item: item.name):
+            item = QTreeWidgetItem([point.name, point.description or "-"])
+            self.safe_point_tree.addTopLevelItem(item)
+            if self.current_safe_point_key == point.name:
+                self.safe_point_tree.setCurrentItem(item)
+
+    def _load_safe_point_into_form(self, point: SafePoint) -> None:
+        self.safe_point_name_edit.setText(point.name)
+        self.safe_point_x_edit.setText(self._fmt(point.x))
+        self.safe_point_y_edit.setText(self._fmt(point.y))
+        self.safe_point_z_edit.setText(self._fmt(point.z))
+        self.safe_point_rx_edit.setText(self._fmt(point.rx))
+        self.safe_point_ry_edit.setText(self._fmt(point.ry))
+        self.safe_point_rz_edit.setText(self._fmt(point.rz))
+        self.safe_point_speed_edit.setText(self._fmt(point.speed_percent))
+        self.safe_point_acc_edit.setText(self._fmt(point.acc_percent))
+        self.safe_point_desc_edit.setText(point.description)
+
+    def _new_safe_point(self) -> None:
+        self.current_safe_point_key = None
+        self.safe_point_name_edit.setText("")
+        self.safe_point_x_edit.setText("0")
+        self.safe_point_y_edit.setText("0")
+        self.safe_point_z_edit.setText("200")
+        self.safe_point_rx_edit.setText("0")
+        self.safe_point_ry_edit.setText("0")
+        self.safe_point_rz_edit.setText("0")
+        self.safe_point_speed_edit.setText("20")
+        self.safe_point_acc_edit.setText("20")
+        self.safe_point_desc_edit.setText("")
+        self.status_label.setText("已创建空白安全中间点。")
+        self._append_log("后台", "新增中间点", "成功", "已创建空白安全中间点")
+
+    def _collect_safe_point(self) -> SafePoint:
+        def num(text: str) -> float:
+            text = text.strip().replace("%", "")
+            return float(text) if text else 0.0
+
+        return SafePoint(
+            name=self.safe_point_name_edit.text().strip(),
+            x=num(self.safe_point_x_edit.text()),
+            y=num(self.safe_point_y_edit.text()),
+            z=num(self.safe_point_z_edit.text()),
+            rx=num(self.safe_point_rx_edit.text()),
+            ry=num(self.safe_point_ry_edit.text()),
+            rz=num(self.safe_point_rz_edit.text()),
+            speed_percent=num(self.safe_point_speed_edit.text()),
+            acc_percent=num(self.safe_point_acc_edit.text()),
+            description=self.safe_point_desc_edit.text().strip(),
+        )
+
+    def _build_avoidance_config(self, safe_points: dict[str, SafePoint] | None = None) -> AvoidanceConfig:
+        def num(text: str) -> float:
+            text = text.strip().replace("%", "")
+            return float(text) if text else 0.0
+
+        mode = {
+            "关闭": "off",
+            "自动判断": "auto",
+            "每次都经过中间点": "always",
+        }.get(self.avoidance_mode_combo.currentText(), "off")
+        return AvoidanceConfig(
+            mode=mode,
+            rx_threshold=num(self.rule_rx_threshold_edit.text()),
+            ry_threshold=num(self.rule_ry_threshold_edit.text()),
+            rz_threshold=num(self.rule_rz_threshold_edit.text()),
+            low_z_threshold=num(self.rule_low_z_threshold_edit.text()),
+            xy_move_threshold=num(self.rule_xy_move_threshold_edit.text()),
+            safe_points=safe_points if safe_points is not None else dict(self.avoidance_config.safe_points),
+            rules=self.avoidance_config.rules,
+        )
+
+    def _save_safe_point(self) -> None:
+        try:
+            point = self._collect_safe_point()
+        except ValueError:
+            QMessageBox.warning(self, "保存失败", "中间点参数必须是数字。")
+            self._append_log("后台", "保存中间点", "失败", "中间点参数必须是数字")
+            return
+        validation_error = validate_safe_point(point)
+        if validation_error:
+            QMessageBox.warning(self, "保存失败", validation_error)
+            self._append_log("后台", "保存中间点", "失败", validation_error)
+            return
+        safe_points = dict(self.avoidance_config.safe_points)
+        if self.current_safe_point_key and self.current_safe_point_key != point.name and self.current_safe_point_key in safe_points:
+            del safe_points[self.current_safe_point_key]
+        safe_points[point.name] = point
+        self.avoidance_config = self._build_avoidance_config(safe_points)
+        save_avoidance_config(self.avoidance_config_path, self.avoidance_config)
+        self.current_safe_point_key = point.name
+        self._refresh_safe_point_tree()
+        self.status_label.setText(f"已保存安全中间点: {point.name}")
+        self._append_log("后台", "保存中间点", "成功", point.name)
+
+    def _delete_safe_point(self) -> None:
+        key = self.safe_point_name_edit.text().strip()
+        if not key:
+            QMessageBox.warning(self, "无法删除", "当前没有选中的中间点。")
+            self._append_log("后台", "删除中间点", "失败", "当前没有选中的中间点")
+            return
+        safe_points = dict(self.avoidance_config.safe_points)
+        if key not in safe_points:
+            QMessageBox.warning(self, "无法删除", f"中间点不存在: {key}")
+            self._append_log("后台", "删除中间点", "失败", f"中间点不存在: {key}")
+            return
+        del safe_points[key]
+        self.avoidance_config = self._build_avoidance_config(safe_points)
+        save_avoidance_config(self.avoidance_config_path, self.avoidance_config)
+        self.current_safe_point_key = None
+        self._refresh_safe_point_tree()
+        self._new_safe_point()
+        self.status_label.setText(f"已删除安全中间点: {key}")
+        self._append_log("后台", "删除中间点", "成功", key)
+
+    def _save_avoidance_config_only(self) -> None:
+        self.avoidance_config = self._build_avoidance_config()
+        save_avoidance_config(self.avoidance_config_path, self.avoidance_config)
+        self.status_label.setText(f"已保存规避配置: {self.avoidance_config_path}")
+        self._append_log(
+            "后台",
+            "保存规避配置",
+            "成功",
+            json.dumps(
+                {
+                    "mode": self.avoidance_config.mode,
+                    "rx_threshold": self.avoidance_config.rx_threshold,
+                    "ry_threshold": self.avoidance_config.ry_threshold,
+                    "rz_threshold": self.avoidance_config.rz_threshold,
+                    "safe_points": list(self.avoidance_config.safe_points),
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+    def _on_safe_point_selected(self) -> None:
+        items = self.safe_point_tree.selectedItems()
+        if not items:
+            return
+        key = items[0].text(0)
+        if key in self.avoidance_config.safe_points:
+            self.current_safe_point_key = key
+            self._load_safe_point_into_form(self.avoidance_config.safe_points[key])
 
     def _load_record_into_form(self, record: QueryRecord) -> None:
         standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
@@ -1220,18 +1482,122 @@ class RobotQtWindow(QMainWindow):
             return
         try:
             record = self.table[query_key]
-            validation_error = self._validate_record(record)
-            if validation_error:
-                raise ValueError(validation_error)
+            plan_records, plan_reason = self._build_execution_plan(record)
+            for plan_record in plan_records:
+                validation_error = self._validate_record(plan_record)
+                if validation_error:
+                    raise ValueError(validation_error)
             client = self._make_client(host)
             client.connect()
             try:
-                feedback = self._execute_send_by_protocol(client, record)
+                if len(plan_records) > 1:
+                    self._append_log("执行", f"规避判断 {query_key}", "成功", plan_reason)
+                feedback = None
+                for idx, plan_record in enumerate(plan_records, start=1):
+                    if len(plan_records) > 1:
+                        self._append_log(
+                            "执行",
+                            f"规避执行第{idx}步",
+                            "成功",
+                            f"{plan_record.query_key} | {plan_record.description or '-'}",
+                        )
+                    feedback = self._execute_send_by_protocol(client, plan_record)
+                    self._after_send(plan_record, True, "", feedback)
             finally:
                 client.disconnect()
-            self._after_send(record, True, "", feedback)
         except Exception as exc:
-            self._after_send(self.table[query_key], False, str(exc))
+            self._after_send(locals().get("plan_record", self.table[query_key]), False, str(exc))
+
+    def _build_execution_plan(self, record: QueryRecord) -> tuple[list[QueryRecord], str]:
+        safe_point, reason = self._select_safe_point_for_record(record)
+        if safe_point is None:
+            return [record], "未命中规避规则，直接发送"
+        safe_record = self._build_safe_point_record(safe_point, record)
+        return [safe_record, record], reason
+
+    def _select_safe_point_for_record(self, record: QueryRecord) -> tuple[SafePoint | None, str]:
+        self.avoidance_config = self._build_avoidance_config(dict(self.avoidance_config.safe_points))
+        if self.avoidance_config.mode == "off":
+            return None, "规避模式=关闭"
+        if record.function_name.upper() not in {"MOVE_ABS", "MOVE_REL"}:
+            return None, "当前指令不是运动类指令"
+        safe_point = self._get_active_safe_point()
+        if safe_point is None:
+            return None, "未配置安全中间点"
+        if self.avoidance_config.mode == "always":
+            return safe_point, f"规避模式=每次都经过中间点，使用 {safe_point.name}"
+
+        current_rx, current_ry, current_rz = self._current_robot_r_components()
+        target_x, target_y, target_z, target_rx, target_ry, target_rz, _ = record.registers
+        if (
+            abs(target_rx - current_rx) >= self.avoidance_config.rx_threshold
+            or abs(target_ry - current_ry) >= self.avoidance_config.ry_threshold
+            or abs(target_rz - current_rz) >= self.avoidance_config.rz_threshold
+        ):
+            return safe_point, (
+                f"姿态变化过大，使用 {safe_point.name} 过渡 "
+                f"(ΔRX={self._fmt(abs(target_rx - current_rx))}, "
+                f"ΔRY={self._fmt(abs(target_ry - current_ry))}, "
+                f"ΔRZ={self._fmt(abs(target_rz - current_rz))})"
+            )
+        current_z = self._current_robot_xyz()[2]
+        current_x, current_y, _ = self._current_robot_xyz()
+        if (
+            current_z < self.avoidance_config.low_z_threshold
+            and target_z < self.avoidance_config.low_z_threshold
+            and (
+                abs(target_x - current_x) > self.avoidance_config.xy_move_threshold
+                or abs(target_y - current_y) > self.avoidance_config.xy_move_threshold
+            )
+        ):
+            return safe_point, f"低位大范围移动，使用 {safe_point.name} 过渡"
+        return None, "未命中自动规避规则"
+
+    def _get_active_safe_point(self) -> SafePoint | None:
+        if self.current_safe_point_key and self.current_safe_point_key in self.avoidance_config.safe_points:
+            return self.avoidance_config.safe_points[self.current_safe_point_key]
+        if self.avoidance_config.safe_points:
+            first_key = sorted(self.avoidance_config.safe_points)[0]
+            return self.avoidance_config.safe_points[first_key]
+        return None
+
+    def _build_safe_point_record(self, point: SafePoint, target_record: QueryRecord) -> QueryRecord:
+        return QueryRecord(
+            query_key=f"中间点-{point.name}",
+            function_id=1001,
+            function_name="MOVE_ABS",
+            data_format="IEE",
+            template_type="parametric",
+            keywords=point.name,
+            description=f"规避中间点：{point.name}",
+            pos_id=target_record.pos_id,
+            device_id=target_record.device_id,
+            acc_percent=point.acc_percent,
+            safety_level=target_record.safety_level,
+            io_grip=0,
+            io_door=0,
+            ext_p1=0.0,
+            ext_p2=0.0,
+            registers=(
+                point.x,
+                point.y,
+                point.z,
+                point.rx,
+                point.ry,
+                point.rz,
+                point.speed_percent,
+            ),
+        )
+
+    def _current_robot_xyz(self) -> tuple[float, float, float]:
+        return (float(self.robot_x), float(self.robot_y), float(self.robot_z))
+
+    def _current_robot_r_components(self) -> tuple[float, float, float]:
+        parts = [part.strip() for part in self.robot_r.split("/")]
+        values = [float(part) for part in parts[:3]]
+        while len(values) < 3:
+            values.append(0.0)
+        return values[0], values[1], values[2]
 
     def _execute_send_by_protocol(self, client: ZMotionVrClient, record: QueryRecord) -> list[float]:
         if self.protocol_combo.currentText() == "最终标准协议":
