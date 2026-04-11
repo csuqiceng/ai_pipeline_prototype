@@ -1,6 +1,10 @@
 {
-  "enabled": false,
-  "always_insert": false,
+  "mode": "off",
+  "rx_threshold": 30.0,
+  "ry_threshold": 30.0,
+  "rz_threshold": 45.0,
+  "low_z_threshold": 150.0,
+  "xy_move_threshold": 100.0,
   "safe_points": {
     "SAFE_POINT": {
       "name": "SAFE_POINT",

@@ -27,6 +27,32 @@
       ]
     },
     {
+      "query_key": "home - 副本",
+      "function_id": 1003,
+      "function_name": "HOME",
+      "data_format": "IEE",
+      "template_type": "parametric",
+      "keywords": "",
+      "description": "",
+      "pos_id": 0,
+      "device_id": 1,
+      "acc_percent": 40.0,
+      "safety_level": 5,
+      "io_grip": 0,
+      "io_door": 0,
+      "ext_p1": 0.0,
+      "ext_p2": 0.0,
+      "registers": [
+        1380.0,
+        0.0,
+        1350.0,
+        0.0,
+        83.0,
+        0.0,
+        10.0
+      ]
+    },
+    {
       "query_key": "位置A",
       "function_id": 1001,
       "function_name": "MOVE_ABS",
@@ -43,9 +69,9 @@
       "ext_p1": 0.0,
       "ext_p2": 0.0,
       "registers": [
-        1400.0,
+        100.0,
         -1.0,
-        1380.0,
+        180.0,
         1.0,
         80.0,
         1.0,

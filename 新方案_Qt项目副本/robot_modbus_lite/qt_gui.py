@@ -2059,17 +2059,20 @@ def _resource_dir() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _resolve_runtime_data_file(filename: str) -> Path:
+    runtime_file = _runtime_dir() / "data" / filename
+    if runtime_file.exists():
+        return runtime_file
+    return _resource_dir() / "data" / filename
+
+
 def main() -> None:
     import sys
 
     app = QApplication(sys.argv)
-    runtime_base = _runtime_dir()
     resource_base = _resource_dir()
-    data_dir = runtime_base / "data"
-    if not data_dir.exists():
-        data_dir = resource_base / "data"
-    json_path = data_dir / "query_table.json"
-    system_config_path = data_dir / "system_config.json"
+    json_path = _resolve_runtime_data_file("query_table.json")
+    system_config_path = _resolve_runtime_data_file("system_config.json")
     csv_path = resource_base / "附件" / "机械臂AI地址表.csv"
     if not csv_path.exists():
         csv_path = json_path
