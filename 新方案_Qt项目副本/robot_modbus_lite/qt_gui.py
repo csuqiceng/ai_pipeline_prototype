@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
     QScrollArea,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -66,6 +68,8 @@ SYSTEM_COMMAND_CODES = {
     "sys_resume": 4004,
     "sys_estop": 4002,
 }
+MIRROR_RETRY_COUNT = 5
+MIRROR_RETRY_INTERVAL_SEC = 0.1
 
 
 class RobotQtWindow(QMainWindow):
@@ -98,17 +102,32 @@ class RobotQtWindow(QMainWindow):
         self.robot_z = "860.0"
         self.robot_r = "0.0 / 0.0 / 0.0"
         self.robot_speed = "30% / 40%"
+        self.claw_enable = "0"
+        self.claw_brake = "0"
+        self.servo_enable = "0"
+        self.run_state = "空闲"
+        self.monitor_task = "-"
+        self.motion_percent = "0%"
+        self.echo_cmd = "-"
+        self.exec_state = "0"
         self.mode = "自动"
         self.busy = "空闲"
         self.result = "0"
         self.alarm_code = "ERR_000"
         self.alarm_text = "系统正常"
         self.io_status = "0"
+        self._polling_feedback = False
+        self._last_poll_error = ""
+        self._last_realtime_snapshot: tuple[str, str, str, str] | None = None
+        self._poll_started_logged = False
+        self._last_polled_status_values: tuple[float, ...] | None = None
+        self._last_polled_monitor_values: tuple[float, ...] | None = None
 
         self._build_ui()
         self._load_initial_record()
         self._refresh_all()
         self._check_connection()
+        self._start_realtime_polling()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -213,7 +232,20 @@ class RobotQtWindow(QMainWindow):
             btn.setProperty("klass", klass)
             btn.clicked.connect(lambda _=False, k=key: self._handle_system_action(k))
             layout.addWidget(btn)
+        status_group = QGroupBox("总状态")
+        status_group.setObjectName("subPanel")
+        status_layout = QVBoxLayout(status_group)
+        self.status_light_label = QLabel()
+        self.status_light_label.setTextFormat(Qt.TextFormat.RichText)
+        self.status_light_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_light_label.setStyleSheet("font-size: 28px; font-weight: bold;")
+        self.status_light_detail_label = QLabel("-")
+        self.status_light_detail_label.setWordWrap(True)
+        self.status_light_detail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        status_layout.addWidget(self.status_light_label)
+        status_layout.addWidget(self.status_light_detail_label)
         layout.addStretch(1)
+        layout.addWidget(status_group)
         return panel
 
     def _show_page(self, index: int) -> None:
@@ -260,6 +292,9 @@ class RobotQtWindow(QMainWindow):
         link_layout.addWidget(QLabel("连接状态:"))
         self.connection_label = QLabel("检测中...")
         link_layout.addWidget(self.connection_label, 1)
+        link_layout.addWidget(QLabel("实时监控:"))
+        self.monitor_label = QLabel("未启动")
+        link_layout.addWidget(self.monitor_label)
         check_btn = QPushButton("检测连接")
         check_btn.clicked.connect(self._check_connection)
         read_btn = QPushButton("读取反馈")
@@ -303,14 +338,6 @@ class RobotQtWindow(QMainWindow):
         bottom_layout.setSpacing(10)
         self.robot_info = self._make_info_group("机械手状态")
         self.robot_info.setObjectName("panel")
-        self.boundary_info = self._make_static_group("第一版边界", [
-            ("支持", "固定指令按钮"),
-            ("支持", "后台模板管理"),
-            ("支持", "5001 固定函数"),
-            ("暂不做", "自由自然语言"),
-            ("暂不做", "视觉联动"),
-        ])
-        self.boundary_info.setObjectName("panel")
         self.history_table = QTableWidget(0, 4)
         self.history_table.setHorizontalHeaderLabels(["任务ID", "指令码", "指令类型", "结果"])
         self.history_table.verticalHeader().setVisible(False)
@@ -327,7 +354,6 @@ class RobotQtWindow(QMainWindow):
         left_stack_layout.setContentsMargins(0, 0, 0, 0)
         left_stack_layout.setSpacing(10)
         left_stack_layout.addWidget(self.robot_info, 1)
-        left_stack_layout.addWidget(self.boundary_info, 1)
 
         bottom_layout.addWidget(left_stack, 1)
         bottom_layout.addWidget(history_group, 1)
@@ -355,20 +381,27 @@ class RobotQtWindow(QMainWindow):
         self.current_info.setObjectName("panel")
         action_box = QGroupBox("后台操作")
         action_box.setObjectName("panel")
-        action_layout = QVBoxLayout(action_box)
-        for text, fn in [
+        action_layout = QGridLayout(action_box)
+        action_layout.setContentsMargins(10, 10, 10, 10)
+        action_layout.setHorizontalSpacing(8)
+        action_layout.setVerticalSpacing(8)
+        actions = [
             ("新增", self._new_record),
             ("保存", self._save_record),
             ("另存为", self._clone_record),
             ("删除", self._delete_record),
-        ]:
+            ("导出指令", self._export_template_json),
+            ("导入指令", self._import_template_json),
+        ]
+        for index, (text, fn) in enumerate(actions):
             btn = QPushButton(text)
             btn.clicked.connect(fn)
-            action_layout.addWidget(btn)
-        action_layout.addStretch(1)
+            row = index // 2
+            col = index % 2
+            action_layout.addWidget(btn, row, col)
         top_layout.addWidget(self.backend_info)
         top_layout.addWidget(self.current_info)
-        top_layout.addWidget(action_box)
+        top_layout.addWidget(action_box, 0)
         layout.addWidget(top)
 
         bottom = QWidget()
@@ -484,7 +517,7 @@ class RobotQtWindow(QMainWindow):
         config_save_btn = QPushButton("保存范围")
         config_save_btn.clicked.connect(self._save_system_config)
         config_reload_btn = QPushButton("重载范围")
-        config_reload_btn.clicked.connect(self._load_system_config_into_form)
+        config_reload_btn.clicked.connect(self._reload_system_config)
         config_buttons.addWidget(config_save_btn)
         config_buttons.addWidget(config_reload_btn)
         config_layout.addRow(config_buttons)
@@ -535,9 +568,12 @@ class RobotQtWindow(QMainWindow):
         action_layout = QVBoxLayout(action_box)
         refresh_btn = QPushButton("刷新日志")
         refresh_btn.clicked.connect(self._refresh_logs)
+        export_btn = QPushButton("导出日志")
+        export_btn.clicked.connect(self._export_logs)
         clear_btn = QPushButton("清空日志")
         clear_btn.clicked.connect(self._clear_logs)
         action_layout.addWidget(refresh_btn)
+        action_layout.addWidget(export_btn)
         action_layout.addWidget(clear_btn)
         action_layout.addStretch(1)
 
@@ -649,9 +685,21 @@ class RobotQtWindow(QMainWindow):
             self.robot_z_label = QLabel(self.robot_z)
             self.robot_r_label = QLabel(self.robot_r)
             self.robot_speed_label = QLabel(self.robot_speed)
+            self.claw_enable_label = QLabel(self.claw_enable)
+            self.claw_brake_label = QLabel(self.claw_brake)
+            self.servo_enable_label = QLabel(self.servo_enable)
+            self.run_state_label = QLabel(self.run_state)
+            self.monitor_task_label = QLabel(self.monitor_task)
+            self.motion_percent_label = QLabel(self.motion_percent)
+            self.echo_cmd_label = QLabel(self.echo_cmd)
+            self.exec_state_label = QLabel(self.exec_state)
             for label, widget in [
                 ("X", self.robot_x_label), ("Y", self.robot_y_label), ("Z", self.robot_z_label),
                 ("RX / RY / RZ", self.robot_r_label), ("速度 / 加速度", self.robot_speed_label),
+                ("夹爪使能", self.claw_enable_label), ("夹爪刹车", self.claw_brake_label),
+                ("伺服使能", self.servo_enable_label), ("实时状态", self.run_state_label),
+                ("监控任务ID", self.monitor_task_label), ("运动进度", self.motion_percent_label),
+                ("命令回显", self.echo_cmd_label), ("执行触发", self.exec_state_label),
             ]:
                 layout.addRow(label + ":", widget)
         elif title == "执行摘要":
@@ -708,6 +756,11 @@ class RobotQtWindow(QMainWindow):
         self.range_y_max_edit.setText(self._fmt(self.axis_ranges.y[1]))
         self.range_z_min_edit.setText(self._fmt(self.axis_ranges.z[0]))
         self.range_z_max_edit.setText(self._fmt(self.axis_ranges.z[1]))
+
+    def _reload_system_config(self) -> None:
+        self._load_system_config_into_form()
+        self.status_label.setText(f"已重载系统范围配置: {self.system_config_path}")
+        self._append_log("后台", "重载范围", "成功", json.dumps(self.axis_ranges.to_dict(), ensure_ascii=False))
 
     def _collect_system_config(self) -> AxisRangeConfig:
         def num(text: str) -> float:
@@ -857,6 +910,14 @@ class RobotQtWindow(QMainWindow):
         self.robot_z_label.setText(self.robot_z)
         self.robot_r_label.setText(self.robot_r)
         self.robot_speed_label.setText(self.robot_speed)
+        self.claw_enable_label.setText(self.claw_enable)
+        self.claw_brake_label.setText(self.claw_brake)
+        self.servo_enable_label.setText(self.servo_enable)
+        self.run_state_label.setText(self.run_state)
+        self.monitor_task_label.setText(self.monitor_task)
+        self.motion_percent_label.setText(self.motion_percent)
+        self.echo_cmd_label.setText(self.echo_cmd)
+        self.exec_state_label.setText(self.exec_state)
         self.mode_label.setText(self.mode)
         self.busy_label.setText(self.busy)
         self.result_label.setText(self.result)
@@ -865,6 +926,79 @@ class RobotQtWindow(QMainWindow):
         self.io_status_label.setText(self.io_status)
         self.task_label.setText(str(self.task_id))
         self.header_status.setText("第一版：任务运行中" if self.busy == "运行中" else "第一版：固定指令 + 后台模板")
+        self._refresh_overall_state_indicator()
+
+    def _refresh_overall_state_indicator(self) -> None:
+        state_text, color, detail = self._compute_overall_state()
+        self.status_light_label.setText(f"<span style='color:{color};'>●</span> {state_text}")
+        self.status_light_detail_label.setText(detail)
+
+    def _compute_overall_state(self) -> tuple[str, str, str]:
+        monitor_offline = self.monitor_label.text() == "实时监控离线" or "失败" in self.connection_label.text()
+        if monitor_offline:
+            return "离线", "#7a7a7a", "未连接或无实时反馈"
+        if self.alarm_code not in {"0", "ERR_000"}:
+            return "异常", "#ef5a5a", self.alarm_text or "报警或通讯故障"
+        if self.busy == "暂停" or self.run_state == "暂停":
+            return "暂停", "#ffe46d", "系统处于暂停状态"
+        if self.busy == "运行中" or self.run_state == "运行中":
+            return "运行中", "#4f7cff", "下位机正在执行任务"
+        return "空闲", "#42d84a", "系统已连接，当前空闲"
+
+    def _capture_realtime_snapshot(self) -> tuple[str, str, str, str]:
+        overall_state, _, _ = self._compute_overall_state()
+        return (overall_state, self.busy, self.run_state, self.alarm_code)
+
+    def _log_realtime_state_change_if_needed(self) -> None:
+        current = self._capture_realtime_snapshot()
+        if self._last_realtime_snapshot is None:
+            self._last_realtime_snapshot = current
+            return
+        if current == self._last_realtime_snapshot:
+            return
+        prev_overall, prev_busy, prev_run, prev_alarm = self._last_realtime_snapshot
+        curr_overall, curr_busy, curr_run, curr_alarm = current
+        detail = (
+            f"总状态 {prev_overall} -> {curr_overall} | "
+            f"忙闲 {prev_busy} -> {curr_busy} | "
+            f"实时 {prev_run} -> {curr_run} | "
+            f"报警 {prev_alarm} -> {curr_alarm}"
+        )
+        self._append_log("反馈", "实时状态变化", "成功", detail)
+        self._last_realtime_snapshot = current
+
+    def _log_poll_register_values_if_needed(
+        self,
+        *,
+        status_values: list[float],
+        status_request,
+        monitor_values: list[float] | None = None,
+        monitor_request=None,
+    ) -> None:
+        status_tuple = tuple(float(v) for v in status_values)
+        should_log_status = self._last_polled_status_values is None or self._last_polled_status_values != status_tuple
+        if should_log_status:
+            self._append_log(
+                "反馈",
+                "轮询状态区",
+                "成功",
+                f"{self._format_read_request(status_request.start_vr, status_request.count)} -> {status_values}",
+            )
+            self._last_polled_status_values = status_tuple
+
+        if monitor_values is None or monitor_request is None:
+            return
+
+        monitor_tuple = tuple(float(v) for v in monitor_values)
+        should_log_monitor = self._last_polled_monitor_values is None or self._last_polled_monitor_values != monitor_tuple
+        if should_log_monitor:
+            self._append_log(
+                "反馈",
+                "轮询监控区",
+                "成功",
+                f"{self._format_read_request(monitor_request.start_vr, monitor_request.count)} -> {monitor_values}",
+            )
+            self._last_polled_monitor_values = monitor_tuple
 
     def _refresh_logs(self) -> None:
         if not hasattr(self, "log_table"):
@@ -898,9 +1032,27 @@ class RobotQtWindow(QMainWindow):
         return f"读取 VR[{start_vr}..{start_vr + count - 1}]"
 
     def _clear_logs(self) -> None:
+        cleared_count = len(self.logs)
         self.logs.clear()
         self._refresh_logs()
         self.status_label.setText("日志已清空。")
+        self.logs.insert(0, {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "category": "日志",
+            "action": "清空日志",
+            "result": "成功",
+            "detail": f"已清空 {cleared_count} 条日志",
+        })
+        self._refresh_logs()
+
+    def _export_logs(self) -> None:
+        export_dir = self.runtime_root / "data" / "exported_logs"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_path = export_dir / f"robot_qt_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with export_path.open("w", encoding="utf-8") as fh:
+            json.dump(self.logs, fh, ensure_ascii=False, indent=2)
+        self.status_label.setText(f"日志已导出: {export_path}")
+        self._append_log("日志", "导出日志", "成功", str(export_path))
 
     def _new_record(self) -> None:
         self.current_key = None
@@ -995,19 +1147,49 @@ class RobotQtWindow(QMainWindow):
         self.status_label.setText(f"已删除模板: {key}")
         self._append_log("后台", "删除模板", "成功", key)
 
+    def _export_template_json(self) -> None:
+        export_dir = self.runtime_root / "data" / "exported_templates"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        default_name = export_dir / f"query_table_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "导出模板 JSON",
+            str(default_name),
+            "JSON Files (*.json)",
+        )
+        if not file_path:
+            return
+        save_query_table_json(file_path, self.table)
+        self.status_label.setText(f"已导出模板 JSON: {file_path}")
+        self._append_log("后台", "导出模板JSON", "成功", file_path)
+
+    def _import_template_json(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "导入模板 JSON",
+            str(self.runtime_root / "data"),
+            "JSON Files (*.json)",
+        )
+        if not file_path:
+            return
+        imported = load_query_table(file_path)
+        self.table = imported
+        save_query_table_json(self.json_path, self.table)
+        self.service = RobotModbusService(self.json_path)
+        self.current_key = None
+        self._new_record()
+        self._refresh_all()
+        self.status_label.setText(f"已导入模板 JSON: {file_path}")
+        self._append_log("后台", "导入模板JSON", "成功", file_path)
+
     def _on_template_selected(self) -> None:
         items = self.template_tree.selectedItems()
         if not items:
-            self._append_log("后台", "选择模板", "失败", "没有选中任何模板")
             return
         key = items[0].text(0)
         if key in self.table:
-            standard_command = self.service.build_standard_command_from_record(self.table[key], task_id=self.task_id)
-            self._append_log("后台", "选择模板", "成功", f"{key} / {standard_command.code} / {standard_command.cmd}")
             self.current_key = key
             self._load_record_into_form(self.table[key])
-        else:
-            self._append_log("后台", "选择模板", "失败", f"模板不存在: {key}")
 
     def _check_connection(self) -> None:
         host = self.host_edit.text().strip()
@@ -1021,9 +1203,13 @@ class RobotQtWindow(QMainWindow):
             client.disconnect()
             mode = "Mock" if self.controller_combo.currentText() == "模拟控制器" else "真实"
             self.connection_label.setText(f"{mode}连接成功: {host}")
+            self.monitor_label.setText("实时监控运行中")
+            self._refresh_overall_state_indicator()
             self._append_log("连接", "检测连接", "成功", f"{mode}连接成功: {host}")
         except Exception as exc:
             self.connection_label.setText(f"连接失败: {exc}")
+            self.monitor_label.setText("实时监控离线")
+            self._refresh_overall_state_indicator()
             self._append_log("连接", "检测连接", "失败", str(exc))
 
     def _send_record(self, query_key: str) -> None:
@@ -1057,6 +1243,24 @@ class RobotQtWindow(QMainWindow):
                 f"写入标准协议 {record.query_key}",
                 "成功",
                 self._format_write_request(write_request),
+            )
+            mirror_request = self.service.build_standard_mirror_ack_read()
+            mirror_values = client.read_vr(mirror_request)
+            self._append_log(
+                "寄存器",
+                f"读取镜像区 {record.query_key}",
+                "成功",
+                f"{self._format_read_request(mirror_request.start_vr, mirror_request.count)} -> {mirror_values}",
+            )
+            mirror_ack = self.service.parse_standard_mirror_ack(mirror_values)
+            self._wait_for_mirror_match(client, write_request, mirror_request, record.query_key, mirror_ack.mirror_values)
+            exec_request = self.service.build_standard_execute_trigger_write()
+            client.write_vr(exec_request)
+            self._append_log(
+                "寄存器",
+                f"写入执行触发 {record.query_key}",
+                "成功",
+                self._format_write_request(exec_request),
             )
             read_request = self.service.build_standard_status_read()
             values = client.read_vr(read_request)
@@ -1120,8 +1324,12 @@ class RobotQtWindow(QMainWindow):
         else:
             self.busy = "空闲"
             self.result = "9"
-            self.alarm_code = "ERR_SEND"
-            self.alarm_text = error
+            if "通讯故障" in error or "镜像区连续" in error:
+                self.alarm_code = "ERR_COMM"
+                self.alarm_text = "镜像确认失败，判定通讯故障"
+            else:
+                self.alarm_code = "ERR_SEND"
+                self.alarm_text = error
             self.status_label.setText(f"发送失败: {error}")
             QMessageBox.critical(self, "发送失败", error)
             self._append_log("执行", f"发送指令 {record.query_key}", "失败", error)
@@ -1134,21 +1342,15 @@ class RobotQtWindow(QMainWindow):
             self._append_log("反馈", "读取反馈", "失败", "地址为空")
             return
         try:
-            client = self._make_client(host)
-            client.connect()
-            if self.protocol_combo.currentText() == "最终标准协议":
-                read_request = self.service.build_standard_status_read()
-                values = client.read_vr(read_request)
-            else:
-                read_request = self.service.build_status_read()
-                values = client.read_vr(read_request)
-            client.disconnect()
+            values, read_request = self._read_feedback_once()
             self._apply_feedback_values(None, values)
             self._refresh_status_labels()
+            self.monitor_label.setText("实时监控运行中")
             self.status_label.setText(f"反馈区读取成功: {values}")
             self._append_log("反馈", "读取反馈", "成功", f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}")
         except Exception as exc:
             self.status_label.setText(f"读取反馈区失败: {exc}")
+            self.monitor_label.setText("实时监控离线")
             QMessageBox.critical(self, "读取失败", str(exc))
             self._append_log("反馈", "读取反馈", "失败", str(exc))
 
@@ -1167,10 +1369,11 @@ class RobotQtWindow(QMainWindow):
             return
         try:
             code = SYSTEM_COMMAND_CODES[action_key]
+            action_text = next(k for k, v in SYSTEM_COMMANDS.items() if v[0] == action_key)
             command = self.service.build_standard_system_command(
                 code=code,
                 task_id=self.task_id,
-                desc=SYSTEM_COMMANDS[[k for k, v in SYSTEM_COMMANDS.items() if v[0] == action_key][0]][1],
+                desc=SYSTEM_COMMANDS[action_text][1],
             )
             client = self._make_client(host)
             client.connect()
@@ -1178,6 +1381,24 @@ class RobotQtWindow(QMainWindow):
                 write_request = command.to_write_request()
                 client.write_vr(write_request)
                 self._append_log("寄存器", f"写入系统命令 {action_key}", "成功", self._format_write_request(write_request))
+                mirror_request = self.service.build_standard_mirror_ack_read()
+                mirror_values = client.read_vr(mirror_request)
+                self._append_log(
+                    "寄存器",
+                    f"读取系统镜像区 {action_key}",
+                    "成功",
+                    f"{self._format_read_request(mirror_request.start_vr, mirror_request.count)} -> {mirror_values}",
+                )
+                mirror_ack = self.service.parse_standard_mirror_ack(mirror_values)
+                self._wait_for_mirror_match(client, write_request, mirror_request, action_key, mirror_ack.mirror_values)
+                exec_request = self.service.build_standard_execute_trigger_write()
+                client.write_vr(exec_request)
+                self._append_log(
+                    "寄存器",
+                    f"写入系统执行触发 {action_key}",
+                    "成功",
+                    self._format_write_request(exec_request),
+                )
                 read_request = self.service.build_standard_status_read()
                 feedback = client.read_vr(read_request)
                 self._append_log(
@@ -1191,7 +1412,7 @@ class RobotQtWindow(QMainWindow):
             self._apply_feedback_values(None, feedback)
             self._apply_legacy_system_action(action_key, update_status=False)
             self.task_id += 1
-            self.status_label.setText(SYSTEM_COMMANDS[[k for k, v in SYSTEM_COMMANDS.items() if v[0] == action_key][0]][1])
+            self.status_label.setText(SYSTEM_COMMANDS[action_text][1])
             self._refresh_status_labels()
             self._append_log("系统", action_key, "成功", f"命令码 {code}")
         except Exception as exc:
@@ -1309,6 +1530,147 @@ class RobotQtWindow(QMainWindow):
         if self.controller_combo.currentText() == "模拟控制器":
             return MockZMotionVrClient(host=host)
         return self._client_factory(host, self.resource_root)
+
+    def _start_realtime_polling(self) -> None:
+        self.realtime_timer = QTimer(self)
+        self.realtime_timer.setInterval(500)
+        self.realtime_timer.timeout.connect(self._poll_feedback_silent)
+        self.realtime_timer.start()
+
+    def _poll_feedback_silent(self) -> None:
+        if self._polling_feedback:
+            return
+        host = self.host_edit.text().strip()
+        if not host:
+            self.monitor_label.setText("未启动")
+            return
+        self._polling_feedback = True
+        try:
+            if self.protocol_combo.currentText() == "最终标准协议":
+                status_values, status_request = self._read_feedback_once()
+                self._apply_feedback_values(None, status_values)
+                values, monitor_request = self._read_realtime_once()
+                self._apply_realtime_values(values)
+                self._log_poll_register_values_if_needed(
+                    status_values=status_values,
+                    status_request=status_request,
+                    monitor_values=values,
+                    monitor_request=monitor_request,
+                )
+            else:
+                values, read_request = self._read_feedback_once()
+                self._apply_feedback_values(None, values)
+                self._log_poll_register_values_if_needed(
+                    status_values=values,
+                    status_request=read_request,
+                )
+            self.monitor_label.setText("实时监控运行中")
+            self._refresh_status_labels()
+            if not self._poll_started_logged:
+                self._append_log("反馈", "实时监控轮询", "成功", "首次轮询成功，定时轮询已运行")
+                self._poll_started_logged = True
+            self._log_realtime_state_change_if_needed()
+            self._last_poll_error = ""
+        except Exception as exc:
+            error = str(exc)
+            self.monitor_label.setText("实时监控离线")
+            self._refresh_overall_state_indicator()
+            if error != self._last_poll_error:
+                self._append_log("反馈", "实时监控", "失败", error)
+                self._last_poll_error = error
+        finally:
+            self._polling_feedback = False
+
+    def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
+        host = self.host_edit.text().strip()
+        client = self._make_client(host)
+        client.connect()
+        try:
+            if self.protocol_combo.currentText() == "最终标准协议":
+                read_request = self.service.build_standard_status_read()
+                values = client.read_vr(read_request)
+            else:
+                read_request = self.service.build_status_read()
+                values = client.read_vr(read_request)
+        finally:
+            client.disconnect()
+        return values, read_request
+
+    def _read_realtime_once(self) -> tuple[list[float], VrReadRequest]:
+        host = self.host_edit.text().strip()
+        client = self._make_client(host)
+        client.connect()
+        try:
+            read_request = self.service.build_standard_monitor_read()
+            values = client.read_vr(read_request)
+        finally:
+            client.disconnect()
+        return values, read_request
+
+    def _apply_realtime_values(self, values: list[float]) -> None:
+        if len(values) < 12:
+            return
+        status = self.service.parse_standard_realtime_status(values)
+        self.robot_x = self._fmt(status.cur_x)
+        self.robot_y = self._fmt(status.cur_y)
+        self.robot_z = self._fmt(status.cur_z)
+        self.robot_r = f"{self._fmt(status.cur_rx)} / {self._fmt(status.cur_ry)} / {self._fmt(status.cur_rz)}"
+        self.claw_enable = str(status.claw_enable)
+        self.claw_brake = str(status.claw_brake)
+        self.servo_enable = str(status.servo_enable)
+        self.run_state = self._status_text(status.run_state)
+        self.busy = self._status_text(status.run_state)
+        self.alarm_code = "ERR_000" if status.alm_code == 0 else f"ERR_{status.alm_code}"
+        self.alarm_text = "系统正常" if status.alm_code == 0 else "控制器报警"
+        self.io_status = str(status.io_stat)
+        self.monitor_task = str(status.echo_task_id) if status.echo_task_id else "-"
+        self.motion_percent = f"{self._fmt(status.motion_percent)}%"
+        self.echo_cmd = str(status.echo_cmd_code) if status.echo_cmd_code else "-"
+        self.exec_state = str(status.exec_trigger)
+
+    def _wait_for_mirror_match(
+        self,
+        client: ZMotionVrClient,
+        request: VrWriteRequest,
+        mirror_request,
+        query_key: str,
+        initial_mirror_values: tuple[float, ...] | None = None,
+    ) -> None:
+        attempts: list[tuple[float, ...]] = []
+        if initial_mirror_values is not None:
+            attempts.append(tuple(float(v) for v in initial_mirror_values))
+
+        if self._values_equal(request.values, attempts[0]) if attempts else False:
+            self._append_log("执行", f"镜像确认 {query_key}", "成功", "首次比对一致，直接进入执行触发")
+            return
+
+        while len(attempts) < MIRROR_RETRY_COUNT:
+            time.sleep(MIRROR_RETRY_INTERVAL_SEC)
+            mirror_values = client.read_vr(mirror_request)
+            self._append_log(
+                "寄存器",
+                f"轮询镜像区 {query_key}",
+                "成功",
+                f"{self._format_read_request(mirror_request.start_vr, mirror_request.count)} -> {mirror_values}",
+            )
+            mirror_data = self.service.parse_standard_mirror_ack(mirror_values).mirror_values
+            attempts.append(mirror_data)
+            if self._values_equal(request.values, mirror_data):
+                self._append_log(
+                    "执行",
+                    f"镜像确认 {query_key}",
+                    "成功",
+                    f"第 {len(attempts)} 次比对一致，进入执行触发",
+                )
+                return
+
+        raise RuntimeError(f"镜像区连续 {MIRROR_RETRY_COUNT} 次比对不一致，判定通讯故障。")
+
+    @staticmethod
+    def _values_equal(left: tuple[float, ...], right: tuple[float, ...], tolerance: float = 1e-6) -> bool:
+        if len(left) != len(right):
+            return False
+        return all(abs(float(a) - float(b)) <= tolerance for a, b in zip(left, right))
 
     @staticmethod
     def _fmt(value: float) -> str:

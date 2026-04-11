@@ -5,11 +5,16 @@ import time
 from typing import Callable
 
 from .protocol import (
+    ACK_VR,
     ALM_EMERGENCY_STOP,
     ALM_NORMAL,
     ALM_OUT_OF_RANGE,
     ALM_SPEED_LIMIT,
     CMD,
+    EXEC_TRIGGER_VR,
+    MIRROR_VR_COUNT,
+    MIRROR_VR_START,
+    MONITOR_VR_START,
     RESULT_FAIL,
     RESULT_OK,
     SAFETY_MIN_AUTO,
@@ -42,6 +47,7 @@ class MockController:
         self._set_status(STATUS_IDLE)
         self._set_result(RESULT_OK)
         self._set_alarm(ALM_NORMAL)
+        self._sync_realtime_monitor_locked()
         self._running = True
 
     def set_on_command(self, callback: Callable[[int, dict[str, float]], None]) -> None:
@@ -58,7 +64,11 @@ class MockController:
                 self._vr[idx] = float(v)
             if start == VR_OFFSET["CMD_CODE"].index and values and values[0] != 0:
                 cmd_code = int(values[0])
-                should_dispatch = True
+                self._mirror_command_locked()
+                self._vr[ACK_VR] = 1.0
+            elif start == EXEC_TRIGGER_VR and values and values[0] != 0:
+                cmd_code = int(self._vr[VR_OFFSET["CMD_CODE"].index])
+                should_dispatch = cmd_code != 0
         if should_dispatch:
             self._dispatch_command(cmd_code)
 
@@ -148,6 +158,9 @@ class MockController:
                 if self._vr[VR_OFFSET["STATUS"].index] == STATUS_RUNNING:
                     self._set_status(STATUS_IDLE)
                 self._vr[VR_OFFSET["CMD_CODE"].index] = 0.0
+                self._vr[EXEC_TRIGGER_VR] = 0.0
+                self._vr[ACK_VR] = 0.0
+                self._sync_realtime_monitor_locked()
 
     def _validate(self, cmd_code: int, fields: dict[str, float]) -> None:
         safety = fields.get("SAFETY_LV", 5)
@@ -202,6 +215,7 @@ class MockController:
                 self._vr[VR_OFFSET["CUR_RX"].index] = target_rx
                 self._vr[VR_OFFSET["CUR_RY"].index] = target_ry
                 self._vr[VR_OFFSET["CUR_RZ"].index] = target_rz
+                self._sync_realtime_monitor_locked()
             time.sleep(0.02)
 
     def _do_move_rel(self, fields: dict[str, float]) -> None:
@@ -224,6 +238,7 @@ class MockController:
             self._vr[VR_OFFSET["CUR_RX"].index] = 0.0
             self._vr[VR_OFFSET["CUR_RY"].index] = 0.0
             self._vr[VR_OFFSET["CUR_RZ"].index] = 0.0
+            self._sync_realtime_monitor_locked()
         time.sleep(0.3)
 
     def _do_grip(self, fields: dict[str, float]) -> None:
@@ -236,6 +251,7 @@ class MockController:
             else:
                 io_stat &= ~(1 << 2)
             self._vr[VR_OFFSET["IO_STAT"].index] = float(io_stat)
+            self._sync_realtime_monitor_locked()
         time.sleep(0.1)
 
     def _do_door(self, fields: dict[str, float]) -> None:
@@ -250,6 +266,7 @@ class MockController:
             else:
                 io_stat &= ~(1 << bit)
             self._vr[VR_OFFSET["IO_STAT"].index] = float(io_stat)
+            self._sync_realtime_monitor_locked()
         time.sleep(0.1)
 
     def _do_wait(self, fields: dict[str, float]) -> None:
@@ -265,6 +282,7 @@ class MockController:
             if self._vr[VR_OFFSET["STATUS"].index] == STATUS_FAULT:
                 self._set_status(STATUS_IDLE)
             self._set_result(RESULT_OK)
+            self._sync_realtime_monitor_locked()
 
     def _do_sys_reset(self) -> None:
         with self._lock:
@@ -305,9 +323,37 @@ class MockController:
 
     def _set_status(self, status: int) -> None:
         self._vr[VR_OFFSET["STATUS"].index] = float(status)
+        self._sync_realtime_monitor_locked()
 
     def _set_result(self, result: int) -> None:
         self._vr[VR_OFFSET["RESULT"].index] = float(result)
 
     def _set_alarm(self, code: int) -> None:
         self._vr[VR_OFFSET["ALM_CODE"].index] = float(code)
+        self._sync_realtime_monitor_locked()
+
+    def _mirror_command_locked(self) -> None:
+        source = self._vr[VR_OFFSET["CMD_CODE"].index : VR_OFFSET["CMD_CODE"].index + MIRROR_VR_COUNT]
+        self._vr[MIRROR_VR_START : MIRROR_VR_START + MIRROR_VR_COUNT] = list(source)
+
+    def _sync_realtime_monitor_locked(self) -> None:
+        self._vr[MONITOR_VR_START + 0] = self._vr[VR_OFFSET["CUR_X"].index]
+        self._vr[MONITOR_VR_START + 1] = self._vr[VR_OFFSET["CUR_Y"].index]
+        self._vr[MONITOR_VR_START + 2] = self._vr[VR_OFFSET["CUR_Z"].index]
+        self._vr[MONITOR_VR_START + 3] = self._vr[VR_OFFSET["CUR_RX"].index]
+        self._vr[MONITOR_VR_START + 4] = self._vr[VR_OFFSET["CUR_RY"].index]
+        self._vr[MONITOR_VR_START + 5] = self._vr[VR_OFFSET["CUR_RZ"].index]
+        self._vr[MONITOR_VR_START + 6] = self._vr[VR_OFFSET["IO_GRIP"].index]
+        self._vr[MONITOR_VR_START + 7] = 0.0
+        self._vr[MONITOR_VR_START + 8] = 0.0 if self._vr[VR_OFFSET["STATUS"].index] == STATUS_FAULT else 1.0
+        self._vr[MONITOR_VR_START + 9] = self._vr[VR_OFFSET["STATUS"].index]
+        self._vr[MONITOR_VR_START + 10] = self._vr[VR_OFFSET["ALM_CODE"].index]
+        self._vr[MONITOR_VR_START + 11] = self._vr[VR_OFFSET["IO_STAT"].index]
+        self._vr[MONITOR_VR_START + 12] = self._vr[VR_OFFSET["TASK_ID"].index]
+        self._vr[MONITOR_VR_START + 13] = self._vr[VR_OFFSET["CMD_CODE"].index]
+        self._vr[MONITOR_VR_START + 14] = 100.0 if self._vr[VR_OFFSET["STATUS"].index] != STATUS_RUNNING else 50.0
+        self._vr[MONITOR_VR_START + 15] = self._vr[ACK_VR]
+        self._vr[MONITOR_VR_START + 16] = self._vr[EXEC_TRIGGER_VR]
+        self._vr[MONITOR_VR_START + 17] = 0.0
+        self._vr[MONITOR_VR_START + 18] = 0.0
+        self._vr[MONITOR_VR_START + 19] = 0.0

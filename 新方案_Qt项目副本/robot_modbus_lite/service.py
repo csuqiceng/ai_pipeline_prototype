@@ -11,6 +11,8 @@ from .models import (
     ParsedCommand,
     QueryRecord,
     StandardProtocolCommand,
+    StandardMirrorAck,
+    StandardRealtimeStatus,
     StandardProtocolStatus,
     VrReadRequest,
     VrWriteRequest,
@@ -69,6 +71,10 @@ class RobotModbusService:
         self.flows = load_flows_json(self.flows_path) if self.flows_path else {}
         self.standard_command_vr_start = 0
         self.standard_status_vr_start = 16
+        self.standard_mirror_vr_start = 500
+        self.standard_ack_vr = 516
+        self.standard_exec_vr = 517
+        self.standard_monitor_vr_start = 700
 
     def parse(self, text: str) -> ParsedCommand:
         return parse_command(text, self.table)
@@ -151,6 +157,21 @@ class RobotModbusService:
 
     def parse_standard_status(self, values: Iterable[float]) -> StandardProtocolStatus:
         return StandardProtocolStatus.from_vr_values(list(values))
+
+    def build_standard_mirror_ack_read(self) -> VrReadRequest:
+        return VrReadRequest(start_vr=self.standard_mirror_vr_start, count=17)
+
+    def parse_standard_mirror_ack(self, values: Iterable[float]) -> StandardMirrorAck:
+        return StandardMirrorAck.from_vr_values(list(values), command_length=16)
+
+    def build_standard_execute_trigger_write(self, trigger_value: float = 1.0) -> VrWriteRequest:
+        return VrWriteRequest(start_vr=self.standard_exec_vr, values=(trigger_value,))
+
+    def build_standard_monitor_read(self) -> VrReadRequest:
+        return VrReadRequest(start_vr=self.standard_monitor_vr_start, count=20)
+
+    def parse_standard_realtime_status(self, values: Iterable[float]) -> StandardRealtimeStatus:
+        return StandardRealtimeStatus.from_vr_values(list(values))
 
     def build_standard_system_command(
         self,

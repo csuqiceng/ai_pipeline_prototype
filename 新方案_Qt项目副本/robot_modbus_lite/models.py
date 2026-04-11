@@ -192,6 +192,64 @@ class StandardProtocolStatus:
 
 
 @dataclass(frozen=True)
+class StandardMirrorAck:
+    mirror_values: tuple[float, ...]
+    ack: int
+
+    @classmethod
+    def from_vr_values(cls, values: list[float], command_length: int = 16) -> "StandardMirrorAck":
+        padded = list(values[: command_length + 1]) + [0.0] * max(0, command_length + 1 - len(values))
+        return cls(
+            mirror_values=tuple(float(v) for v in padded[:command_length]),
+            ack=int(padded[command_length]),
+        )
+
+
+@dataclass(frozen=True)
+class StandardRealtimeStatus:
+    cur_x: float
+    cur_y: float
+    cur_z: float
+    cur_rx: float
+    cur_ry: float
+    cur_rz: float
+    claw_enable: int
+    claw_brake: int
+    servo_enable: int
+    run_state: int
+    alm_code: int
+    io_stat: int
+    echo_task_id: int
+    echo_cmd_code: int
+    motion_percent: float
+    ack: int
+    exec_trigger: int
+
+    @classmethod
+    def from_vr_values(cls, values: list[float]) -> "StandardRealtimeStatus":
+        padded = list(values[:20]) + [0.0] * max(0, 20 - len(values))
+        return cls(
+            cur_x=float(padded[0]),
+            cur_y=float(padded[1]),
+            cur_z=float(padded[2]),
+            cur_rx=float(padded[3]),
+            cur_ry=float(padded[4]),
+            cur_rz=float(padded[5]),
+            claw_enable=int(padded[6]),
+            claw_brake=int(padded[7]),
+            servo_enable=int(padded[8]),
+            run_state=int(padded[9]),
+            alm_code=int(padded[10]),
+            io_stat=int(padded[11]),
+            echo_task_id=int(padded[12]),
+            echo_cmd_code=int(padded[13]),
+            motion_percent=float(padded[14]),
+            ack=int(padded[15]),
+            exec_trigger=int(padded[16]),
+        )
+
+
+@dataclass(frozen=True)
 class FlowDefinition:
     name: str
     steps: tuple[str, ...]
