@@ -315,18 +315,15 @@ class RobotQtWindow(QMainWindow):
         self.controller_combo.addItems(["真实控制器", "模拟控制器"])
         self.controller_combo.setMaximumWidth(180)
         link_layout.addWidget(self.controller_combo)
-        link_layout.addWidget(QLabel("发送协议:"))
         self.protocol_combo = QComboBox()
         self.protocol_combo.addItems(["当前简化协议", "最终标准协议"])
         self.protocol_combo.setCurrentText("最终标准协议")
         self.protocol_combo.setMaximumWidth(180)
-        link_layout.addWidget(self.protocol_combo)
+        self.protocol_combo.hide()
         link_layout.addWidget(QLabel("连接状态:"))
         self.connection_label = QLabel("检测中...")
         link_layout.addWidget(self.connection_label, 1)
-        link_layout.addWidget(QLabel("实时监控:"))
         self.monitor_label = QLabel("未启动")
-        link_layout.addWidget(self.monitor_label)
         check_btn = QPushButton("检测连接")
         check_btn.clicked.connect(self._check_connection)
         read_btn = QPushButton("读取反馈")
@@ -446,16 +443,21 @@ class RobotQtWindow(QMainWindow):
         nlp_btn_layout = QHBoxLayout()
         parse_btn = QPushButton("解析文本")
         parse_btn.clicked.connect(self._parse_nlp_text)
-        execute_btn = QPushButton("执行解析")
+        parse_btn.setFixedWidth(120)
+        execute_btn = QPushButton("执行")
         execute_btn.clicked.connect(self._execute_nlp_text)
+        execute_btn.setFixedWidth(120)
+        execute_btn.setProperty("klass", "green")
         self.mic_toggle_btn = QPushButton("开始录音")
         self.mic_toggle_btn.clicked.connect(self._toggle_microphone_recording)
+        self.mic_toggle_btn.setFixedWidth(120)
         clear_btn = QPushButton("清空")
         clear_btn.clicked.connect(self._clear_nlp_text)
+        clear_btn.setFixedWidth(120)
         nlp_btn_layout.addWidget(parse_btn)
-        nlp_btn_layout.addWidget(execute_btn)
         nlp_btn_layout.addWidget(self.mic_toggle_btn)
         nlp_btn_layout.addWidget(clear_btn)
+        nlp_btn_layout.addWidget(execute_btn)
         nlp_btn_layout.addStretch(1)
         nlp_left_layout.addLayout(nlp_btn_layout)
         self.nlp_mic_status_label = QLabel("麦克风状态: 空闲")
@@ -828,9 +830,9 @@ class RobotQtWindow(QMainWindow):
         right_tabs.addTab(avoidance_group, "安全中间点")
         right_tabs.addTab(flow_manage_group, "流程管理")
 
-        bottom_layout.addWidget(left, 1)
-        bottom_layout.addWidget(middle, 1)
-        bottom_layout.addWidget(right_tabs, 1)
+        bottom_layout.addWidget(left, 19)
+        bottom_layout.addWidget(middle, 19)
+        bottom_layout.addWidget(right_tabs, 26)
         layout.addWidget(bottom, 1)
 
         for widget in [
@@ -903,6 +905,10 @@ class RobotQtWindow(QMainWindow):
             QMainWindow { background: #25d9e0; }
             QWidget { font-size: 13px; color: #111; }
             QLabel { background: transparent; }
+            QScrollArea {
+                background: transparent;
+                border: 0;
+            }
             #header {
                 border-bottom: 2px solid #222;
                 background: #25d9e0;
@@ -944,6 +950,29 @@ class RobotQtWindow(QMainWindow):
                 left: 10px;
                 padding: 0 4px;
             }
+            QTabWidget::pane {
+                background: rgba(255,255,255,0.22);
+                border: 1px solid #2d2d2d;
+                border-radius: 6px;
+                top: -1px;
+            }
+            QTabBar::tab {
+                min-width: 88px;
+                padding: 7px 12px;
+                margin-right: 4px;
+                background: rgba(255,255,255,0.55);
+                border: 1px solid #4a4a4a;
+                border-bottom: 0;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                font-weight: 600;
+            }
+            QTabBar::tab:selected {
+                background: rgba(255,255,255,0.9);
+            }
+            QTabBar::tab:hover:!selected {
+                background: rgba(255,255,255,0.72);
+            }
             QPushButton {
                 min-height: 42px;
                 background: #ececec;
@@ -959,6 +988,17 @@ class RobotQtWindow(QMainWindow):
             QLineEdit, QComboBox, QTextEdit, QTreeWidget, QTableWidget {
                 background: rgba(255,255,255,0.82);
                 border: 1px solid #666;
+                border-radius: 4px;
+                padding: 3px 5px;
+            }
+            QTextEdit, QTreeWidget, QTableWidget {
+                background: rgba(255,255,255,0.74);
+            }
+            QHeaderView::section {
+                background: rgba(255,255,255,0.9);
+                border: 1px solid #6a6a6a;
+                padding: 4px 6px;
+                font-weight: 600;
             }
             QLabel#title { font-size: 28px; font-weight: bold; }
             QLabel#brand { font-size: 16px; font-weight: bold; }
@@ -977,7 +1017,7 @@ class RobotQtWindow(QMainWindow):
                 font-size: 14px;
             }
             QTableWidget {
-                background: rgba(255,255,255,0.22);
+                background: rgba(255,255,255,0.4);
                 gridline-color: #555;
             }
         """)
@@ -1371,6 +1411,7 @@ class RobotQtWindow(QMainWindow):
         for idx, record in enumerate(visible_records):
             standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             card = QGroupBox(record.query_key)
+            card.setObjectName("subPanel")
             card.setMinimumWidth(170)
             layout = QVBoxLayout(card)
             layout.setContentsMargins(6, 6, 6, 6)
@@ -1673,14 +1714,14 @@ class RobotQtWindow(QMainWindow):
     def _compute_overall_state(self) -> tuple[str, str, str]:
         monitor_offline = self.monitor_label.text() == "实时监控离线" or "失败" in self.connection_label.text()
         if monitor_offline:
-            return "离线", "#7a7a7a", "未连接或无实时反馈"
+            return "离线", "#7a7a7a", f"{self.monitor_label.text()}\n未连接或无实时反馈"
         if self.alarm_code not in {"0", "ERR_000"}:
-            return "异常", "#ef5a5a", self.alarm_text or "报警或通讯故障"
+            return "异常", "#ef5a5a", f"{self.monitor_label.text()}\n{self.alarm_text or '报警或通讯故障'}"
         if self.busy == "暂停" or self.run_state == "暂停":
-            return "暂停", "#ffe46d", "系统处于暂停状态"
+            return "暂停", "#ffe46d", f"{self.monitor_label.text()}\n系统处于暂停状态"
         if self.busy == "运行中" or self.run_state == "运行中":
-            return "运行中", "#4f7cff", "下位机正在执行任务"
-        return "空闲", "#42d84a", "系统已连接，当前空闲"
+            return "运行中", "#4f7cff", f"{self.monitor_label.text()}\n下位机正在执行任务"
+        return "空闲", "#42d84a", f"{self.monitor_label.text()}\n系统已连接，当前空闲"
 
     def _capture_realtime_snapshot(self) -> tuple[str, str, str, str]:
         overall_state, _, _ = self._compute_overall_state()
