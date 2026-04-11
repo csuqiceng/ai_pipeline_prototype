@@ -61,6 +61,7 @@ class IFlytekMicrophoneConfig:
     device: int | None = None
     warmup_sec: float = 0.2
     debug_save_path: str | None = None
+    stop_flag_path: str | None = None
 
 
 class IFlytekIATClient:
@@ -115,6 +116,15 @@ class IFlytekIATClient:
                     chunks.append(normalized)
         except Exception as exc:
             raise IFlytekRTASRError(f"讯飞 IAT 麦克风调用失败: {exc}") from exc
+        finally:
+            try:
+                stream.stop_stream()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
 
         return IFlytekIATResult(text="".join(chunks).strip(), chunks=chunks)
 
@@ -194,7 +204,7 @@ class _SoundDeviceMicStream:
             time.sleep(config.warmup_sec)
 
     def read(self, bytes_requested: int) -> bytes:
-        if self._closed or self._stopped or self._frames_remaining <= 0:
+        if self._closed or self._stopped or self._frames_remaining <= 0 or _should_stop(self._config):
             return b""
         frames_to_read = min(self._frames_remaining, max(1, bytes_requested // self._bytes_per_frame))
         try:
@@ -258,7 +268,7 @@ class _PyAudioMicStream:
             time.sleep(config.warmup_sec)
 
     def read(self, bytes_requested: int) -> bytes:
-        if self._closed or self._stopped or self._frames_remaining <= 0:
+        if self._closed or self._stopped or self._frames_remaining <= 0 or _should_stop(self._config):
             return b""
         frames_to_read = min(self._frames_remaining, max(1, bytes_requested // self._bytes_per_frame))
         try:
@@ -299,3 +309,9 @@ class _PyAudioMicStream:
 def _save_debug_audio(debug_save_path: str | None, payload: bytes) -> None:
     if debug_save_path:
         Path(debug_save_path).write_bytes(payload)
+
+
+def _should_stop(config: IFlytekMicrophoneConfig) -> bool:
+    if not config.stop_flag_path:
+        return False
+    return Path(config.stop_flag_path).exists()

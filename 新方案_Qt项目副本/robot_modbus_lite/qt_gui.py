@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import importlib.util
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +21,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -95,7 +99,7 @@ class RobotQtWindow(QMainWindow):
         client_factory: Callable[[str, Path], ZMotionVrClient] | None = None,
     ) -> None:
         super().__init__()
-        self.setWindowTitle("双车床机械手自然语言编程控制系统 - Qt版")
+        self.setWindowTitle("机械手自然语言编程控制系统 - Qt版")
         self.resize(1380, 860)
 
         self.runtime_root = _runtime_dir()
@@ -146,6 +150,10 @@ class RobotQtWindow(QMainWindow):
         self._last_polled_status_values: tuple[float, ...] | None = None
         self._last_polled_monitor_values: tuple[float, ...] | None = None
         self.nlp_last_action: VoiceNlpAction | None = None
+        self._mic_process: subprocess.Popen[str] | None = None
+        self._mic_poll_timer: QTimer | None = None
+        self._mic_stop_flag_path: Path | None = None
+        self._mic_result_path: Path | None = None
 
         self._build_ui()
         self._load_initial_record()
@@ -198,9 +206,9 @@ class RobotQtWindow(QMainWindow):
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(12, 4, 12, 4)
 
-        brand = QLabel("双车床机械手\nQt 页面原型")
+        brand = QLabel("机械手\nQt 页面原型")
         brand.setObjectName("brand")
-        title = QLabel("双车床机械手自然语言编程控制系统")
+        title = QLabel("机械手自然语言编程控制系统")
         title.setObjectName("title")
         self.header_status = QLabel("第一版：固定指令 + 后台模板")
         self.header_status.setObjectName("headerStatus")
@@ -383,18 +391,34 @@ class RobotQtWindow(QMainWindow):
 
         self.command_group = QGroupBox("固定指令执行页")
         self.command_group.setObjectName("panel")
-        self.command_group.setMinimumHeight(380)
+        self.command_group.setMinimumHeight(340)
         command_box_layout = QVBoxLayout(self.command_group)
         command_tip = QLabel("第一版只做少量固定按钮，不做复杂自然语言输入。支持参数型指令与固定函数型无参数指令。")
         command_tip.setWordWrap(True)
         command_tip.setObjectName("tip")
         command_box_layout.addWidget(command_tip)
+        command_toolbar = QHBoxLayout()
+        command_toolbar.addWidget(QLabel("筛选:"))
+        self.command_filter_edit = QLineEdit()
+        self.command_filter_edit.setPlaceholderText("输入名称 / 关键词")
+        self.command_filter_edit.textChanged.connect(self._refresh_command_cards)
+        command_toolbar.addWidget(self.command_filter_edit, 1)
+        command_toolbar.addWidget(QLabel("类型:"))
+        self.command_type_combo = QComboBox()
+        self.command_type_combo.addItems(["全部", "参数型", "固定型"])
+        self.command_type_combo.currentIndexChanged.connect(self._refresh_command_cards)
+        command_toolbar.addWidget(self.command_type_combo)
+        self.command_count_label = QLabel("0 项")
+        command_toolbar.addWidget(self.command_count_label)
+        command_box_layout.addLayout(command_toolbar)
         command_scroll = QScrollArea()
         command_scroll.setWidgetResizable(True)
         command_scroll.setFrameShape(QFrame.Shape.NoFrame)
         command_scroll_widget = QWidget()
         command_layout = QGridLayout(command_scroll_widget)
-        command_layout.setSpacing(10)
+        command_layout.setHorizontalSpacing(8)
+        command_layout.setVerticalSpacing(8)
+        command_layout.setContentsMargins(0, 0, 0, 0)
         self.command_grid_layout = command_layout
         command_scroll.setWidget(command_scroll_widget)
         command_box_layout.addWidget(command_scroll)
@@ -424,19 +448,19 @@ class RobotQtWindow(QMainWindow):
         parse_btn.clicked.connect(self._parse_nlp_text)
         execute_btn = QPushButton("执行解析")
         execute_btn.clicked.connect(self._execute_nlp_text)
-        audio_btn = QPushButton("导入音频识别")
-        audio_btn.clicked.connect(self._transcribe_audio_file)
-        mic_btn = QPushButton("麦克风识别")
-        mic_btn.clicked.connect(self._transcribe_microphone)
+        self.mic_toggle_btn = QPushButton("开始录音")
+        self.mic_toggle_btn.clicked.connect(self._toggle_microphone_recording)
         clear_btn = QPushButton("清空")
         clear_btn.clicked.connect(self._clear_nlp_text)
         nlp_btn_layout.addWidget(parse_btn)
         nlp_btn_layout.addWidget(execute_btn)
-        nlp_btn_layout.addWidget(audio_btn)
-        nlp_btn_layout.addWidget(mic_btn)
+        nlp_btn_layout.addWidget(self.mic_toggle_btn)
         nlp_btn_layout.addWidget(clear_btn)
         nlp_btn_layout.addStretch(1)
         nlp_left_layout.addLayout(nlp_btn_layout)
+        self.nlp_mic_status_label = QLabel("麦克风状态: 空闲")
+        self.nlp_mic_status_label.setObjectName("tip")
+        nlp_left_layout.addWidget(self.nlp_mic_status_label)
         nlp_layout.addWidget(nlp_left, 3)
 
         nlp_right = QGroupBox("解析结果")
@@ -468,6 +492,11 @@ class RobotQtWindow(QMainWindow):
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.history_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        history_header = self.history_table.horizontalHeader()
+        history_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        history_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        history_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        history_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         history_group = QGroupBox("最近执行记录")
         history_group.setObjectName("panel")
         hist_layout = QVBoxLayout(history_group)
@@ -478,9 +507,9 @@ class RobotQtWindow(QMainWindow):
         left_stack_layout.setContentsMargins(0, 0, 0, 0)
         left_stack_layout.setSpacing(10)
         left_stack_layout.addWidget(self.robot_info, 1)
-        bottom_layout.addWidget(left_stack, 1)
-        bottom_layout.addWidget(self.summary_info, 1)
-        bottom_layout.addWidget(history_group, 1)
+        bottom_layout.addWidget(left_stack, 21)
+        bottom_layout.addWidget(self.summary_info, 16)
+        bottom_layout.addWidget(history_group, 27)
         layout.addWidget(bottom, 0)
         return page
 
@@ -1322,19 +1351,52 @@ class RobotQtWindow(QMainWindow):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        for idx, record in enumerate(sorted(self.table.values(), key=lambda r: r.query_key)):
+        filter_text = self.command_filter_edit.text().strip().lower() if hasattr(self, "command_filter_edit") else ""
+        type_filter = self.command_type_combo.currentText() if hasattr(self, "command_type_combo") else "全部"
+
+        visible_records: list[QueryRecord] = []
+        for record in sorted(self.table.values(), key=lambda r: r.query_key):
+            if type_filter == "参数型" and record.template_type != "parametric":
+                continue
+            if type_filter == "固定型" and record.template_type != "fixed":
+                continue
+            haystack = " ".join([record.query_key, record.keywords, record.description, record.function_name]).lower()
+            if filter_text and filter_text not in haystack:
+                continue
+            visible_records.append(record)
+
+        if hasattr(self, "command_count_label"):
+            self.command_count_label.setText(f"{len(visible_records)} 项")
+
+        for idx, record in enumerate(visible_records):
             standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             card = QGroupBox(record.query_key)
+            card.setMinimumWidth(170)
             layout = QVBoxLayout(card)
-            layout.addWidget(QLabel(f"指令码: {standard_command.code}"))
-            layout.addWidget(QLabel(f"指令类型: {standard_command.cmd}"))
-            layout.addWidget(QLabel("固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令"))
-            layout.addWidget(QLabel(record.description or record.query_key))
+            layout.setContentsMargins(6, 6, 6, 6)
+            layout.setSpacing(3)
+            meta_top = QLabel(f"{standard_command.cmd} | {standard_command.code}")
+            meta_top.setWordWrap(True)
+            layout.addWidget(meta_top)
+            meta_kind = QLabel("固定型" if record.template_type == "fixed" else "参数型")
+            meta_kind.setObjectName("tip")
+            layout.addWidget(meta_kind)
+            if record.template_type == "parametric":
+                pos_text = (
+                    f"X {self._fmt(record.registers[0])}  "
+                    f"Y {self._fmt(record.registers[1])}\n"
+                    f"Z {self._fmt(record.registers[2])}"
+                )
+                pos_label = QLabel(pos_text)
+                pos_label.setObjectName("tip")
+                pos_label.setWordWrap(True)
+                layout.addWidget(pos_label)
             btn = QPushButton("执行")
             btn.setProperty("klass", "yellow" if record.template_type == "fixed" else "green")
+            btn.setMinimumHeight(28)
             btn.clicked.connect(lambda _=False, key=record.query_key: self._send_record(key))
             layout.addWidget(btn)
-            self.command_grid_layout.addWidget(card, idx // 2, idx % 2)
+            self.command_grid_layout.addWidget(card, idx // 3, idx % 3)
 
     def _refresh_template_tree(self) -> None:
         self.template_tree.clear()
@@ -1755,16 +1817,80 @@ class RobotQtWindow(QMainWindow):
         self.status_label.setText("自然语言输入已清空。")
 
     def _create_iflytek_client(self):
-        from .iflytek_iat import IFlytekIATClient, IFlytekIATConfig, IFlytekRTASRError, expected_env_locations
+        from .iflytek_iat import IFlytekIATConfig, IFlytekRTASRError, expected_env_locations
 
         try:
-            return IFlytekIATClient(IFlytekIATConfig.from_env())
+            IFlytekIATConfig.from_env()
+            if importlib.util.find_spec("xfyunsdkspeech") is None:
+                raise RuntimeError("未安装 xfyunsdkspeech，请先安装讯飞官方 SDK。")
+            return True
         except IFlytekRTASRError as exc:
             env_locations = " / ".join(str(path) for path in expected_env_locations())
             raise RuntimeError(
                 f"{exc}\n请在以下任一文件配置讯飞凭证后重试：\n{env_locations}\n"
                 "需要的键：IFLYTEK_APP_ID、IFLYTEK_API_KEY、IFLYTEK_API_SECRET"
             ) from exc
+
+    def _run_iflytek_worker(self, args: list[str]) -> str:
+        log_dir = self.runtime_root / "data" / "exported_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        debug_pcm = log_dir / f"voice_debug_{timestamp}.pcm"
+        worker_log = log_dir / f"iflytek_worker_{timestamp}.log"
+        result_path = log_dir / f"iflytek_result_{timestamp}.json"
+
+        cmd = self._build_iflytek_worker_command(args, debug_pcm, result_path)
+
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=90,
+            cwd=str(self.runtime_root),
+        )
+
+        stderr_text = (completed.stderr or "").strip()
+        worker_log.write_text(
+            json.dumps(
+                {
+                    "cmd": cmd,
+                    "returncode": completed.returncode,
+                    "stdout": (completed.stdout or ""),
+                    "stderr": (completed.stderr or ""),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        if not result_path.exists():
+            detail = stderr_text or "讯飞 worker 未返回结果。"
+            raise RuntimeError(f"{detail}\n调试日志: {worker_log}")
+
+        try:
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"讯飞 worker 返回结果文件不是合法 JSON。\n{stderr_text}\n调试日志: {worker_log}") from exc
+
+        if not payload.get("ok"):
+            raise RuntimeError(f"{payload.get('error', '讯飞识别失败。')}\n调试日志: {worker_log}")
+        return str(payload.get("text", "")).strip()
+
+    def _build_iflytek_worker_command(self, args: list[str], debug_pcm: Path, result_path: Path) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--iflytek-worker", *args, "--debug-save-path", str(debug_pcm), "--result-path", str(result_path)]
+        return [
+            sys.executable,
+            str(self.runtime_root / "gui_main.py"),
+            "--iflytek-worker",
+            *args,
+            "--debug-save-path",
+            str(debug_pcm),
+            "--result-path",
+            str(result_path),
+        ]
 
     def _transcribe_audio_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1776,9 +1902,8 @@ class RobotQtWindow(QMainWindow):
         if not file_path:
             return
         try:
-            client = self._create_iflytek_client()
-            result = client.transcribe_file(file_path)
-            text = result.text.strip()
+            self._create_iflytek_client()
+            text = self._run_iflytek_worker(["--mode", "audio", "--input", file_path])
             self.nlp_input_edit.setPlainText(text)
             self.status_label.setText(f"音频识别完成: {Path(file_path).name}")
             self._append_log("语音", "导入音频识别", "成功", f"{Path(file_path).name} -> {text or '-'}")
@@ -1788,17 +1913,138 @@ class RobotQtWindow(QMainWindow):
 
     def _transcribe_microphone(self) -> None:
         try:
-            from .iflytek_iat import IFlytekMicrophoneConfig
-
-            client = self._create_iflytek_client()
-            result = client.transcribe_microphone(IFlytekMicrophoneConfig(duration_sec=4.0))
-            text = result.text.strip()
+            self._create_iflytek_client()
+            text = self._run_iflytek_worker(["--mode", "mic", "--duration", "4.0"])
             self.nlp_input_edit.setPlainText(text)
             self.status_label.setText("麦克风识别完成")
             self._append_log("语音", "麦克风识别", "成功", text or "-")
         except Exception as exc:
             QMessageBox.critical(self, "麦克风识别失败", str(exc))
             self._append_log("语音", "麦克风识别", "失败", str(exc))
+
+    def _toggle_microphone_recording(self) -> None:
+        if self._mic_process and self._mic_process.poll() is None:
+            self._stop_microphone_recording()
+            return
+        self._start_microphone_recording()
+
+    def _start_microphone_recording(self) -> None:
+        if self._mic_process and self._mic_process.poll() is None:
+            return
+        try:
+            self._create_iflytek_client()
+            log_dir = self.runtime_root / "data" / "exported_logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_pcm = log_dir / f"voice_debug_{timestamp}.pcm"
+            result_path = log_dir / f"iflytek_result_mic_{timestamp}.json"
+            stop_flag = log_dir / f"voice_stop_{timestamp}.flag"
+            if stop_flag.exists():
+                stop_flag.unlink()
+            cmd = self._build_iflytek_worker_command(
+                ["--mode", "mic", "--duration", "3600", "--stop-flag-path", str(stop_flag)],
+                debug_pcm,
+                result_path,
+            )
+            self._mic_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                cwd=str(self.runtime_root),
+            )
+            self._mic_stop_flag_path = stop_flag
+            self._mic_result_path = result_path
+            self.mic_toggle_btn.setText("停止录音")
+            self.nlp_mic_status_label.setText("麦克风状态: 录音中")
+            self.status_label.setText("麦克风录音中，点击“停止录音”结束并识别。")
+            self._append_log("语音", "开始录音", "成功", "麦克风录音已启动")
+            if self._mic_poll_timer is None:
+                self._mic_poll_timer = QTimer(self)
+                self._mic_poll_timer.setInterval(300)
+                self._mic_poll_timer.timeout.connect(self._poll_microphone_recording)
+            self._mic_poll_timer.start()
+        except Exception as exc:
+            QMessageBox.critical(self, "开始录音失败", str(exc))
+            self._append_log("语音", "开始录音", "失败", str(exc))
+
+    def _stop_microphone_recording(self) -> None:
+        if not self._mic_process or self._mic_process.poll() is not None:
+            return
+        if self._mic_stop_flag_path:
+            self._mic_stop_flag_path.write_text("stop", encoding="utf-8")
+        self.mic_toggle_btn.setEnabled(False)
+        self.nlp_mic_status_label.setText("麦克风状态: 正在停止")
+        self.status_label.setText("正在停止录音并等待识别结果。")
+        self._append_log("语音", "停止录音", "成功", "已发送停止信号")
+
+    def _poll_microphone_recording(self) -> None:
+        if not self._mic_process:
+            if self._mic_poll_timer:
+                self._mic_poll_timer.stop()
+            return
+        exit_code = self._mic_process.poll()
+        if exit_code is None:
+            return
+        if self._mic_poll_timer:
+            self._mic_poll_timer.stop()
+        stdout, stderr = self._mic_process.communicate()
+        self._mic_process = None
+        log_dir = self.runtime_root / "data" / "exported_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        worker_log = log_dir / f"iflytek_worker_mic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        worker_log.write_text(
+            json.dumps(
+                {
+                    "stdout": stdout or "",
+                    "stderr": stderr or "",
+                    "stop_flag": str(self._mic_stop_flag_path) if self._mic_stop_flag_path else "",
+                    "returncode": exit_code,
+                    "result_path": str(self._mic_result_path) if getattr(self, "_mic_result_path", None) else "",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        if self._mic_stop_flag_path and self._mic_stop_flag_path.exists():
+            try:
+                self._mic_stop_flag_path.unlink()
+            except Exception:
+                pass
+        self._mic_stop_flag_path = None
+        self.mic_toggle_btn.setEnabled(True)
+        self.mic_toggle_btn.setText("开始录音")
+        result_path = getattr(self, "_mic_result_path", None)
+        self._mic_result_path = None
+        if not result_path or not Path(result_path).exists():
+            error_text = (stderr or "").strip() or "麦克风识别未返回结果。"
+            error_text = f"{error_text}\n调试日志: {worker_log}"
+            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+            QMessageBox.critical(self, "麦克风识别失败", error_text)
+            self._append_log("语音", "麦克风识别", "失败", error_text)
+            return
+        try:
+            payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            message = f"麦克风识别结果文件不是合法 JSON。\n调试日志: {worker_log}"
+            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+            QMessageBox.critical(self, "麦克风识别失败", message)
+            self._append_log("语音", "麦克风识别", "失败", message)
+            return
+        if not payload.get("ok"):
+            message = f"{payload.get('error', '麦克风识别失败。')}\n调试日志: {worker_log}"
+            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+            QMessageBox.critical(self, "麦克风识别失败", message)
+            self._append_log("语音", "麦克风识别", "失败", message)
+            return
+
+        text = str(payload.get("text", "")).strip()
+        self.nlp_input_edit.setPlainText(text)
+        self.nlp_mic_status_label.setText("麦克风状态: 完成")
+        self.status_label.setText("麦克风识别完成")
+        self._append_log("语音", "麦克风识别", "成功", text or "-")
 
     @staticmethod
     def _format_write_request(request: VrWriteRequest) -> str:
