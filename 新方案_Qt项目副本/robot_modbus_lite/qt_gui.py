@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QScrollArea,
     QComboBox,
     QFileDialog,
@@ -58,6 +59,7 @@ from .system_config import (
     validate_system_config,
 )
 from .zmotion_client import ZMotionVrClient
+from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter
 
 
 COMMAND_TYPES = ["MOVE_ABS", "MOVE_REL", "HOME", "GRIP_SET", "DOOR_CTRL", "WAIT_MS", "CHECK_IN", "EMG_RESET", "FIXED_FUNC"]
@@ -143,6 +145,7 @@ class RobotQtWindow(QMainWindow):
         self._poll_started_logged = False
         self._last_polled_status_values: tuple[float, ...] | None = None
         self._last_polled_monitor_values: tuple[float, ...] | None = None
+        self.nlp_last_action: VoiceNlpAction | None = None
 
         self._build_ui()
         self._load_initial_record()
@@ -396,13 +399,60 @@ class RobotQtWindow(QMainWindow):
         command_scroll.setWidget(command_scroll_widget)
         command_box_layout.addWidget(command_scroll)
 
-        top = QWidget()
-        top_layout = QHBoxLayout(top)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(10)
-        top_layout.addWidget(self.command_group, 1)
-        top_layout.addWidget(flow_group, 1)
-        layout.addWidget(top)
+        nlp_group = QGroupBox("自然语言执行")
+        nlp_group.setObjectName("panel")
+        nlp_layout = QHBoxLayout(nlp_group)
+        nlp_layout.setContentsMargins(10, 8, 10, 8)
+        nlp_layout.setSpacing(10)
+
+        nlp_left = QWidget()
+        nlp_left_layout = QVBoxLayout(nlp_left)
+        nlp_left_layout.setContentsMargins(0, 0, 0, 0)
+        nlp_left_layout.setSpacing(6)
+        nlp_head = QHBoxLayout()
+        nlp_head.addWidget(QLabel("输入文本:"))
+        self.nlp_use_deepseek_check = QCheckBox("使用DeepSeek")
+        nlp_head.addWidget(self.nlp_use_deepseek_check)
+        nlp_head.addStretch(1)
+        nlp_left_layout.addLayout(nlp_head)
+        self.nlp_input_edit = QTextEdit()
+        self.nlp_input_edit.setPlaceholderText("例如：执行流程11 / 回零 / 启动 / 把机械手移动到位置A")
+        self.nlp_input_edit.setMinimumHeight(140)
+        nlp_left_layout.addWidget(self.nlp_input_edit)
+        nlp_btn_layout = QHBoxLayout()
+        parse_btn = QPushButton("解析文本")
+        parse_btn.clicked.connect(self._parse_nlp_text)
+        execute_btn = QPushButton("执行解析")
+        execute_btn.clicked.connect(self._execute_nlp_text)
+        audio_btn = QPushButton("导入音频识别")
+        audio_btn.clicked.connect(self._transcribe_audio_file)
+        mic_btn = QPushButton("麦克风识别")
+        mic_btn.clicked.connect(self._transcribe_microphone)
+        clear_btn = QPushButton("清空")
+        clear_btn.clicked.connect(self._clear_nlp_text)
+        nlp_btn_layout.addWidget(parse_btn)
+        nlp_btn_layout.addWidget(execute_btn)
+        nlp_btn_layout.addWidget(audio_btn)
+        nlp_btn_layout.addWidget(mic_btn)
+        nlp_btn_layout.addWidget(clear_btn)
+        nlp_btn_layout.addStretch(1)
+        nlp_left_layout.addLayout(nlp_btn_layout)
+        nlp_layout.addWidget(nlp_left, 3)
+
+        nlp_right = QGroupBox("解析结果")
+        nlp_right.setObjectName("subPanel")
+        nlp_right_layout = QVBoxLayout(nlp_right)
+        self.nlp_result_edit = QTextEdit()
+        self.nlp_result_edit.setReadOnly(True)
+        nlp_right_layout.addWidget(self.nlp_result_edit)
+        nlp_layout.addWidget(nlp_right, 2)
+
+        execute_tabs = QTabWidget()
+        execute_tabs.setObjectName("panel")
+        execute_tabs.addTab(self.command_group, "单次执行")
+        execute_tabs.addTab(flow_group, "流程执行")
+        execute_tabs.addTab(nlp_group, "自然语言执行")
+        layout.addWidget(execute_tabs, 1)
 
         bottom = QWidget()
         bottom_layout = QHBoxLayout(bottom)
@@ -1646,6 +1696,109 @@ class RobotQtWindow(QMainWindow):
         })
         self.logs = self.logs[:200]
         self._refresh_logs()
+
+    def _build_voice_nlp_adapter(self) -> VoiceNlpAdapter:
+        return VoiceNlpAdapter(self.table, self.service.list_flow_names())
+
+    def _parse_nlp_text(self) -> None:
+        text = self.nlp_input_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
+            self._append_log("自然语言", "解析文本", "失败", "输入为空")
+            return
+        action = self._build_voice_nlp_adapter().parse(
+            text,
+            use_deepseek=self.nlp_use_deepseek_check.isChecked(),
+        )
+        self.nlp_last_action = action
+        self.nlp_result_edit.setPlainText(json.dumps(action.to_preview_dict(), ensure_ascii=False, indent=2))
+        self.status_label.setText(f"解析完成: {action.action_type} / {action.target or '-'}")
+        self._append_log(
+            "自然语言",
+            "解析文本",
+            "成功" if action.action_type != "unknown" else "失败",
+            f"{action.source} | {action.action_type} | {action.target or '-'} | {action.reason}",
+        )
+
+    def _execute_nlp_text(self) -> None:
+        text = self.nlp_input_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
+            self._append_log("自然语言", "执行解析", "失败", "输入为空")
+            return
+        action = self._build_voice_nlp_adapter().parse(
+            text,
+            use_deepseek=self.nlp_use_deepseek_check.isChecked(),
+        )
+        self.nlp_last_action = action
+        self.nlp_result_edit.setPlainText(json.dumps(action.to_preview_dict(), ensure_ascii=False, indent=2))
+        if action.action_type == "template" and action.target:
+            ok = self._execute_query_key(action.target)
+            self._append_log("自然语言", "执行解析", "成功" if ok else "失败", f"模板 | {action.target} | {action.source}")
+            return
+        if action.action_type == "flow" and action.target:
+            self.flow_combo.setCurrentText(action.target)
+            self._start_flow()
+            self._append_log("自然语言", "执行解析", "成功", f"流程 | {action.target} | {action.source}")
+            return
+        if action.action_type == "system" and action.target:
+            self._handle_system_action(action.target)
+            self._append_log("自然语言", "执行解析", "成功", f"系统动作 | {action.target} | {action.source}")
+            return
+        QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{action.reason}")
+        self._append_log("自然语言", "执行解析", "失败", action.reason)
+
+    def _clear_nlp_text(self) -> None:
+        self.nlp_input_edit.clear()
+        self.nlp_result_edit.clear()
+        self.nlp_last_action = None
+        self.status_label.setText("自然语言输入已清空。")
+
+    def _create_iflytek_client(self):
+        from .iflytek_iat import IFlytekIATClient, IFlytekIATConfig, IFlytekRTASRError, expected_env_locations
+
+        try:
+            return IFlytekIATClient(IFlytekIATConfig.from_env())
+        except IFlytekRTASRError as exc:
+            env_locations = " / ".join(str(path) for path in expected_env_locations())
+            raise RuntimeError(
+                f"{exc}\n请在以下任一文件配置讯飞凭证后重试：\n{env_locations}\n"
+                "需要的键：IFLYTEK_APP_ID、IFLYTEK_API_KEY、IFLYTEK_API_SECRET"
+            ) from exc
+
+    def _transcribe_audio_file(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择音频文件",
+            str(self.runtime_root),
+            "音频文件 (*.pcm *.wav *.mp3 *.m4a);;所有文件 (*.*)",
+        )
+        if not file_path:
+            return
+        try:
+            client = self._create_iflytek_client()
+            result = client.transcribe_file(file_path)
+            text = result.text.strip()
+            self.nlp_input_edit.setPlainText(text)
+            self.status_label.setText(f"音频识别完成: {Path(file_path).name}")
+            self._append_log("语音", "导入音频识别", "成功", f"{Path(file_path).name} -> {text or '-'}")
+        except Exception as exc:
+            QMessageBox.critical(self, "音频识别失败", str(exc))
+            self._append_log("语音", "导入音频识别", "失败", str(exc))
+
+    def _transcribe_microphone(self) -> None:
+        try:
+            from .iflytek_iat import IFlytekMicrophoneConfig
+
+            client = self._create_iflytek_client()
+            result = client.transcribe_microphone(IFlytekMicrophoneConfig(duration_sec=4.0))
+            text = result.text.strip()
+            self.nlp_input_edit.setPlainText(text)
+            self.status_label.setText("麦克风识别完成")
+            self._append_log("语音", "麦克风识别", "成功", text or "-")
+        except Exception as exc:
+            QMessageBox.critical(self, "麦克风识别失败", str(exc))
+            self._append_log("语音", "麦克风识别", "失败", str(exc))
 
     @staticmethod
     def _format_write_request(request: VrWriteRequest) -> str:
