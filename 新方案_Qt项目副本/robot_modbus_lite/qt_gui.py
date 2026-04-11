@@ -79,6 +79,8 @@ SYSTEM_COMMAND_CODES = {
 }
 MIRROR_RETRY_COUNT = 5
 MIRROR_RETRY_INTERVAL_SEC = 0.1
+EXECUTION_RETRY_COUNT = 100
+EXECUTION_RETRY_INTERVAL_SEC = 0.1
 
 
 class RobotQtWindow(QMainWindow):
@@ -96,19 +98,26 @@ class RobotQtWindow(QMainWindow):
 
         self.runtime_root = _runtime_dir()
         self.resource_root = _resource_dir()
+        self.flows_path = _resolve_runtime_data_file("flows.json")
         self.json_path = bootstrap_query_table_json(json_path, csv_path)
         self.system_config_path = ensure_system_config_json(system_config_path or (self.runtime_root / "data" / "system_config.json"))
         self.avoidance_config_path = ensure_avoidance_config_json(self.runtime_root / "data" / "avoidance_rules.json")
         self.axis_ranges = load_system_config(self.system_config_path)
         self.avoidance_config = load_avoidance_config(self.avoidance_config_path)
         self.table = load_query_table(self.json_path)
-        self.service = RobotModbusService(self.json_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self._client_factory = client_factory or (lambda host, repo_root: ZMotionVrClient(host=host, repo_root=repo_root))
         self.history: list[dict[str, str | int]] = []
         self.logs: list[dict[str, str]] = []
         self.task_id = 1001
         self.current_key: str | None = None
         self.current_safe_point_key: str | None = None
+        self.current_flow_manage_name: str | None = None
+        self.current_flow_name: str | None = None
+        self.flow_step_index = 0
+        self.flow_status = "空闲"
+        self.flow_running = False
+        self.flow_current_step = "-"
         self.robot_x = "1250.0"
         self.robot_y = "0.0"
         self.robot_z = "860.0"
@@ -315,10 +324,59 @@ class RobotQtWindow(QMainWindow):
         link_layout.addWidget(read_btn)
         layout.addWidget(link_bar)
 
-        top = QWidget()
-        top_layout = QHBoxLayout(top)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(10)
+        flow_group = QGroupBox("流程执行")
+        flow_group.setObjectName("panel")
+        flow_layout = QVBoxLayout(flow_group)
+        flow_head = QHBoxLayout()
+        flow_head.addWidget(QLabel("流程:"))
+        self.flow_combo = QComboBox()
+        self.flow_combo.currentTextChanged.connect(self._on_flow_selected)
+        flow_head.addWidget(self.flow_combo, 1)
+        flow_layout.addLayout(flow_head)
+
+        flow_body = QWidget()
+        flow_body_layout = QHBoxLayout(flow_body)
+        flow_body_layout.setContentsMargins(0, 0, 0, 0)
+        flow_body_layout.setSpacing(8)
+
+        self.flow_step_tree = QTreeWidget()
+        self.flow_step_tree.setHeaderLabels(["步骤", "状态"])
+        flow_body_layout.addWidget(self.flow_step_tree, 1)
+
+        flow_side = QWidget()
+        flow_side_layout = QVBoxLayout(flow_side)
+        flow_side_layout.setContentsMargins(0, 0, 0, 0)
+        flow_side_layout.setSpacing(8)
+        flow_info_form = QFormLayout()
+        self.flow_name_label = QLabel("-")
+        self.flow_progress_label = QLabel("0 / 0")
+        self.flow_status_label = QLabel(self.flow_status)
+        self.flow_step_label = QLabel(self.flow_current_step)
+        for label, widget in [
+            ("当前流程", self.flow_name_label),
+            ("当前步骤", self.flow_progress_label),
+            ("流程状态", self.flow_status_label),
+            ("执行模板", self.flow_step_label),
+        ]:
+            flow_info_form.addRow(label + ":", widget)
+        flow_side_layout.addLayout(flow_info_form)
+        flow_btn_layout = QGridLayout()
+        start_flow_btn = QPushButton("开始流程")
+        start_flow_btn.clicked.connect(self._start_flow)
+        step_flow_btn = QPushButton("单步执行")
+        step_flow_btn.clicked.connect(self._step_flow)
+        stop_flow_btn = QPushButton("停止流程")
+        stop_flow_btn.clicked.connect(self._stop_flow)
+        reset_flow_btn = QPushButton("重置流程")
+        reset_flow_btn.clicked.connect(self._reset_flow)
+        flow_btn_layout.addWidget(start_flow_btn, 0, 0)
+        flow_btn_layout.addWidget(step_flow_btn, 0, 1)
+        flow_btn_layout.addWidget(stop_flow_btn, 1, 0)
+        flow_btn_layout.addWidget(reset_flow_btn, 1, 1)
+        flow_side_layout.addLayout(flow_btn_layout)
+        flow_side_layout.addStretch(1)
+        flow_body_layout.addWidget(flow_side, 1)
+        flow_layout.addWidget(flow_body)
 
         self.command_group = QGroupBox("固定指令执行页")
         self.command_group.setObjectName("panel")
@@ -337,11 +395,13 @@ class RobotQtWindow(QMainWindow):
         self.command_grid_layout = command_layout
         command_scroll.setWidget(command_scroll_widget)
         command_box_layout.addWidget(command_scroll)
-        top_layout.addWidget(self.command_group, 11)
 
-        self.summary_info = self._make_info_group("执行摘要")
-        self.summary_info.setObjectName("panel")
-        top_layout.addWidget(self.summary_info, 8)
+        top = QWidget()
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(10)
+        top_layout.addWidget(self.command_group, 1)
+        top_layout.addWidget(flow_group, 1)
         layout.addWidget(top)
 
         bottom = QWidget()
@@ -350,6 +410,8 @@ class RobotQtWindow(QMainWindow):
         bottom_layout.setSpacing(10)
         self.robot_info = self._make_info_group("机械手状态")
         self.robot_info.setObjectName("panel")
+        self.summary_info = self._make_info_group("执行摘要")
+        self.summary_info.setObjectName("panel")
         self.history_table = QTableWidget(0, 4)
         self.history_table.setHorizontalHeaderLabels(["任务ID", "指令码", "指令类型", "结果"])
         self.history_table.verticalHeader().setVisible(False)
@@ -366,8 +428,8 @@ class RobotQtWindow(QMainWindow):
         left_stack_layout.setContentsMargins(0, 0, 0, 0)
         left_stack_layout.setSpacing(10)
         left_stack_layout.addWidget(self.robot_info, 1)
-
         bottom_layout.addWidget(left_stack, 1)
+        bottom_layout.addWidget(self.summary_info, 1)
         bottom_layout.addWidget(history_group, 1)
         layout.addWidget(bottom, 0)
         return page
@@ -609,11 +671,83 @@ class RobotQtWindow(QMainWindow):
         avoidance_split_layout.addWidget(safe_point_editor, 1)
         avoidance_layout.addWidget(avoidance_split)
 
+        flow_manage_group = QGroupBox("流程管理")
+        flow_manage_group.setObjectName("subPanel")
+        flow_manage_layout = QVBoxLayout(flow_manage_group)
+        flow_name_form = QFormLayout()
+        self.flow_manage_name_edit = QLineEdit()
+        flow_name_form.addRow("流程名称:", self.flow_manage_name_edit)
+        flow_manage_layout.addLayout(flow_name_form)
+
+        flow_manage_split = QWidget()
+        flow_manage_split_layout = QHBoxLayout(flow_manage_split)
+        flow_manage_split_layout.setContentsMargins(0, 0, 0, 0)
+        flow_manage_split_layout.setSpacing(8)
+
+        flow_left = QWidget()
+        flow_left_layout = QVBoxLayout(flow_left)
+        flow_left_layout.setContentsMargins(0, 0, 0, 0)
+        flow_left_layout.setSpacing(6)
+        flow_left_layout.addWidget(QLabel("已有流程"))
+        self.flow_manage_tree = QTreeWidget()
+        self.flow_manage_tree.setHeaderLabels(["流程名称", "步数"])
+        self.flow_manage_tree.itemSelectionChanged.connect(self._on_manage_flow_selected)
+        flow_left_layout.addWidget(self.flow_manage_tree)
+        flow_manage_split_layout.addWidget(flow_left, 1)
+
+        flow_middle = QWidget()
+        flow_middle_layout = QVBoxLayout(flow_middle)
+        flow_middle_layout.setContentsMargins(0, 0, 0, 0)
+        flow_middle_layout.setSpacing(6)
+        flow_middle_layout.addWidget(QLabel("流程步骤"))
+        self.flow_step_manage_tree = QTreeWidget()
+        self.flow_step_manage_tree.setHeaderLabels(["步骤模板"])
+        flow_middle_layout.addWidget(self.flow_step_manage_tree)
+        flow_step_button_layout = QGridLayout()
+        add_step_btn = QPushButton("添加步骤")
+        add_step_btn.clicked.connect(self._add_flow_step)
+        remove_step_btn = QPushButton("移除步骤")
+        remove_step_btn.clicked.connect(self._remove_flow_step)
+        step_up_btn = QPushButton("上移")
+        step_up_btn.clicked.connect(self._move_flow_step_up)
+        step_down_btn = QPushButton("下移")
+        step_down_btn.clicked.connect(self._move_flow_step_down)
+        flow_step_button_layout.addWidget(add_step_btn, 0, 0)
+        flow_step_button_layout.addWidget(remove_step_btn, 0, 1)
+        flow_step_button_layout.addWidget(step_up_btn, 1, 0)
+        flow_step_button_layout.addWidget(step_down_btn, 1, 1)
+        flow_middle_layout.addLayout(flow_step_button_layout)
+        flow_manage_split_layout.addWidget(flow_middle, 1)
+
+        flow_right = QWidget()
+        flow_right_layout = QVBoxLayout(flow_right)
+        flow_right_layout.setContentsMargins(0, 0, 0, 0)
+        flow_right_layout.setSpacing(6)
+        flow_right_layout.addWidget(QLabel("可选模板"))
+        self.flow_available_tree = QTreeWidget()
+        self.flow_available_tree.setHeaderLabels(["模板名称", "类型"])
+        flow_right_layout.addWidget(self.flow_available_tree)
+        flow_action_layout = QGridLayout()
+        new_flow_btn = QPushButton("新增流程")
+        new_flow_btn.clicked.connect(self._new_flow)
+        save_flow_btn = QPushButton("保存流程")
+        save_flow_btn.clicked.connect(self._save_flow)
+        delete_flow_btn = QPushButton("删除流程")
+        delete_flow_btn.clicked.connect(self._delete_flow)
+        flow_action_layout.addWidget(new_flow_btn, 0, 0)
+        flow_action_layout.addWidget(save_flow_btn, 0, 1)
+        flow_action_layout.addWidget(delete_flow_btn, 1, 0, 1, 2)
+        flow_right_layout.addLayout(flow_action_layout)
+        flow_manage_split_layout.addWidget(flow_right, 1)
+
+        flow_manage_layout.addWidget(flow_manage_split)
+
         right_tabs = QTabWidget()
         right_tabs.setObjectName("panel")
         right_tabs.addTab(preview_group, "JSON预览")
         right_tabs.addTab(config_group, "系统参数")
         right_tabs.addTab(avoidance_group, "安全中间点")
+        right_tabs.addTab(flow_manage_group, "流程管理")
 
         bottom_layout.addWidget(left, 1)
         bottom_layout.addWidget(middle, 1)
@@ -1123,6 +1257,9 @@ class RobotQtWindow(QMainWindow):
 
     def _refresh_all(self) -> None:
         self._refresh_command_cards()
+        self._refresh_flow_combo()
+        self._refresh_flow_manage_tree()
+        self._refresh_flow_available_tree()
         self._refresh_template_tree()
         self._refresh_history()
         self._render_preview()
@@ -1165,6 +1302,232 @@ class RobotQtWindow(QMainWindow):
             self.history_table.insertRow(row_index)
             for col_index, key in enumerate(["task", "code", "type", "result"]):
                 self.history_table.setItem(row_index, col_index, QTableWidgetItem(str(row[key])))
+
+    def _refresh_flow_combo(self) -> None:
+        if not hasattr(self, "flow_combo"):
+            return
+        flow_names = self.service.list_flow_names()
+        current = self.current_flow_name or self.flow_combo.currentText()
+        self.flow_combo.blockSignals(True)
+        self.flow_combo.clear()
+        self.flow_combo.addItems(flow_names)
+        if current and current in flow_names:
+            self.flow_combo.setCurrentText(current)
+            self.current_flow_name = current
+        elif flow_names:
+            self.current_flow_name = flow_names[0]
+            self.flow_combo.setCurrentText(flow_names[0])
+        else:
+            self.current_flow_name = None
+        self.flow_combo.blockSignals(False)
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+
+    def _refresh_flow_manage_tree(self) -> None:
+        if not hasattr(self, "flow_manage_tree"):
+            return
+        self.flow_manage_tree.clear()
+        flow_names = self.service.list_flow_names()
+        for flow_name in flow_names:
+            flow = self.service.get_flow(flow_name)
+            item = QTreeWidgetItem([flow.name, str(len(flow.steps))])
+            self.flow_manage_tree.addTopLevelItem(item)
+            if self.current_flow_manage_name == flow.name:
+                self.flow_manage_tree.setCurrentItem(item)
+        if flow_names and not self.current_flow_manage_name:
+            self.current_flow_manage_name = flow_names[0]
+            self._load_flow_into_manage_form(self.service.get_flow(flow_names[0]))
+            top = self.flow_manage_tree.topLevelItem(0)
+            if top is not None:
+                self.flow_manage_tree.setCurrentItem(top)
+        elif not flow_names:
+            self._new_flow()
+
+    def _refresh_flow_available_tree(self) -> None:
+        if not hasattr(self, "flow_available_tree"):
+            return
+        self.flow_available_tree.clear()
+        for record in sorted(self.table.values(), key=lambda r: r.query_key):
+            kind = "固定" if record.template_type == "fixed" else "参数"
+            self.flow_available_tree.addTopLevelItem(QTreeWidgetItem([record.query_key, kind]))
+
+    def _refresh_flow_step_manage_tree(self, steps: list[str] | None = None) -> None:
+        if not hasattr(self, "flow_step_manage_tree"):
+            return
+        self.flow_step_manage_tree.clear()
+        for step in steps or []:
+            self.flow_step_manage_tree.addTopLevelItem(QTreeWidgetItem([step]))
+
+    def _on_flow_selected(self, name: str) -> None:
+        self.current_flow_name = name or None
+        if not self.flow_running:
+            self.flow_step_index = 0
+            self.flow_current_step = "-"
+            self.flow_status = "空闲"
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+
+    def _on_manage_flow_selected(self) -> None:
+        items = self.flow_manage_tree.selectedItems()
+        if not items:
+            return
+        flow_name = items[0].text(0)
+        if flow_name not in self.service.flows:
+            return
+        self.current_flow_manage_name = flow_name
+        self._load_flow_into_manage_form(self.service.get_flow(flow_name))
+
+    def _load_flow_into_manage_form(self, flow) -> None:
+        self.flow_manage_name_edit.setText(flow.name)
+        self._refresh_flow_step_manage_tree(list(flow.steps))
+
+    def _new_flow(self) -> None:
+        self.current_flow_manage_name = None
+        if hasattr(self, "flow_manage_name_edit"):
+            self.flow_manage_name_edit.setText("")
+        self._refresh_flow_step_manage_tree([])
+        self.status_label.setText("已创建空白流程。")
+        self._append_log("后台", "新增流程", "成功", "已创建空白流程")
+
+    def _collect_flow_steps(self) -> list[str]:
+        steps: list[str] = []
+        for index in range(self.flow_step_manage_tree.topLevelItemCount()):
+            item = self.flow_step_manage_tree.topLevelItem(index)
+            steps.append(item.text(0))
+        return steps
+
+    def _add_flow_step(self) -> None:
+        items = self.flow_available_tree.selectedItems()
+        if not items:
+            QMessageBox.warning(self, "未选择模板", "请先从可选模板中选择一个步骤模板。")
+            return
+        step_name = items[0].text(0)
+        self.flow_step_manage_tree.addTopLevelItem(QTreeWidgetItem([step_name]))
+        self._append_log("后台", "添加流程步骤", "成功", step_name)
+
+    def _remove_flow_step(self) -> None:
+        item = self.flow_step_manage_tree.currentItem()
+        if item is None:
+            QMessageBox.warning(self, "未选择步骤", "请先选择要移除的流程步骤。")
+            return
+        index = self.flow_step_manage_tree.indexOfTopLevelItem(item)
+        self.flow_step_manage_tree.takeTopLevelItem(index)
+        self._append_log("后台", "移除流程步骤", "成功", item.text(0))
+
+    def _move_flow_step_up(self) -> None:
+        item = self.flow_step_manage_tree.currentItem()
+        if item is None:
+            return
+        index = self.flow_step_manage_tree.indexOfTopLevelItem(item)
+        if index <= 0:
+            return
+        self.flow_step_manage_tree.takeTopLevelItem(index)
+        self.flow_step_manage_tree.insertTopLevelItem(index - 1, item)
+        self.flow_step_manage_tree.setCurrentItem(item)
+
+    def _move_flow_step_down(self) -> None:
+        item = self.flow_step_manage_tree.currentItem()
+        if item is None:
+            return
+        index = self.flow_step_manage_tree.indexOfTopLevelItem(item)
+        if index < 0 or index >= self.flow_step_manage_tree.topLevelItemCount() - 1:
+            return
+        self.flow_step_manage_tree.takeTopLevelItem(index)
+        self.flow_step_manage_tree.insertTopLevelItem(index + 1, item)
+        self.flow_step_manage_tree.setCurrentItem(item)
+
+    def _save_flow(self) -> None:
+        flow_name = self.flow_manage_name_edit.text().strip()
+        steps = self._collect_flow_steps()
+        if not flow_name:
+            QMessageBox.warning(self, "保存失败", "流程名称不能为空。")
+            self._append_log("后台", "保存流程", "失败", "流程名称不能为空")
+            return
+        if not steps:
+            QMessageBox.warning(self, "保存失败", "流程至少需要一个步骤。")
+            self._append_log("后台", "保存流程", "失败", "流程至少需要一个步骤")
+            return
+        missing = [step for step in steps if step not in self.table]
+        if missing:
+            detail = f"存在未定义模板: {', '.join(missing)}"
+            QMessageBox.warning(self, "保存失败", detail)
+            self._append_log("后台", "保存流程", "失败", detail)
+            return
+        flow = self.service.get_flow(self.current_flow_manage_name) if self.current_flow_manage_name and self.current_flow_manage_name in self.service.flows else None
+        if flow and self.current_flow_manage_name != flow_name:
+            self.service.delete_flow(self.current_flow_manage_name)
+        from .models import FlowDefinition
+        new_flow = FlowDefinition(name=flow_name, steps=tuple(steps))
+        self.service.save_flow(new_flow)
+        self.current_flow_manage_name = flow_name
+        self.current_flow_name = flow_name if self.current_flow_name in {None, "", flow_name} else self.current_flow_name
+        self._refresh_flow_combo()
+        self._refresh_flow_manage_tree()
+        self.status_label.setText(f"已保存流程: {flow_name}")
+        self._append_log("后台", "保存流程", "成功", f"{flow_name} | {len(steps)} 步")
+
+    def _delete_flow(self) -> None:
+        flow_name = self.flow_manage_name_edit.text().strip()
+        if not flow_name:
+            QMessageBox.warning(self, "删除失败", "当前没有选中的流程。")
+            self._append_log("后台", "删除流程", "失败", "当前没有选中的流程")
+            return
+        if flow_name not in self.service.flows:
+            QMessageBox.warning(self, "删除失败", f"流程不存在: {flow_name}")
+            self._append_log("后台", "删除流程", "失败", f"流程不存在: {flow_name}")
+            return
+        self.service.delete_flow(flow_name)
+        if self.current_flow_name == flow_name:
+            self.current_flow_name = None
+            self.flow_step_index = 0
+            self.flow_status = "空闲"
+            self.flow_current_step = "-"
+        self.current_flow_manage_name = None
+        self._new_flow()
+        self._refresh_flow_combo()
+        self._refresh_flow_manage_tree()
+        self.status_label.setText(f"已删除流程: {flow_name}")
+        self._append_log("后台", "删除流程", "成功", flow_name)
+
+    def _refresh_flow_steps(self) -> None:
+        if not hasattr(self, "flow_step_tree"):
+            return
+        self.flow_step_tree.clear()
+        if not self.current_flow_name or self.current_flow_name not in self.service.flows:
+            return
+        flow = self.service.get_flow(self.current_flow_name)
+        for index, step in enumerate(flow.steps):
+            step_state = "待执行"
+            if index < self.flow_step_index:
+                step_state = "已完成"
+            elif index == self.flow_step_index:
+                if self.flow_running:
+                    step_state = "执行中"
+                elif self.flow_status == "失败":
+                    step_state = "失败"
+                elif self.flow_status == "已停止":
+                    step_state = "已停止"
+            item = QTreeWidgetItem([step, step_state])
+            self.flow_step_tree.addTopLevelItem(item)
+            if index == self.flow_step_index:
+                self.flow_step_tree.setCurrentItem(item)
+
+    def _refresh_flow_status_panel(self) -> None:
+        if not hasattr(self, "flow_name_label"):
+            return
+        if self.current_flow_name and self.current_flow_name in self.service.flows:
+            flow = self.service.get_flow(self.current_flow_name)
+            total = len(flow.steps)
+            current_step = min(self.flow_step_index + 1, total) if total else 0
+            if self.flow_step_index >= total and total:
+                current_step = total
+            self.flow_name_label.setText(flow.name)
+            self.flow_progress_label.setText(f"{current_step} / {total}")
+        else:
+            self.flow_name_label.setText("-")
+            self.flow_progress_label.setText("0 / 0")
+        self.flow_status_label.setText(self.flow_status)
+        self.flow_step_label.setText(self.flow_current_step)
 
     def _refresh_status_labels(self) -> None:
         self.robot_x_label.setText(self.robot_x)
@@ -1351,7 +1714,7 @@ class RobotQtWindow(QMainWindow):
             return
         self.table[record.query_key] = record
         save_query_table_json(self.json_path, self.table)
-        self.service = RobotModbusService(self.json_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self.current_key = record.query_key
         self._refresh_all()
         self.status_label.setText(f"已保存模板: {record.query_key}")
@@ -1383,7 +1746,7 @@ class RobotQtWindow(QMainWindow):
         )
         self.table[clone.query_key] = clone
         save_query_table_json(self.json_path, self.table)
-        self.service = RobotModbusService(self.json_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self.current_key = clone.query_key
         self._load_record_into_form(clone)
         self._refresh_all()
@@ -1402,7 +1765,7 @@ class RobotQtWindow(QMainWindow):
             return
         del self.table[key]
         save_query_table_json(self.json_path, self.table)
-        self.service = RobotModbusService(self.json_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self.current_key = None
         self._new_record()
         self._refresh_all()
@@ -1437,7 +1800,7 @@ class RobotQtWindow(QMainWindow):
         imported = load_query_table(file_path)
         self.table = imported
         save_query_table_json(self.json_path, self.table)
-        self.service = RobotModbusService(self.json_path)
+        self.service = RobotModbusService(self.json_path, flows_path=self.flows_path)
         self.current_key = None
         self._new_record()
         self._refresh_all()
@@ -1475,11 +1838,18 @@ class RobotQtWindow(QMainWindow):
             self._append_log("连接", "检测连接", "失败", str(exc))
 
     def _send_record(self, query_key: str) -> None:
+        if self.flow_running:
+            QMessageBox.warning(self, "流程运行中", "当前流程执行中，请先停止流程或等待流程完成。")
+            self._append_log("执行", f"发送指令 {query_key}", "失败", "流程执行中，拒绝手动执行")
+            return
+        self._execute_query_key(query_key)
+
+    def _execute_query_key(self, query_key: str) -> bool:
         host = self.host_edit.text().strip()
         if not host:
             QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
             self._append_log("执行", f"发送指令 {query_key}", "失败", "地址为空")
-            return
+            return False
         try:
             record = self.table[query_key]
             plan_records, plan_reason = self._build_execution_plan(record)
@@ -1502,11 +1872,19 @@ class RobotQtWindow(QMainWindow):
                             f"{plan_record.query_key} | {plan_record.description or '-'}",
                         )
                     feedback = self._execute_send_by_protocol(client, plan_record)
-                    self._after_send(plan_record, True, "", feedback)
+                    step_ok, step_error = self._evaluate_feedback_result(feedback)
+                    self._after_send(plan_record, step_ok, step_error, feedback)
+                    if not step_ok:
+                        raise RuntimeError(step_error)
             finally:
                 client.disconnect()
+            return True
         except Exception as exc:
-            self._after_send(locals().get("plan_record", self.table[query_key]), False, str(exc))
+            record = locals().get("plan_record", self.table.get(query_key))
+            if isinstance(record, QueryRecord):
+                if not self.history or self.history[0]["task"] != self.task_id:
+                    self._after_send(record, False, str(exc))
+            return False
 
     def _build_execution_plan(self, record: QueryRecord) -> tuple[list[QueryRecord], str]:
         safe_point, reason = self._select_safe_point_for_record(record)
@@ -1629,13 +2007,7 @@ class RobotQtWindow(QMainWindow):
                 self._format_write_request(exec_request),
             )
             read_request = self.service.build_standard_status_read()
-            values = client.read_vr(read_request)
-            self._append_log(
-                "寄存器",
-                f"读取标准反馈 {record.query_key}",
-                "成功",
-                f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
-            )
+            values = self._wait_for_execution_complete(client, read_request, record.query_key)
             return values
         _, command = self.service.build_fixed_command_from_key(record.query_key)
         payload_request = VrWriteRequest(start_vr=command.payload_start_vr, values=command.payload_values)
@@ -1724,6 +2096,10 @@ class RobotQtWindow(QMainWindow):
         self.status_label.setText(text)
 
     def _handle_system_action(self, action_key: str) -> None:
+        if self.flow_running:
+            QMessageBox.warning(self, "流程运行中", "流程执行中不允许发送系统按钮命令。")
+            self._append_log("系统", action_key, "失败", "流程执行中")
+            return
         if self.protocol_combo.currentText() != "最终标准协议":
             self._apply_legacy_system_action(action_key)
             self._append_log("系统", action_key, "成功", "简化协议页面动作")
@@ -2031,6 +2407,195 @@ class RobotQtWindow(QMainWindow):
                 return
 
         raise RuntimeError(f"镜像区连续 {MIRROR_RETRY_COUNT} 次比对不一致，判定通讯故障。")
+
+    def _wait_for_execution_complete(
+        self,
+        client: ZMotionVrClient,
+        read_request: VrReadRequest,
+        query_key: str,
+    ) -> list[float]:
+        self._append_log(
+            "执行",
+            f"等待执行完成 {query_key}",
+            "成功",
+            f"轮询 {self._format_read_request(read_request.start_vr, read_request.count)}，最多 {EXECUTION_RETRY_COUNT} 次",
+        )
+        last_values: list[float] = []
+        for attempt in range(1, EXECUTION_RETRY_COUNT + 1):
+            values = client.read_vr(read_request)
+            last_values = values
+            status = self.service.parse_standard_status(values)
+            self._append_log(
+                "寄存器",
+                f"轮询执行状态 {query_key}",
+                "成功",
+                f"第 {attempt} 次 {self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
+            )
+            if status.status != 1:
+                self._append_log(
+                    "执行",
+                    f"执行完成确认 {query_key}",
+                    "成功" if status.result == 0 else "失败",
+                    f"STATUS={status.status}, RESULT={status.result}, ALM={status.alm_code}",
+                )
+                self._append_log(
+                    "寄存器",
+                    f"读取标准反馈 {query_key}",
+                    "成功",
+                    f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
+                )
+                return values
+            time.sleep(EXECUTION_RETRY_INTERVAL_SEC)
+        raise RuntimeError(
+            f"等待执行完成超时: {query_key} 在 {EXECUTION_RETRY_COUNT * EXECUTION_RETRY_INTERVAL_SEC:.1f}s 内未结束，最后反馈 {last_values}"
+        )
+
+    def _evaluate_feedback_result(self, feedback: list[float] | None) -> tuple[bool, str]:
+        if not feedback:
+            return True, ""
+        if self.protocol_combo.currentText() == "最终标准协议" and len(feedback) >= 10:
+            status = self.service.parse_standard_status(feedback)
+            if status.result == 0:
+                return True, ""
+            detail = f"控制器执行失败: RESULT={status.result}, ALM={status.alm_code}"
+            return False, detail
+        try:
+            result_code = int(feedback[0])
+        except (ValueError, TypeError, IndexError):
+            return True, ""
+        if result_code == 0:
+            return True, ""
+        return False, f"控制器执行失败: RESULT={result_code}"
+
+    def _start_flow(self) -> None:
+        if self.flow_running:
+            QMessageBox.information(self, "流程已运行", "当前流程正在执行。")
+            return
+        flow = self._current_flow_definition()
+        if flow is None:
+            QMessageBox.warning(self, "未选择流程", "请先选择一个流程。")
+            return
+        if not flow.steps:
+            QMessageBox.warning(self, "空流程", "当前流程没有任何步骤。")
+            return
+        if self.flow_step_index >= len(flow.steps):
+            self.flow_step_index = 0
+        self.flow_running = True
+        self.flow_status = "运行中"
+        self.flow_current_step = "-"
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        self._append_log("流程", f"开始流程 {flow.name}", "成功", f"共 {len(flow.steps)} 步")
+        QTimer.singleShot(0, self._run_next_flow_step)
+
+    def _step_flow(self) -> None:
+        if self.flow_running:
+            QMessageBox.information(self, "流程已运行", "当前流程正在执行。")
+            return
+        flow = self._current_flow_definition()
+        if flow is None:
+            QMessageBox.warning(self, "未选择流程", "请先选择一个流程。")
+            return
+        if not flow.steps:
+            QMessageBox.warning(self, "空流程", "当前流程没有任何步骤。")
+            return
+        if self.flow_step_index >= len(flow.steps):
+            self.flow_step_index = 0
+        self.flow_status = "单步执行"
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        self._run_current_flow_step(auto_continue=False)
+
+    def _stop_flow(self) -> None:
+        if not self.flow_running:
+            return
+        self.flow_running = False
+        self.flow_status = "已停止"
+        self.flow_current_step = "-"
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        if self.current_flow_name:
+            self._append_log("流程", f"停止流程 {self.current_flow_name}", "成功", f"停止于第 {self.flow_step_index + 1} 步")
+
+    def _reset_flow(self) -> None:
+        if self.flow_running:
+            self.flow_running = False
+        self.flow_step_index = 0
+        self.flow_status = "空闲"
+        self.flow_current_step = "-"
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        if self.current_flow_name:
+            self._append_log("流程", f"重置流程 {self.current_flow_name}", "成功", "流程已重置到第 1 步")
+
+    def _run_next_flow_step(self) -> None:
+        if not self.flow_running:
+            return
+        self._run_current_flow_step(auto_continue=True)
+
+    def _run_current_flow_step(self, *, auto_continue: bool) -> None:
+        flow = self._current_flow_definition()
+        if flow is None:
+            self.flow_running = False
+            self.flow_status = "失败"
+            self._refresh_flow_status_panel()
+            return
+        if self.flow_step_index >= len(flow.steps):
+            self.flow_running = False
+            self.flow_status = "完成"
+            self.flow_current_step = "-"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+            return
+
+        step_name = flow.steps[self.flow_step_index]
+        self.flow_current_step = step_name
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        self._append_log("流程", f"流程第{self.flow_step_index + 1}步开始", "成功", step_name)
+
+        if step_name not in self.table:
+            self.flow_running = False
+            self.flow_status = "失败"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", f"模板不存在: {step_name}")
+            return
+
+        ok = self._execute_query_key(step_name)
+        if not ok:
+            self.flow_running = False
+            self.flow_status = "失败"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", step_name)
+            return
+
+        self._append_log("流程", f"流程第{self.flow_step_index + 1}步成功", "成功", step_name)
+        self.flow_step_index += 1
+        if self.flow_step_index >= len(flow.steps):
+            self.flow_running = False
+            self.flow_status = "完成"
+            self.flow_current_step = "-"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+            return
+
+        self.flow_status = "运行中" if auto_continue else "空闲"
+        self.flow_current_step = flow.steps[self.flow_step_index]
+        self._refresh_flow_steps()
+        self._refresh_flow_status_panel()
+        if auto_continue and self.flow_running:
+            QTimer.singleShot(0, self._run_next_flow_step)
+
+    def _current_flow_definition(self):
+        if not self.current_flow_name:
+            return None
+        if self.current_flow_name not in self.service.flows:
+            return None
+        return self.service.get_flow(self.current_flow_name)
 
     @staticmethod
     def _values_equal(left: tuple[float, ...], right: tuple[float, ...], tolerance: float = 1e-6) -> bool:
