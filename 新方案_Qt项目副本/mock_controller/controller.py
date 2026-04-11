@@ -44,6 +44,9 @@ class MockController:
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
         self._exec_thread: threading.Thread | None = None
+        self._x_range = X_RANGE
+        self._y_range = Y_RANGE
+        self._z_range = Z_RANGE
         self._set_status(STATUS_IDLE)
         self._set_result(RESULT_OK)
         self._set_alarm(ALM_NORMAL)
@@ -52,6 +55,21 @@ class MockController:
 
     def set_on_command(self, callback: Callable[[int, dict[str, float]], None]) -> None:
         self._on_command = callback
+
+    def set_axis_ranges(
+        self,
+        *,
+        x_range: tuple[float, float] | None = None,
+        y_range: tuple[float, float] | None = None,
+        z_range: tuple[float, float] | None = None,
+    ) -> None:
+        with self._lock:
+            if x_range is not None:
+                self._x_range = (float(x_range[0]), float(x_range[1]))
+            if y_range is not None:
+                self._y_range = (float(y_range[0]), float(y_range[1]))
+            if z_range is not None:
+                self._z_range = (float(z_range[0]), float(z_range[1]))
 
     def write_vr(self, start: int, values: list[float] | tuple[float, ...]) -> None:
         should_dispatch = False
@@ -180,15 +198,15 @@ class MockController:
 
             if cmd_code == CMD.MOVE_ABS:
                 x, y, z = fields.get("POS_X", 0), fields.get("POS_Y", 0), fields.get("POS_Z", 0)
-                if not (X_RANGE[0] <= x <= X_RANGE[1]):
+                if not (self._x_range[0] <= x <= self._x_range[1]):
                     self._set_alarm(ALM_OUT_OF_RANGE)
-                    raise ValidationError(f"X={x} 超出范围 {X_RANGE}")
-                if not (Y_RANGE[0] <= y <= Y_RANGE[1]):
+                    raise ValidationError(f"X={x} 超出范围 {self._x_range}")
+                if not (self._y_range[0] <= y <= self._y_range[1]):
                     self._set_alarm(ALM_OUT_OF_RANGE)
-                    raise ValidationError(f"Y={y} 超出范围 {Y_RANGE}")
-                if not (Z_RANGE[0] <= z <= Z_RANGE[1]):
+                    raise ValidationError(f"Y={y} 超出范围 {self._y_range}")
+                if not (self._z_range[0] <= z <= self._z_range[1]):
                     self._set_alarm(ALM_OUT_OF_RANGE)
-                    raise ValidationError(f"Z={z} 超出范围 {Z_RANGE}")
+                    raise ValidationError(f"Z={z} 超出范围 {self._z_range}")
 
     def _do_move_abs(self, fields: dict[str, float]) -> None:
         target_x = fields.get("POS_X", 0)

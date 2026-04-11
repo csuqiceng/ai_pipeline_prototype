@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Any
 
 from .controller import MockController
@@ -23,6 +22,13 @@ class MockZMotionVrClient:
         self._ctrl = _get_controller()
         self.connected = False
         self._connect_delay = float(kw.get("connect_delay", 0.05))
+        axis_ranges = kw.get("axis_ranges")
+        if axis_ranges:
+            self._ctrl.set_axis_ranges(
+                x_range=axis_ranges.get("x"),
+                y_range=axis_ranges.get("y"),
+                z_range=axis_ranges.get("z"),
+            )
 
     def connect(self) -> None:
         time.sleep(self._connect_delay)

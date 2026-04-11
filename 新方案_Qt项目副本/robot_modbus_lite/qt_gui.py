@@ -2423,7 +2423,7 @@ class RobotQtWindow(QMainWindow):
 
     def _make_client(self, host: str):
         if self.controller_combo.currentText() == "模拟控制器":
-            return MockZMotionVrClient(host=host)
+            return MockZMotionVrClient(host=host, axis_ranges=self.axis_ranges.to_dict())
         return self._client_factory(host, self.resource_root)
 
     def _start_realtime_polling(self) -> None:
@@ -2766,7 +2766,7 @@ def _runtime_dir() -> Path:
 
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[1]
 
 
 def _resource_dir() -> Path:

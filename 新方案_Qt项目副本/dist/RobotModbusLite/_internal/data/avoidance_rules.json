@@ -1,0 +1,23 @@
+{
+  "mode": "off",
+  "rx_threshold": 30.0,
+  "ry_threshold": 30.0,
+  "rz_threshold": 45.0,
+  "low_z_threshold": 150.0,
+  "xy_move_threshold": 100.0,
+  "safe_points": {
+    "SAFE_POINT": {
+      "name": "SAFE_POINT",
+      "x": 0.0,
+      "y": 0.0,
+      "z": 200.0,
+      "rx": 0.0,
+      "ry": 0.0,
+      "rz": 0.0,
+      "speed_percent": 20.0,
+      "acc_percent": 20.0,
+      "description": "通用安全中间点"
+    }
+  },
+  "rules": []
+}

@@ -1,5 +1,5 @@
 {
-  "mode": "off",
+  "mode": "always",
   "rx_threshold": 30.0,
   "ry_threshold": 30.0,
   "rz_threshold": 45.0,
