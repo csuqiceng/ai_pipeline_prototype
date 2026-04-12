@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>双车床机械手自然语言编程控制系统 - 原型</title>
+  <style>
+    :root {
+      --bg: #28dce2;
+      --panel: rgba(255, 255, 255, 0.3);
+      --panel-strong: #d8d8d8;
+      --line: #333;
+      --text: #111;
+      --btn: #ececec;
+      --btn-shadow: #666;
+      --ok: #35df45;
+      --warn: #ffe15a;
+      --danger: #ef5353;
+      --nav: #cfcfcf;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei UI", "SimHei", sans-serif;
+    }
+
+    .app {
+      width: 1320px;
+      min-height: 820px;
+      margin: 0 auto;
+      border: 2px solid #222;
+      display: grid;
+      grid-template-rows: 82px 1fr 42px;
+      background: var(--bg);
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: 180px 1fr 240px;
+      align-items: center;
+      padding: 6px 14px;
+      border-bottom: 2px solid #222;
+    }
+
+    .brand {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .header-status {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .badge {
+      padding: 10px 8px;
+      text-align: center;
+      background: #fff0a8;
+      border: 2px solid #333;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 100px 1fr 170px;
+      min-height: 0;
+    }
+
+    .nav {
+      border-right: 2px solid #222;
+      background: var(--nav);
+      display: grid;
+      grid-template-rows: repeat(5, 100px);
+    }
+
+    .nav button {
+      border: 0;
+      border-bottom: 2px solid #888;
+      background: transparent;
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    .nav button.active {
+      background: #45edf1;
+      font-weight: 700;
+    }
+
+    .pages {
+      padding: 14px;
+      overflow: auto;
+    }
+
+    .page {
+      display: none;
+      gap: 14px;
+    }
+
+    .page.active {
+      display: grid;
+    }
+
+    .command-bar {
+      display: grid;
+      grid-template-columns: 1fr 120px 120px 120px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .input-box,
+    .card,
+    .table-card,
+    .panel {
+      background: var(--panel);
+      border: 2px solid var(--line);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+    }
+
+    .input-box {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 24px;
+      background: #f4ffff;
+    }
+
+    .op-btn,
+    .right-btn,
+    .mini-btn {
+      background: var(--btn);
+      border: 2px solid #333;
+      border-radius: 12px;
+      box-shadow: 4px 4px 0 var(--btn-shadow);
+      cursor: pointer;
+    }
+
+    .op-btn {
+      min-height: 58px;
+      font-size: 24px;
+    }
+
+    .mini-btn {
+      min-height: 46px;
+      font-size: 20px;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    .bottom-grid,
+    .monitor-grid,
+    .alarm-grid,
+    .config-grid,
+    .backend-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .bottom-grid {
+      grid-template-columns: 1.4fr 1fr;
+    }
+
+    .monitor-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .alarm-grid {
+      grid-template-columns: 0.9fr 1.1fr;
+    }
+
+    .config-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .backend-grid {
+      grid-template-columns: 360px 1fr;
+    }
+
+    .card,
+    .table-card,
+    .panel {
+      padding: 12px;
+    }
+
+    .card h3,
+    .table-card h3,
+    .panel h3 {
+      margin: 0 0 10px;
+      text-align: center;
+      font-size: 24px;
+    }
+
+    .list {
+      display: grid;
+      gap: 8px;
+      font-size: 22px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.35);
+      border: 1px solid #666;
+    }
+
+    .value {
+      font-weight: 700;
+    }
+
+    .ok {
+      color: #117f18;
+    }
+
+    .warn {
+      color: #996b00;
+    }
+
+    .danger {
+      color: #a40000;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 19px;
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    th,
+    td {
+      border: 1px solid #555;
+      padding: 8px 10px;
+      text-align: center;
+    }
+
+    th {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .chip {
+      min-width: 150px;
+      padding: 12px;
+      font-size: 21px;
+      text-align: center;
+      border: 2px solid #333;
+      background: #fff;
+    }
+
+    .chip.green {
+      background: var(--ok);
+    }
+
+    .chip.red {
+      background: #ff7a7a;
+    }
+
+    .chip.yellow {
+      background: var(--warn);
+    }
+
+    .right-panel {
+      border-left: 2px solid #222;
+      padding: 14px 12px;
+      display: grid;
+      grid-template-rows: repeat(7, 78px) 1fr;
+      gap: 12px;
+    }
+
+    .right-btn {
+      width: 100%;
+      min-height: 74px;
+      font-size: 28px;
+    }
+
+    .right-btn.danger {
+      background: #ff6060;
+      color: #fff;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 200px;
+      align-items: center;
+      padding: 0 12px;
+      border-top: 2px solid #222;
+      font-size: 24px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    .right {
+      text-align: right;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr 140px 1fr;
+      gap: 10px 12px;
+      align-items: center;
+      font-size: 20px;
+    }
+
+    .field {
+      min-height: 44px;
+      padding: 8px 12px;
+      border: 1px solid #555;
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .tree {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tree-item {
+      padding: 10px 12px;
+      border: 1px solid #666;
+      background: rgba(255, 255, 255, 0.45);
+      font-size: 20px;
+    }
+
+    .tree-item.active {
+      border: 3px solid #c40000;
+      background: rgba(255, 255, 255, 0.9);
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        双车床机械手<br />
+        自然语言控制
+      </div>
+      <div class="title">双车床机械手自然语言编程控制系统</div>
+      <div class="header-status">
+        <div class="badge">控制器已连接</div>
+        <div class="badge">自动模式</div>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="nav">
+        <button class="active" data-page="run">运行</button>
+        <button data-page="monitor">监控</button>
+        <button data-page="alarm">报警</button>
+        <button data-page="config">配置</button>
+        <button data-page="backend">后台</button>
+      </aside>
+
+      <section class="pages">
+        <div class="page active" id="page-run">
+          <div class="command-bar">
+            <div class="input-box">绝对移动到机床1取料位，速度30%，姿态 RX=0 RY=0 RZ=0</div>
+            <button class="op-btn">解析</button>
+            <button class="op-btn">执行</button>
+            <button class="op-btn">清空</button>
+          </div>
+
+          <div class="status-grid">
+            <div class="card">
+              <h3>机械手状态</h3>
+              <div class="list">
+                <div class="row"><span>X</span><span class="value">1250.0</span></div>
+                <div class="row"><span>Y</span><span class="value">-22.0</span></div>
+                <div class="row"><span>Z</span><span class="value">1488.0</span></div>
+                <div class="row"><span>RX / RY / RZ</span><span class="value">0.0 / 0.0 / 90.0</span></div>
+                <div class="row"><span>速度 / 加速度</span><span class="value">30% / 40%</span></div>
+                <div class="row"><span>运行状态</span><span class="value ok">运行中</span></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>机床1状态</h3>
+              <div class="list">
+                <div class="row"><span>门状态</span><span class="value ok">已关闭</span></div>
+                <div class="row"><span>卡盘状态</span><span class="value ok">夹紧</span></div>
+                <div class="row"><span>加工状态</span><span class="value warn">等待取料</span></div>
+                <div class="row"><span>允许进入</span><span class="value ok">允许</span></div>
+                <div class="row"><span>安全等级</span><span class="value">5 星</span></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>机床2 / 夹爪状态</h3>
+              <div class="list">
+                <div class="row"><span>机床2门</span><span class="value ok">已关闭</span></div>
+                <div class="row"><span>机床2卡盘</span><span class="value">松开</span></div>
+                <div class="row"><span>夹爪1</span><span class="value ok">夹紧 / 有料</span></div>
+                <div class="row"><span>夹爪2</span><span class="value">张开 / 无料</span></div>
+                <div class="row"><span>急停</span><span class="value ok">未触发</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bottom-grid">
+            <div class="table-card">
+              <h3>当前任务 / 指令历史</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>任务ID</th>
+                    <th>指令</th>
+                    <th>目标</th>
+                    <th>状态</th>
+                    <th>安全等级</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>1001</td><td>MOVE_ABS</td><td>机床1取料位</td><td>执行中</td><td>5</td></tr>
+                  <tr><td>1000</td><td>MOVE_SAFE</td><td>安全点</td><td>完成</td><td>5</td></tr>
+                  <tr><td>999</td><td>CLAW_GRIP</td><td>夹爪1</td><td>完成</td><td>5</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="panel">
+              <h3>安全与报警摘要</h3>
+              <div class="chip-row">
+                <div class="chip green">控制器已连接</div>
+                <div class="chip green">伺服已就绪</div>
+                <div class="chip yellow">调试限速 30%</div>
+              </div>
+              <div class="chip-row">
+                <div class="chip green">机床1可取料</div>
+                <div class="chip red">机床2禁止进入</div>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>报警码</th><th>说明</th><th>级别</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>ERR_000</td><td>系统正常</td><td>提示</td></tr>
+                  <tr><td>WARN_102</td><td>当前为调试限速模式</td><td>警告</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="page" id="page-monitor">
+          <div class="monitor-grid">
+            <div class="card">
+              <h3>机械手实时坐标监控</h3>
+              <div class="list">
+                <div class="row"><span>X</span><span class="value">1250.0 mm</span></div>
+                <div class="row"><span>Y</span><span class="value">-22.0 mm</span></div>
+                <div class="row"><span>Z</span><span class="value">1488.0 mm</span></div>
+                <div class="row"><span>RX</span><span class="value">0.0°</span></div>
+                <div class="row"><span>RY</span><span class="value">0.0°</span></div>
+                <div class="row"><span>RZ</span><span class="value">90.0°</span></div>
+                <div class="row"><span>当前速度</span><span class="value">30%</span></div>
+                <div class="row"><span>当前加速度</span><span class="value">40%</span></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>控制器与伺服状态</h3>
+              <div class="list">
+                <div class="row"><span>控制器连接</span><span class="value ok">正常</span></div>
+                <div class="row"><span>VR通信</span><span class="value ok">正常</span></div>
+                <div class="row"><span>忙闲状态</span><span class="value warn">运行中</span></div>
+                <div class="row"><span>任务ID回传</span><span class="value">1001</span></div>
+                <div class="row"><span>执行结果</span><span class="value ok">0</span></div>
+                <div class="row"><span>伺服就绪</span><span class="value ok">是</span></div>
+                <div class="row"><span>限位状态</span><span class="value ok">正常</span></div>
+                <div class="row"><span>急停状态</span><span class="value ok">未触发</span></div>
+              </div>
+            </div>
+
+            <div class="table-card">
+              <h3>双车床 IO 状态</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>设备</th>
+                    <th>门状态</th>
+                    <th>卡盘状态</th>
+                    <th>加工状态</th>
+                    <th>允许机械手进入</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>机床1</td><td>关闭</td><td>夹紧</td><td>等待上下料</td><td>允许</td></tr>
+                  <tr><td>机床2</td><td>关闭</td><td>松开</td><td>加工中</td><td>禁止</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="table-card">
+              <h3>夹爪 / 传感器状态</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>对象</th>
+                    <th>夹紧/张开</th>
+                    <th>料检</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>夹爪1</td><td>夹紧</td><td>有料</td><td>待放料</td></tr>
+                  <tr><td>夹爪2</td><td>张开</td><td>无料</td><td>可取料</td></tr>
+                  <tr><td>安全光栅</td><td>-</td><td>正常</td><td>未遮挡</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="page" id="page-alarm">
+          <div class="alarm-grid">
+            <div class="card">
+              <h3>报警等级总览</h3>
+              <div class="chip-row">
+                <div class="chip green">提示 1</div>
+                <div class="chip yellow">警告 2</div>
+                <div class="chip red">错误 0</div>
+              </div>
+              <div class="chip-row">
+                <div class="chip red">紧急 0</div>
+                <div class="chip green">安全等级 5 星</div>
+              </div>
+              <div class="list">
+                <div class="row"><span>当前报警码</span><span class="value ok">ERR_000</span></div>
+                <div class="row"><span>当前说明</span><span class="value">系统正常</span></div>
+                <div class="row"><span>上次警告</span><span class="value warn">WARN_102</span></div>
+                <div class="row"><span>应急状态</span><span class="value ok">未触发</span></div>
+              </div>
+            </div>
+
+            <div class="table-card">
+              <h3>报警日志</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>级别</th>
+                    <th>报警码</th>
+                    <th>说明</th>
+                    <th>处理状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>14:30:21</td><td>提示</td><td>ERR_000</td><td>系统正常</td><td>已确认</td></tr>
+                  <tr><td>14:28:04</td><td>警告</td><td>WARN_102</td><td>当前为调试限速模式</td><td>已确认</td></tr>
+                  <tr><td>14:20:11</td><td>提示</td><td>INFO_008</td><td>机床1允许进入</td><td>已确认</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="panel">
+              <h3>报警处理建议</h3>
+              <div class="list">
+                <div class="row"><span>提示级</span><span class="value">仅记录日志</span></div>
+                <div class="row"><span>警告级</span><span class="value warn">弹窗提醒，允许继续</span></div>
+                <div class="row"><span>错误级</span><span class="value danger">暂停当前任务</span></div>
+                <div class="row"><span>紧急级</span><span class="value danger">STOPALL + 锁定系统</span></div>
+              </div>
+              <div class="toolbar">
+                <button class="mini-btn">确认报警</button>
+                <button class="mini-btn">导出日志</button>
+                <button class="mini-btn">清空已确认</button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>安全互锁状态</h3>
+              <div class="list">
+                <div class="row"><span>门关确认</span><span class="value ok">已满足</span></div>
+                <div class="row"><span>夹爪夹紧确认</span><span class="value ok">已满足</span></div>
+                <div class="row"><span>安全区域确认</span><span class="value ok">已满足</span></div>
+                <div class="row"><span>自动启动许可</span><span class="value ok">允许</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="page" id="page-config">
+          <div class="config-grid">
+            <div class="panel">
+              <h3>工位坐标配置</h3>
+              <div class="form-grid">
+                <div>工位编号</div><div class="field">2</div>
+                <div>工位名称</div><div class="field">机床1取料位</div>
+                <div>X</div><div class="field">120.5</div>
+                <div>Y</div><div class="field">80.0</div>
+                <div>Z</div><div class="field">45.0</div>
+                <div>RX</div><div class="field">0.0</div>
+                <div>RY</div><div class="field">0.0</div>
+                <div>RZ</div><div class="field">90.0</div>
+                <div>速度%</div><div class="field">30</div>
+                <div>加速度%</div><div class="field">40</div>
+              </div>
+              <div class="toolbar">
+                <button class="mini-btn">读取当前位置</button>
+                <button class="mini-btn">保存工位</button>
+                <button class="mini-btn">加载工位</button>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>系统运行参数</h3>
+              <div class="form-grid">
+                <div>全局速度%</div><div class="field">60</div>
+                <div>全局加速度%</div><div class="field">50</div>
+                <div>调试限速%</div><div class="field">30</div>
+                <div>循环次数</div><div class="field">10</div>
+                <div>心跳周期</div><div class="field">500ms</div>
+                <div>刷新周期</div><div class="field">100ms</div>
+                <div>任务ID起始</div><div class="field">1000</div>
+                <div>安全等级阈值</div><div class="field">4</div>
+              </div>
+              <div class="toolbar">
+                <button class="mini-btn">保存参数</button>
+                <button class="mini-btn">恢复默认</button>
+              </div>
+            </div>
+
+            <div class="table-card">
+              <h3>工位列表</h3>
+              <table>
+                <thead>
+                  <tr><th>ID</th><th>名称</th><th>X/Y/Z</th><th>RX/RY/RZ</th><th>速度%</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>1</td><td>安全点</td><td>0 / 0 / 0</td><td>0 / 0 / 0</td><td>20</td></tr>
+                  <tr><td>2</td><td>机床1取料位</td><td>120.5 / 80 / 45</td><td>0 / 0 / 90</td><td>30</td></tr>
+                  <tr><td>3</td><td>机床2放料位</td><td>220 / 66 / 52</td><td>0 / 0 / 90</td><td>30</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="table-card">
+              <h3>JSON 配置预览</h3>
+              <table>
+                <thead>
+                  <tr><th>键</th><th>值</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>posId</td><td>2</td></tr>
+                  <tr><td>posName</td><td>机床1取料位</td></tr>
+                  <tr><td>x/y/z</td><td>120.5 / 80.0 / 45.0</td></tr>
+                  <tr><td>rx/ry/rz</td><td>0 / 0 / 90</td></tr>
+                  <tr><td>speedPercent</td><td>30</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="page" id="page-backend">
+          <div class="backend-grid">
+            <div class="panel">
+              <h3>指令 / 模板列表</h3>
+              <div class="tree">
+                <div class="tree-item active">MOVE_ABS - 绝对移动到 A 点</div>
+                <div class="tree-item">MOVE_SAFE - 回安全点</div>
+                <div class="tree-item">CLAW_GRIP - 夹爪1夹紧</div>
+                <div class="tree-item">LATHE_DOOR_OPEN - 机床1开门</div>
+                <div class="tree-item">5001 - 固定函数型无参数指令</div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>后台管理编辑区</h3>
+              <div class="form-grid">
+                <div>指令名称</div><div class="field">MOVE_ABS</div>
+                <div>指令码</div><div class="field">1001</div>
+                <div>自然语言关键词</div><div class="field">绝对移动,移动到,去往</div>
+                <div>是否有参数</div><div class="field">是</div>
+                <div>工位ID</div><div class="field">2</div>
+                <div>设备ID</div><div class="field">1</div>
+                <div>X</div><div class="field">120.5</div>
+                <div>Y</div><div class="field">80.0</div>
+                <div>Z</div><div class="field">45.0</div>
+                <div>RX</div><div class="field">0.0</div>
+                <div>RY</div><div class="field">0.0</div>
+                <div>RZ</div><div class="field">90.0</div>
+                <div>速度%</div><div class="field">30</div>
+                <div>加速度%</div><div class="field">40</div>
+                <div>扩展参数</div><div class="field">VR[10]~VR[15] 预留</div>
+                <div>描述</div><div class="field">绝对移动到机床1取料位</div>
+              </div>
+
+              <div class="toolbar">
+                <button class="mini-btn">新增指令</button>
+                <button class="mini-btn">保存修改</button>
+                <button class="mini-btn">删除指令</button>
+                <button class="mini-btn">导入 JSON</button>
+                <button class="mini-btn">导出 JSON</button>
+              </div>
+
+              <div class="table-card" style="margin-top: 14px;">
+                <h3>结构化 JSON 预览</h3>
+                <table>
+                  <thead>
+                    <tr><th>字段</th><th>内容</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>taskId</td><td>1001</td></tr>
+                    <tr><td>cmd</td><td>MOVE_ABS</td></tr>
+                    <tr><td>code</td><td>1001</td></tr>
+                    <tr><td>params</td><td>x,y,z,rx,ry,rz,speedPercent,accPercent,posId</td></tr>
+                    <tr><td>safetyLevel</td><td>5</td></tr>
+                    <tr><td>desc</td><td>绝对移动到机床1取料位</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="right-panel">
+        <button class="right-btn">上电</button>
+        <button class="right-btn">启动</button>
+        <button class="right-btn">停机</button>
+        <button class="right-btn">暂停</button>
+        <button class="right-btn">继续</button>
+        <button class="right-btn">复位</button>
+        <button class="right-btn danger">急停</button>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <div>Err_000 系统正常 | VR[0~19] 通信正常 | 当前任务 1001</div>
+      <div class="center">安全等级：★★★★★</div>
+      <div class="right">2026/04/08 14:30:21</div>
+    </footer>
+  </div>
+
+  <script>
+    const navButtons = document.querySelectorAll(".nav button");
+    const pages = document.querySelectorAll(".page");
+
+    navButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        navButtons.forEach((btn) => btn.classList.remove("active"));
+        pages.forEach((page) => page.classList.remove("active"));
+
+        button.classList.add("active");
+        const target = document.getElementById(`page-${button.dataset.page}`);
+        if (target) target.classList.add("active");
+      });
+    });
+  </script>
+</body>
+</html>

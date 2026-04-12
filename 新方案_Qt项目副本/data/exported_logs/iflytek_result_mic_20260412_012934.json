@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "error": "讯飞 IAT 麦克风调用失败: IatError: Failed to stream audio: IatError: Error Code: 10165, Message: invalid handle (Error Code: 10165) (Error Code: -1)"
+}
