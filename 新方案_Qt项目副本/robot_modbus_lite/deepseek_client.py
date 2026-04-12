@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,19 @@ def _load_local_env_file() -> None:
                 os.environ[key] = value
 
 
+_env_loaded = False
+
+
+def _ensure_env_loaded() -> None:
+    global _env_loaded
+    if not _env_loaded:
+        _load_local_env_file()
+        _env_loaded = True
+
+
 class DeepSeekClient:
     def __init__(self, api_key: str | None = None, base_url: str = "https://api.deepseek.com/v1/chat/completions"):
-        _load_local_env_file()
+        _ensure_env_loaded()
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
         if not self.api_key:
             raise ValueError("DeepSeek API key is required. Please set DEEPSEEK_API_KEY.")
@@ -55,11 +66,26 @@ class DeepSeekClient:
 
     def parse_json(self, prompt: str, model: str = "deepseek-chat") -> dict[str, Any] | None:
         response = self.generate(prompt, model=model)
-        start = response.find("{")
-        end = response.rfind("}")
-        if start < 0 or end < 0 or end <= start:
-            return None
-        try:
-            return json.loads(response[start : end + 1])
-        except json.JSONDecodeError:
-            return None
+        # Try markdown code block first (```json ... ```)
+        code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", response, re.DOTALL)
+        if code_block:
+            try:
+                return json.loads(code_block.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+        # Fallback: extract first top-level {...} with balanced braces
+        depth = 0
+        start = None
+        for i, ch in enumerate(response):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        return json.loads(response[start : i + 1])
+                    except json.JSONDecodeError:
+                        start = None
+        return None

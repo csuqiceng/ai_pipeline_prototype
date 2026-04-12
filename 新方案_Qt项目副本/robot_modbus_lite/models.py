@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -256,3 +257,13 @@ class FlowDefinition:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@runtime_checkable
+class ControllerClient(Protocol):
+    connected: bool
+
+    def connect(self) -> None: ...
+    def disconnect(self) -> None: ...
+    def write_vr(self, request: VrWriteRequest) -> None: ...
+    def read_vr(self, request: VrReadRequest) -> list[float]: ...

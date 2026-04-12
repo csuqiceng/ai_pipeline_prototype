@@ -127,6 +127,6 @@ class VoiceNlpAdapter:
             if candidate in self.flow_names:
                 return candidate
         for flow_name in self.flow_names:
-            if flow_name and flow_name in compact:
+            if flow_name and re.search(r"(执行|开始|运行)" + re.escape(flow_name), compact):
                 return flow_name
         return None

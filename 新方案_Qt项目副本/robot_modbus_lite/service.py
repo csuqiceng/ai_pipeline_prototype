@@ -60,13 +60,14 @@ class RobotModbusService:
         *,
         command_vr_start: int = 500,
         status_vr_start: int = 600,
+        table: dict[str, QueryRecord] | None = None,
     ) -> None:
         self.csv_path = Path(csv_path)
         self.start_register = start_register
         self.trigger_vr = command_vr_start
         self.command_vr_start = command_vr_start + 1
         self.status_vr_start = status_vr_start
-        self.table = load_query_table(self.csv_path)
+        self.table = table if table is not None else load_query_table(self.csv_path)
         self.flows_path = Path(flows_path) if flows_path else None
         self.flows = load_flows_json(self.flows_path) if self.flows_path else {}
         self.standard_command_vr_start = 0
@@ -75,6 +76,10 @@ class RobotModbusService:
         self.standard_ack_vr = 516
         self.standard_exec_vr = 517
         self.standard_monitor_vr_start = 700
+
+    def reload(self) -> None:
+        if self.flows_path:
+            self.flows = load_flows_json(self.flows_path)
 
     def parse(self, text: str) -> ParsedCommand:
         return parse_command(text, self.table)

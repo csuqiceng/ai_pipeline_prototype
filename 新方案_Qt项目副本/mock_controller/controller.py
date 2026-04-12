@@ -39,14 +39,20 @@ class ValidationError(Exception):
 
 
 class MockController:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        x_range: tuple[float, float] | None = None,
+        y_range: tuple[float, float] | None = None,
+        z_range: tuple[float, float] | None = None,
+    ) -> None:
         self._vr: list[float] = [0.0] * VR_TOTAL
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
         self._exec_thread: threading.Thread | None = None
-        self._x_range = X_RANGE
-        self._y_range = Y_RANGE
-        self._z_range = Z_RANGE
+        self._x_range = x_range if x_range is not None else X_RANGE
+        self._y_range = y_range if y_range is not None else Y_RANGE
+        self._z_range = z_range if z_range is not None else Z_RANGE
         self._set_status(STATUS_IDLE)
         self._set_result(RESULT_OK)
         self._set_alarm(ALM_NORMAL)
@@ -140,6 +146,10 @@ class MockController:
         self._exec_thread.start()
 
     def _execute_command(self, cmd_code: int, fields: dict[str, float]) -> None:
+        is_system_cmd = cmd_code in (
+            CMD.SYS_RESET, CMD.SYS_ESTOP, CMD.SYS_PAUSE, CMD.SYS_RESUME,
+            CMD.AUTO_START, CMD.AUTO_STOP, CMD.EMG_RESET,
+        )
         try:
             if cmd_code == CMD.MOVE_ABS:
                 self._do_move_abs(fields)
@@ -173,7 +183,7 @@ class MockController:
                 self._set_result(RESULT_FAIL)
         finally:
             with self._lock:
-                if self._vr[VR_OFFSET["STATUS"].index] == STATUS_RUNNING:
+                if not is_system_cmd and self._vr[VR_OFFSET["STATUS"].index] == STATUS_RUNNING:
                     self._set_status(STATUS_IDLE)
                 self._vr[VR_OFFSET["CMD_CODE"].index] = 0.0
                 self._vr[EXEC_TRIGGER_VR] = 0.0
