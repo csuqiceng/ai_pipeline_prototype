@@ -157,6 +157,7 @@ class RobotQtWindow(QMainWindow):
         self._client_cache_lock = threading.Lock()
         self.nlp_last_plan: VoiceNlpPlan | None = None
         self.nlp_sequence_running = False
+        self.nlp_parse_running = False
         self._nlp_pending_actions: list[VoiceNlpAction] = []
         self._nlp_pending_index = 0
         self._flow_done_callback: Callable[[bool], None] | None = None
@@ -173,6 +174,59 @@ class RobotQtWindow(QMainWindow):
         self._refresh_all()
         self._check_connection()
         self._start_realtime_polling()
+
+    def _build_message_box(self, icon: QMessageBox.Icon, title: str, text: str) -> QMessageBox:
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok)
+        box.setDefaultButton(QMessageBox.Ok)
+        box.setMinimumWidth(0)
+        box.setSizeGripEnabled(False)
+        box.setStyleSheet(
+            """
+            QMessageBox {
+                background-color: #d9f4f7;
+            }
+            QMessageBox QLabel {
+                color: #102a43;
+                font-size: 13px;
+                min-width: 0px;
+                padding: 2px 0px;
+            }
+            QMessageBox QPushButton {
+                min-width: 76px;
+                min-height: 30px;
+                padding: 2px 10px;
+                border: 2px solid #23313f;
+                border-radius: 6px;
+                background-color: #f3f5f7;
+                color: #111827;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QMessageBox QPushButton:hover {
+                background-color: #e7edf2;
+            }
+            QMessageBox QPushButton:pressed {
+                background-color: #d6e1ea;
+            }
+            """
+        )
+        button = box.button(QMessageBox.Ok)
+        if button is not None:
+            button.setText("确定")
+        return box
+
+    def _show_warning(self, title: str, text: str) -> None:
+        self._build_message_box(QMessageBox.Warning, title, text).exec()
+
+    def _show_info(self, title: str, text: str) -> None:
+        self._build_message_box(QMessageBox.Information, title, text).exec()
+
+    def _show_critical(self, title: str, text: str) -> None:
+        self._build_message_box(QMessageBox.Critical, title, text).exec()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -454,23 +508,23 @@ class RobotQtWindow(QMainWindow):
         self.nlp_input_edit.setMinimumHeight(110)
         nlp_left_layout.addWidget(self.nlp_input_edit)
         nlp_btn_layout = QHBoxLayout()
-        parse_btn = QPushButton("解析文本")
-        parse_btn.clicked.connect(self._parse_nlp_text)
-        parse_btn.setFixedWidth(120)
-        execute_btn = QPushButton("执行")
-        execute_btn.clicked.connect(self._execute_nlp_text)
-        execute_btn.setFixedWidth(120)
-        execute_btn.setProperty("klass", "green")
+        self.nlp_parse_btn = QPushButton("解析文本")
+        self.nlp_parse_btn.clicked.connect(self._parse_nlp_text)
+        self.nlp_parse_btn.setFixedWidth(120)
+        self.nlp_execute_btn = QPushButton("执行")
+        self.nlp_execute_btn.clicked.connect(self._execute_nlp_text)
+        self.nlp_execute_btn.setFixedWidth(120)
+        self.nlp_execute_btn.setProperty("klass", "green")
         self.mic_toggle_btn = QPushButton("开始录音")
         self.mic_toggle_btn.clicked.connect(self._toggle_microphone_recording)
         self.mic_toggle_btn.setFixedWidth(120)
-        clear_btn = QPushButton("清空")
-        clear_btn.clicked.connect(self._clear_nlp_text)
-        clear_btn.setFixedWidth(120)
-        nlp_btn_layout.addWidget(parse_btn)
+        self.nlp_clear_btn = QPushButton("清空")
+        self.nlp_clear_btn.clicked.connect(self._clear_nlp_text)
+        self.nlp_clear_btn.setFixedWidth(120)
+        nlp_btn_layout.addWidget(self.nlp_parse_btn)
         nlp_btn_layout.addWidget(self.mic_toggle_btn)
-        nlp_btn_layout.addWidget(clear_btn)
-        nlp_btn_layout.addWidget(execute_btn)
+        nlp_btn_layout.addWidget(self.nlp_clear_btn)
+        nlp_btn_layout.addWidget(self.nlp_execute_btn)
         nlp_btn_layout.addStretch(1)
         nlp_left_layout.addLayout(nlp_btn_layout)
         self.nlp_mic_status_label = QLabel("麦克风状态: 空闲")
@@ -1137,12 +1191,12 @@ class RobotQtWindow(QMainWindow):
         try:
             config = self._collect_system_config()
         except ValueError:
-            QMessageBox.warning(self, "保存失败", "系统范围必须是数字。")
+            self._show_warning("保存失败", "系统范围必须是数字。")
             self._append_log("后台", "保存范围", "失败", "系统范围必须是数字")
             return
         validation_error = validate_system_config(config)
         if validation_error:
-            QMessageBox.warning(self, "保存失败", validation_error)
+            self._show_warning("保存失败", validation_error)
             self._append_log("后台", "保存范围", "失败", validation_error)
             return
         save_system_config(self.system_config_path, config)
@@ -1251,12 +1305,12 @@ class RobotQtWindow(QMainWindow):
         try:
             point = self._collect_safe_point()
         except ValueError:
-            QMessageBox.warning(self, "保存失败", "中间点参数必须是数字。")
+            self._show_warning("保存失败", "中间点参数必须是数字。")
             self._append_log("后台", "保存中间点", "失败", "中间点参数必须是数字")
             return
         validation_error = validate_safe_point(point)
         if validation_error:
-            QMessageBox.warning(self, "保存失败", validation_error)
+            self._show_warning("保存失败", validation_error)
             self._append_log("后台", "保存中间点", "失败", validation_error)
             return
         safe_points = dict(self.avoidance_config.safe_points)
@@ -1273,12 +1327,12 @@ class RobotQtWindow(QMainWindow):
     def _delete_safe_point(self) -> None:
         key = self.safe_point_name_edit.text().strip()
         if not key:
-            QMessageBox.warning(self, "无法删除", "当前没有选中的中间点。")
+            self._show_warning("无法删除", "当前没有选中的中间点。")
             self._append_log("后台", "删除中间点", "失败", "当前没有选中的中间点")
             return
         safe_points = dict(self.avoidance_config.safe_points)
         if key not in safe_points:
-            QMessageBox.warning(self, "无法删除", f"中间点不存在: {key}")
+            self._show_warning("无法删除", f"中间点不存在: {key}")
             self._append_log("后台", "删除中间点", "失败", f"中间点不存在: {key}")
             return
         del safe_points[key]
@@ -1567,7 +1621,7 @@ class RobotQtWindow(QMainWindow):
     def _add_flow_step(self) -> None:
         items = self.flow_available_tree.selectedItems()
         if not items:
-            QMessageBox.warning(self, "未选择模板", "请先从可选模板中选择一个步骤模板。")
+            self._show_warning("未选择模板", "请先从可选模板中选择一个步骤模板。")
             return
         step_name = items[0].text(0)
         self.flow_step_manage_tree.addTopLevelItem(QTreeWidgetItem([step_name]))
@@ -1576,7 +1630,7 @@ class RobotQtWindow(QMainWindow):
     def _remove_flow_step(self) -> None:
         item = self.flow_step_manage_tree.currentItem()
         if item is None:
-            QMessageBox.warning(self, "未选择步骤", "请先选择要移除的流程步骤。")
+            self._show_warning("未选择步骤", "请先选择要移除的流程步骤。")
             return
         index = self.flow_step_manage_tree.indexOfTopLevelItem(item)
         self.flow_step_manage_tree.takeTopLevelItem(index)
@@ -1608,17 +1662,17 @@ class RobotQtWindow(QMainWindow):
         flow_name = self.flow_manage_name_edit.text().strip()
         steps = self._collect_flow_steps()
         if not flow_name:
-            QMessageBox.warning(self, "保存失败", "流程名称不能为空。")
+            self._show_warning("保存失败", "流程名称不能为空。")
             self._append_log("后台", "保存流程", "失败", "流程名称不能为空")
             return
         if not steps:
-            QMessageBox.warning(self, "保存失败", "流程至少需要一个步骤。")
+            self._show_warning("保存失败", "流程至少需要一个步骤。")
             self._append_log("后台", "保存流程", "失败", "流程至少需要一个步骤")
             return
         missing = [step for step in steps if step not in self.table]
         if missing:
             detail = f"存在未定义模板: {', '.join(missing)}"
-            QMessageBox.warning(self, "保存失败", detail)
+            self._show_warning("保存失败", detail)
             self._append_log("后台", "保存流程", "失败", detail)
             return
         flow = self.service.get_flow(self.current_flow_manage_name) if self.current_flow_manage_name and self.current_flow_manage_name in self.service.flows else None
@@ -1637,11 +1691,11 @@ class RobotQtWindow(QMainWindow):
     def _delete_flow(self) -> None:
         flow_name = self.flow_manage_name_edit.text().strip()
         if not flow_name:
-            QMessageBox.warning(self, "删除失败", "当前没有选中的流程。")
+            self._show_warning("删除失败", "当前没有选中的流程。")
             self._append_log("后台", "删除流程", "失败", "当前没有选中的流程")
             return
         if flow_name not in self.service.flows:
-            QMessageBox.warning(self, "删除失败", f"流程不存在: {flow_name}")
+            self._show_warning("删除失败", f"流程不存在: {flow_name}")
             self._append_log("后台", "删除流程", "失败", f"流程不存在: {flow_name}")
             return
         self.service.delete_flow(flow_name)
@@ -1830,43 +1884,108 @@ class RobotQtWindow(QMainWindow):
         self.nlp_last_plan = plan
         self.nlp_result_edit.setPlainText(json.dumps(plan.to_preview_dict(), ensure_ascii=False, indent=2))
 
+    def _set_nlp_parse_busy(self, busy: bool) -> None:
+        self.nlp_parse_running = busy
+        if hasattr(self, "nlp_parse_btn"):
+            self.nlp_parse_btn.setEnabled(not busy)
+            self.nlp_parse_btn.setText("解析中" if busy else "解析文本")
+        if hasattr(self, "nlp_execute_btn"):
+            self.nlp_execute_btn.setEnabled(not busy)
+        if hasattr(self, "nlp_clear_btn"):
+            self.nlp_clear_btn.setEnabled(not busy)
+        if hasattr(self, "nlp_use_deepseek_check"):
+            self.nlp_use_deepseek_check.setEnabled(not busy)
+        if hasattr(self, "mic_device_combo"):
+            self.mic_device_combo.setEnabled(not busy)
+
+    def _set_nlp_execute_busy(self, busy: bool) -> None:
+        self.nlp_sequence_running = busy
+        if hasattr(self, "nlp_execute_btn"):
+            self.nlp_execute_btn.setEnabled(not busy)
+            self.nlp_execute_btn.setText("执行中" if busy else "执行")
+        if hasattr(self, "nlp_parse_btn"):
+            self.nlp_parse_btn.setEnabled(not busy and not self.nlp_parse_running)
+        if hasattr(self, "nlp_clear_btn"):
+            self.nlp_clear_btn.setEnabled(not busy)
+        if hasattr(self, "nlp_use_deepseek_check"):
+            self.nlp_use_deepseek_check.setEnabled(not busy and not self.nlp_parse_running)
+        if hasattr(self, "mic_device_combo"):
+            self.mic_device_combo.setEnabled(not busy and not self.nlp_parse_running)
+
     def _parse_nlp_text(self) -> None:
         text = self.nlp_input_edit.toPlainText().strip()
         if not text:
-            QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
+            self._show_warning("输入为空", "请输入自然语言文本。")
             self._append_log("自然语言", "解析文本", "失败", "输入为空")
             return
-        plan = self._build_voice_nlp_adapter().parse(
-            text,
-            use_deepseek=self.nlp_use_deepseek_check.isChecked(),
-        )
-        self._set_nlp_result_plan(plan)
-        first_action = plan.actions[0] if plan.actions else VoiceNlpAction("unknown", None, plan.source, text, plan.reason)
-        self.status_label.setText(
-            f"解析完成: {len(plan.actions)} 步 / {first_action.action_type} / {first_action.target or '-'}"
-        )
-        self._append_log(
-            "自然语言",
-            "解析文本",
-            "成功" if plan.actions and plan.actions[0].action_type != "unknown" else "失败",
-            f"{plan.source} | {len(plan.actions)}步 | {plan.reason}",
-        )
+        if self.nlp_parse_running:
+            return
+        use_deepseek = self.nlp_use_deepseek_check.isChecked()
+        self._set_nlp_parse_busy(True)
+        self.status_label.setText("自然语言解析中，请稍候...")
+
+        def work():
+            return self._build_voice_nlp_adapter().parse(
+                text,
+                use_deepseek=use_deepseek,
+            )
+
+        def on_result(result):
+            self._set_nlp_parse_busy(False)
+            if isinstance(result, Exception):
+                self.status_label.setText(f"自然语言解析失败: {result}")
+                self._append_log("自然语言", "解析文本", "失败", str(result))
+                self._show_critical("解析失败", str(result))
+                return
+            plan = result
+            self._set_nlp_result_plan(plan)
+            first_action = plan.actions[0] if plan.actions else VoiceNlpAction("unknown", None, plan.source, text, plan.reason)
+            self.status_label.setText(
+                f"解析完成: {len(plan.actions)} 步 / {first_action.action_type} / {first_action.target or '-'}"
+            )
+            self._append_log(
+                "自然语言",
+                "解析文本",
+                "成功" if plan.actions and plan.actions[0].action_type != "unknown" else "失败",
+                f"{plan.source} | {len(plan.actions)}步 | {plan.reason}",
+            )
+
+        self._run_in_background(work, on_result)
 
     def _execute_nlp_text(self) -> None:
         text = self.nlp_input_edit.toPlainText().strip()
         if not text:
-            QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
+            self._show_warning("输入为空", "请输入自然语言文本。")
             self._append_log("自然语言", "执行解析", "失败", "输入为空")
             return
-        if self.nlp_sequence_running:
-            QMessageBox.information(self, "自然语言执行中", "当前自然语言动作序列正在执行。")
+        if self.nlp_parse_running:
+            self._show_info("解析中", "当前正在进行自然语言解析，请等待解析完成。")
             return
-        plan = self._build_voice_nlp_adapter().parse(
-            text,
-            use_deepseek=self.nlp_use_deepseek_check.isChecked(),
-        )
-        self._set_nlp_result_plan(plan)
-        self._execute_nlp_plan(plan)
+        if self.nlp_sequence_running:
+            self._show_info("自然语言执行中", "当前自然语言动作序列正在执行。")
+            return
+        use_deepseek = self.nlp_use_deepseek_check.isChecked()
+        self._set_nlp_execute_busy(True)
+        self.status_label.setText("自然语言执行准备中，请稍候...")
+
+        def work():
+            return self._build_voice_nlp_adapter().parse(
+                text,
+                use_deepseek=use_deepseek,
+            )
+
+        def on_result(result):
+            if isinstance(result, Exception):
+                self._set_nlp_execute_busy(False)
+                self.status_label.setText(f"自然语言执行准备失败: {result}")
+                self._append_log("自然语言", "执行解析", "失败", str(result))
+                self._show_critical("执行失败", str(result))
+                return
+            plan = result
+            self._set_nlp_result_plan(plan)
+            self._execute_nlp_plan(plan)
+
+        self._run_in_background(work, on_result)
 
     def _clear_nlp_text(self) -> None:
         self.nlp_input_edit.clear()
@@ -1876,16 +1995,17 @@ class RobotQtWindow(QMainWindow):
 
     def _execute_nlp_plan(self, plan: VoiceNlpPlan) -> None:
         if not plan.actions:
-            QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{plan.reason}")
+            self._set_nlp_execute_busy(False)
+            self._show_warning("无法执行", f"未识别到可执行动作。\n{plan.reason}")
             self._append_log("自然语言", "执行解析", "失败", plan.reason)
             return
         if any(action.action_type == "unknown" for action in plan.actions):
-            QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{plan.reason}")
+            self._set_nlp_execute_busy(False)
+            self._show_warning("无法执行", f"未识别到可执行动作。\n{plan.reason}")
             self._append_log("自然语言", "执行解析", "失败", plan.reason)
             return
         self._nlp_pending_actions = list(plan.actions)
         self._nlp_pending_index = 0
-        self.nlp_sequence_running = True
         self._append_log(
             "自然语言",
             "执行解析",
@@ -1899,7 +2019,7 @@ class RobotQtWindow(QMainWindow):
             return
         if self._nlp_pending_index >= len(self._nlp_pending_actions):
             total = len(self._nlp_pending_actions)
-            self.nlp_sequence_running = False
+            self._set_nlp_execute_busy(False)
             self.status_label.setText(f"自然语言执行完成，共 {total} 步。")
             self._append_log("自然语言", "动作序列完成", "成功", f"共执行 {total} 步")
             return
@@ -1923,7 +2043,7 @@ class RobotQtWindow(QMainWindow):
                 f"{action.action_type} | {action.target or '-'} | {action.source}",
             )
             if not ok:
-                self.nlp_sequence_running = False
+                self._set_nlp_execute_busy(False)
                 self.status_label.setText(f"自然语言执行失败，停止于第 {step_no} 步。")
                 self._append_log("自然语言", "动作序列终止", "失败", f"停止于第 {step_no} 步")
                 return
@@ -2065,7 +2185,7 @@ class RobotQtWindow(QMainWindow):
             self.status_label.setText(f"音频识别完成: {Path(file_path).name}")
             self._append_log("语音", "导入音频识别", "成功", f"{Path(file_path).name} -> {text or '-'}")
         except Exception as exc:
-            QMessageBox.critical(self, "音频识别失败", str(exc))
+            self._show_critical("音频识别失败", str(exc))
             self._append_log("语音", "导入音频识别", "失败", str(exc))
 
     def _transcribe_microphone(self) -> None:
@@ -2080,7 +2200,7 @@ class RobotQtWindow(QMainWindow):
             self.status_label.setText("麦克风识别完成")
             self._append_log("语音", "麦克风识别", "成功", text or "-")
         except Exception as exc:
-            QMessageBox.critical(self, "麦克风识别失败", str(exc))
+            self._show_critical("麦克风识别失败", str(exc))
             self._append_log("语音", "麦克风识别", "失败", str(exc))
 
     def _toggle_microphone_recording(self) -> None:
@@ -2132,7 +2252,7 @@ class RobotQtWindow(QMainWindow):
                 self._mic_poll_timer.timeout.connect(self._poll_microphone_recording)
             self._mic_poll_timer.start()
         except Exception as exc:
-            QMessageBox.critical(self, "开始录音失败", str(exc))
+            self._show_critical("开始录音失败", str(exc))
             self._append_log("语音", "开始录音", "失败", str(exc))
 
     def _stop_microphone_recording(self) -> None:
@@ -2188,7 +2308,7 @@ class RobotQtWindow(QMainWindow):
             error_text = (stderr or "").strip() or "麦克风识别未返回结果。"
             error_text = f"{error_text}\n调试日志: {worker_log}"
             self.nlp_mic_status_label.setText("麦克风状态: 失败")
-            QMessageBox.critical(self, "麦克风识别失败", error_text)
+            self._show_critical("麦克风识别失败", error_text)
             self._append_log("语音", "麦克风识别", "失败", error_text)
             return
         try:
@@ -2196,13 +2316,13 @@ class RobotQtWindow(QMainWindow):
         except json.JSONDecodeError:
             message = f"麦克风识别结果文件不是合法 JSON。\n调试日志: {worker_log}"
             self.nlp_mic_status_label.setText("麦克风状态: 失败")
-            QMessageBox.critical(self, "麦克风识别失败", message)
+            self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
         if not payload.get("ok"):
             message = f"{payload.get('error', '麦克风识别失败。')}\n调试日志: {worker_log}"
             self.nlp_mic_status_label.setText("麦克风状态: 失败")
-            QMessageBox.critical(self, "麦克风识别失败", message)
+            self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
 
@@ -2274,7 +2394,7 @@ class RobotQtWindow(QMainWindow):
     def _save_record(self) -> None:
         record = self._collect_record()
         if not record.query_key:
-            QMessageBox.warning(self, "输入错误", "显示名称不能为空。")
+            self._show_warning("输入错误", "显示名称不能为空。")
             self._append_log("后台", "保存模板", "失败", "显示名称不能为空")
             return
         self.table[record.query_key] = record
@@ -2288,7 +2408,7 @@ class RobotQtWindow(QMainWindow):
     def _clone_record(self) -> None:
         record = self._collect_record()
         if not record.query_key:
-            QMessageBox.warning(self, "无法另存为", "请先填写显示名称。")
+            self._show_warning("无法另存为", "请先填写显示名称。")
             self._append_log("后台", "另存模板", "失败", "显示名称不能为空")
             return
         clone = QueryRecord(
@@ -2321,11 +2441,11 @@ class RobotQtWindow(QMainWindow):
     def _delete_record(self) -> None:
         key = self.name_edit.text().strip()
         if not key:
-            QMessageBox.warning(self, "无法删除", "当前没有选中的模板。")
+            self._show_warning("无法删除", "当前没有选中的模板。")
             self._append_log("后台", "删除模板", "失败", "当前没有选中的模板")
             return
         if key not in self.table:
-            QMessageBox.warning(self, "无法删除", f"模板不存在: {key}")
+            self._show_warning("无法删除", f"模板不存在: {key}")
             self._append_log("后台", "删除模板", "失败", f"模板不存在: {key}")
             return
         del self.table[key]
@@ -2384,7 +2504,7 @@ class RobotQtWindow(QMainWindow):
     def _check_connection(self) -> None:
         host = self.host_edit.text().strip()
         if not host:
-            QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
+            self._show_warning("地址为空", "请输入控制器地址。")
             self._append_log("连接", "检测连接", "失败", "地址为空")
             return
         try:
@@ -2404,7 +2524,7 @@ class RobotQtWindow(QMainWindow):
 
     def _send_record(self, query_key: str) -> None:
         if self.flow_running:
-            QMessageBox.warning(self, "流程运行中", "当前流程执行中，请先停止流程或等待流程完成。")
+            self._show_warning("流程运行中", "当前流程执行中，请先停止流程或等待流程完成。")
             self._append_log("执行", f"发送指令 {query_key}", "失败", "流程执行中，拒绝手动执行")
             return
         self._execute_query_key(query_key)
@@ -2412,7 +2532,7 @@ class RobotQtWindow(QMainWindow):
     def _execute_query_key(self, query_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         host = self.host_edit.text().strip()
         if not host:
-            QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
+            self._show_warning("地址为空", "请输入控制器地址。")
             self._append_log("执行", f"发送指令 {query_key}", "失败", "地址为空")
             if on_done:
                 on_done(False)
@@ -2652,7 +2772,7 @@ class RobotQtWindow(QMainWindow):
                 self.alarm_code = "ERR_SEND"
                 self.alarm_text = error
             self.status_label.setText(f"发送失败: {error}")
-            QMessageBox.critical(self, "发送失败", error)
+            self._show_critical("发送失败", error)
             self._append_log("执行", f"发送指令 {record.query_key}", "失败", error)
         if ok:
             self._refresh_all()
@@ -2662,7 +2782,7 @@ class RobotQtWindow(QMainWindow):
     def _read_feedback(self) -> None:
         host = self.host_edit.text().strip()
         if not host:
-            QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
+            self._show_warning("地址为空", "请输入控制器地址。")
             self._append_log("反馈", "读取反馈", "失败", "地址为空")
             return
         try:
@@ -2675,7 +2795,7 @@ class RobotQtWindow(QMainWindow):
         except Exception as exc:
             self.status_label.setText(f"读取反馈区失败: {exc}")
             self.monitor_label.setText("实时监控离线")
-            QMessageBox.critical(self, "读取失败", str(exc))
+            self._show_critical("读取失败", str(exc))
             self._append_log("反馈", "读取反馈", "失败", str(exc))
 
     def _set_status(self, text: str) -> None:
@@ -2683,7 +2803,7 @@ class RobotQtWindow(QMainWindow):
 
     def _handle_system_action(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:
-            QMessageBox.warning(self, "流程运行中", "流程执行中不允许发送系统按钮命令。")
+            self._show_warning("流程运行中", "流程执行中不允许发送系统按钮命令。")
             self._append_log("系统", action_key, "失败", "流程执行中")
             if on_done:
                 on_done(False)
@@ -2696,7 +2816,7 @@ class RobotQtWindow(QMainWindow):
             return
         host = self.host_edit.text().strip()
         if not host:
-            QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
+            self._show_warning("地址为空", "请输入控制器地址。")
             self._append_log("系统", action_key, "失败", "地址为空")
             if on_done:
                 on_done(False)
@@ -2735,7 +2855,7 @@ class RobotQtWindow(QMainWindow):
             if isinstance(result, Exception):
                 self._disconnect_client()
                 self.status_label.setText(f"系统命令失败: {result}")
-                QMessageBox.critical(self, "系统命令失败", str(result))
+                self._show_critical("系统命令失败", str(result))
                 self._append_log("系统", action_key, "失败", str(result))
                 if on_done:
                     on_done(False)
@@ -2751,7 +2871,7 @@ class RobotQtWindow(QMainWindow):
                 self._append_log("系统", action_key, "成功", f"命令码 {code}")
             else:
                 self.status_label.setText(f"系统命令失败: {error}")
-                QMessageBox.critical(self, "系统命令失败", error)
+                self._show_critical("系统命令失败", error)
                 self._append_log("系统", action_key, "失败", error)
                 self._refresh_status_labels()
             if on_done:
@@ -3109,25 +3229,24 @@ class RobotQtWindow(QMainWindow):
 
     def _start_flow(self, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:
-            QMessageBox.information(self, "流程已运行", "当前流程正在执行。")
+            self._show_info("流程已运行", "当前流程正在执行。")
             if on_done:
                 on_done(False)
             return
         flow = self._current_flow_definition()
         if flow is None:
-            QMessageBox.warning(self, "未选择流程", "请先选择一个流程。")
+            self._show_warning("未选择流程", "请先选择一个流程。")
             if on_done:
                 on_done(False)
             return
         if not flow.steps:
-            QMessageBox.warning(self, "空流程", "当前流程没有任何步骤。")
+            self._show_warning("空流程", "当前流程没有任何步骤。")
             if on_done:
                 on_done(False)
             return
         missing = [s for s in flow.steps if s not in self.table]
         if missing:
-            QMessageBox.warning(
-                self,
+            self._show_warning(
                 "流程包含无效步骤",
                 f"以下步骤在模板中不存在:\n{', '.join(missing)}\n请先修复流程或创建对应模板。",
             )
@@ -3148,14 +3267,14 @@ class RobotQtWindow(QMainWindow):
 
     def _step_flow(self) -> None:
         if self.flow_running:
-            QMessageBox.information(self, "流程已运行", "当前流程正在执行。")
+            self._show_info("流程已运行", "当前流程正在执行。")
             return
         flow = self._current_flow_definition()
         if flow is None:
-            QMessageBox.warning(self, "未选择流程", "请先选择一个流程。")
+            self._show_warning("未选择流程", "请先选择一个流程。")
             return
         if not flow.steps:
-            QMessageBox.warning(self, "空流程", "当前流程没有任何步骤。")
+            self._show_warning("空流程", "当前流程没有任何步骤。")
             return
         if self.flow_step_index >= len(flow.steps):
             self.flow_step_index = 0
