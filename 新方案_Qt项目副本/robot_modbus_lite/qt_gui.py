@@ -64,7 +64,7 @@ from .system_config import (
     validate_system_config,
 )
 from .zmotion_client import ZMotionVrClient
-from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter
+from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter, VoiceNlpPlan
 
 
 COMMAND_TYPES = ["MOVE_ABS", "MOVE_REL", "HOME", "GRIP_SET", "DOOR_CTRL", "WAIT_MS", "CHECK_IN", "EMG_RESET", "FIXED_FUNC"]
@@ -155,7 +155,11 @@ class RobotQtWindow(QMainWindow):
         self._cached_client = None
         self._cached_client_host = ""
         self._client_cache_lock = threading.Lock()
-        self.nlp_last_action: VoiceNlpAction | None = None
+        self.nlp_last_plan: VoiceNlpPlan | None = None
+        self.nlp_sequence_running = False
+        self._nlp_pending_actions: list[VoiceNlpAction] = []
+        self._nlp_pending_index = 0
+        self._flow_done_callback: Callable[[bool], None] | None = None
         self._mic_process: subprocess.Popen[str] | None = None
         self._mic_poll_timer: QTimer | None = None
         self._mic_stop_flag_path: Path | None = None
@@ -1822,24 +1826,30 @@ class RobotQtWindow(QMainWindow):
     def _build_voice_nlp_adapter(self) -> VoiceNlpAdapter:
         return VoiceNlpAdapter(self.table, self.service.list_flow_names())
 
+    def _set_nlp_result_plan(self, plan: VoiceNlpPlan) -> None:
+        self.nlp_last_plan = plan
+        self.nlp_result_edit.setPlainText(json.dumps(plan.to_preview_dict(), ensure_ascii=False, indent=2))
+
     def _parse_nlp_text(self) -> None:
         text = self.nlp_input_edit.toPlainText().strip()
         if not text:
             QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
             self._append_log("自然语言", "解析文本", "失败", "输入为空")
             return
-        action = self._build_voice_nlp_adapter().parse(
+        plan = self._build_voice_nlp_adapter().parse(
             text,
             use_deepseek=self.nlp_use_deepseek_check.isChecked(),
         )
-        self.nlp_last_action = action
-        self.nlp_result_edit.setPlainText(json.dumps(action.to_preview_dict(), ensure_ascii=False, indent=2))
-        self.status_label.setText(f"解析完成: {action.action_type} / {action.target or '-'}")
+        self._set_nlp_result_plan(plan)
+        first_action = plan.actions[0] if plan.actions else VoiceNlpAction("unknown", None, plan.source, text, plan.reason)
+        self.status_label.setText(
+            f"解析完成: {len(plan.actions)} 步 / {first_action.action_type} / {first_action.target or '-'}"
+        )
         self._append_log(
             "自然语言",
             "解析文本",
-            "成功" if action.action_type != "unknown" else "失败",
-            f"{action.source} | {action.action_type} | {action.target or '-'} | {action.reason}",
+            "成功" if plan.actions and plan.actions[0].action_type != "unknown" else "失败",
+            f"{plan.source} | {len(plan.actions)}步 | {plan.reason}",
         )
 
     def _execute_nlp_text(self) -> None:
@@ -1848,34 +1858,90 @@ class RobotQtWindow(QMainWindow):
             QMessageBox.warning(self, "输入为空", "请输入自然语言文本。")
             self._append_log("自然语言", "执行解析", "失败", "输入为空")
             return
-        action = self._build_voice_nlp_adapter().parse(
+        if self.nlp_sequence_running:
+            QMessageBox.information(self, "自然语言执行中", "当前自然语言动作序列正在执行。")
+            return
+        plan = self._build_voice_nlp_adapter().parse(
             text,
             use_deepseek=self.nlp_use_deepseek_check.isChecked(),
         )
-        self.nlp_last_action = action
-        self.nlp_result_edit.setPlainText(json.dumps(action.to_preview_dict(), ensure_ascii=False, indent=2))
-        if action.action_type == "template" and action.target:
-            def on_nlp_done(ok: bool) -> None:
-                self._append_log("自然语言", "执行解析", "成功" if ok else "失败", f"模板 | {action.target} | {action.source}")
-            self._execute_query_key(action.target, on_done=on_nlp_done)
-            return
-        if action.action_type == "flow" and action.target:
-            self.flow_combo.setCurrentText(action.target)
-            self._start_flow()
-            self._append_log("自然语言", "执行解析", "成功", f"流程 | {action.target} | {action.source}")
-            return
-        if action.action_type == "system" and action.target:
-            self._handle_system_action(action.target)
-            self._append_log("自然语言", "执行解析", "成功", f"系统动作 | {action.target} | {action.source}")
-            return
-        QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{action.reason}")
-        self._append_log("自然语言", "执行解析", "失败", action.reason)
+        self._set_nlp_result_plan(plan)
+        self._execute_nlp_plan(plan)
 
     def _clear_nlp_text(self) -> None:
         self.nlp_input_edit.clear()
         self.nlp_result_edit.clear()
-        self.nlp_last_action = None
+        self.nlp_last_plan = None
         self.status_label.setText("自然语言输入已清空。")
+
+    def _execute_nlp_plan(self, plan: VoiceNlpPlan) -> None:
+        if not plan.actions:
+            QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{plan.reason}")
+            self._append_log("自然语言", "执行解析", "失败", plan.reason)
+            return
+        if any(action.action_type == "unknown" for action in plan.actions):
+            QMessageBox.warning(self, "无法执行", f"未识别到可执行动作。\n{plan.reason}")
+            self._append_log("自然语言", "执行解析", "失败", plan.reason)
+            return
+        self._nlp_pending_actions = list(plan.actions)
+        self._nlp_pending_index = 0
+        self.nlp_sequence_running = True
+        self._append_log(
+            "自然语言",
+            "执行解析",
+            "成功",
+            f"{plan.source} | {len(plan.actions)}步 | {plan.reason}",
+        )
+        self._run_next_nlp_action()
+
+    def _run_next_nlp_action(self) -> None:
+        if not self.nlp_sequence_running:
+            return
+        if self._nlp_pending_index >= len(self._nlp_pending_actions):
+            total = len(self._nlp_pending_actions)
+            self.nlp_sequence_running = False
+            self.status_label.setText(f"自然语言执行完成，共 {total} 步。")
+            self._append_log("自然语言", "动作序列完成", "成功", f"共执行 {total} 步")
+            return
+
+        step_no = self._nlp_pending_index + 1
+        action = self._nlp_pending_actions[self._nlp_pending_index]
+        self.status_label.setText(f"自然语言执行第 {step_no} 步: {action.action_type} / {action.target or '-'}")
+        self._append_log(
+            "自然语言",
+            f"动作序列第{step_no}步开始",
+            "成功",
+            f"{action.action_type} | {action.target or '-'} | {action.source}",
+        )
+
+        def on_step_done(ok: bool) -> None:
+            step_result = "成功" if ok else "失败"
+            self._append_log(
+                "自然语言",
+                f"动作序列第{step_no}步{step_result}",
+                step_result,
+                f"{action.action_type} | {action.target or '-'} | {action.source}",
+            )
+            if not ok:
+                self.nlp_sequence_running = False
+                self.status_label.setText(f"自然语言执行失败，停止于第 {step_no} 步。")
+                self._append_log("自然语言", "动作序列终止", "失败", f"停止于第 {step_no} 步")
+                return
+            self._nlp_pending_index += 1
+            QTimer.singleShot(0, self._run_next_nlp_action)
+
+        if action.action_type == "template" and action.target:
+            self._execute_query_key(action.target, on_done=on_step_done)
+            return
+        if action.action_type == "system" and action.target:
+            self._handle_system_action(action.target, on_done=on_step_done)
+            return
+        if action.action_type == "flow" and action.target:
+            self.flow_combo.setCurrentText(action.target)
+            self._start_flow(on_done=on_step_done)
+            return
+
+        on_step_done(False)
 
     def _create_iflytek_client(self):
         from .iflytek_iat import IFlytekIATConfig, IFlytekRTASRError, expected_env_locations
@@ -2615,19 +2681,25 @@ class RobotQtWindow(QMainWindow):
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
 
-    def _handle_system_action(self, action_key: str) -> None:
+    def _handle_system_action(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:
             QMessageBox.warning(self, "流程运行中", "流程执行中不允许发送系统按钮命令。")
             self._append_log("系统", action_key, "失败", "流程执行中")
+            if on_done:
+                on_done(False)
             return
         if self.protocol_combo.currentText() != "最终标准协议":
             self._apply_legacy_system_action(action_key)
             self._append_log("系统", action_key, "成功", "简化协议页面动作")
+            if on_done:
+                on_done(True)
             return
         host = self.host_edit.text().strip()
         if not host:
             QMessageBox.warning(self, "地址为空", "请输入控制器地址。")
             self._append_log("系统", action_key, "失败", "地址为空")
+            if on_done:
+                on_done(False)
             return
 
         code = SYSTEM_COMMAND_CODES[action_key]
@@ -2665,14 +2737,25 @@ class RobotQtWindow(QMainWindow):
                 self.status_label.setText(f"系统命令失败: {result}")
                 QMessageBox.critical(self, "系统命令失败", str(result))
                 self._append_log("系统", action_key, "失败", str(result))
+                if on_done:
+                    on_done(False)
                 return
             feedback = result
-            self._apply_feedback_values(None, feedback)
-            self._apply_legacy_system_action(action_key, update_status=False)
-            self.task_id += 1
-            self.status_label.setText(SYSTEM_COMMANDS[action_text][1])
-            self._refresh_status_labels()
-            self._append_log("系统", action_key, "成功", f"命令码 {code}")
+            ok, error = self._evaluate_feedback_result(feedback)
+            if ok:
+                self._apply_feedback_values(None, feedback)
+                self._apply_legacy_system_action(action_key, update_status=False)
+                self.task_id += 1
+                self.status_label.setText(SYSTEM_COMMANDS[action_text][1])
+                self._refresh_status_labels()
+                self._append_log("系统", action_key, "成功", f"命令码 {code}")
+            else:
+                self.status_label.setText(f"系统命令失败: {error}")
+                QMessageBox.critical(self, "系统命令失败", error)
+                self._append_log("系统", action_key, "失败", error)
+                self._refresh_status_labels()
+            if on_done:
+                on_done(ok)
 
         self._run_in_background(work, on_result)
 
@@ -3024,16 +3107,22 @@ class RobotQtWindow(QMainWindow):
             return True, ""
         return False, f"控制器执行失败: RESULT={result_code}"
 
-    def _start_flow(self) -> None:
+    def _start_flow(self, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:
             QMessageBox.information(self, "流程已运行", "当前流程正在执行。")
+            if on_done:
+                on_done(False)
             return
         flow = self._current_flow_definition()
         if flow is None:
             QMessageBox.warning(self, "未选择流程", "请先选择一个流程。")
+            if on_done:
+                on_done(False)
             return
         if not flow.steps:
             QMessageBox.warning(self, "空流程", "当前流程没有任何步骤。")
+            if on_done:
+                on_done(False)
             return
         missing = [s for s in flow.steps if s not in self.table]
         if missing:
@@ -3043,9 +3132,12 @@ class RobotQtWindow(QMainWindow):
                 f"以下步骤在模板中不存在:\n{', '.join(missing)}\n请先修复流程或创建对应模板。",
             )
             self._append_log("流程", f"流程预检查 {flow.name}", "失败", f"缺失模板: {', '.join(missing)}")
+            if on_done:
+                on_done(False)
             return
         if self.flow_step_index >= len(flow.steps):
             self.flow_step_index = 0
+        self._flow_done_callback = on_done
         self.flow_running = True
         self.flow_status = "运行中"
         self.flow_current_step = "-"
@@ -3082,10 +3174,18 @@ class RobotQtWindow(QMainWindow):
         self._refresh_flow_status_panel()
         if self.current_flow_name:
             self._append_log("流程", f"停止流程 {self.current_flow_name}", "成功", f"停止于第 {self.flow_step_index + 1} 步")
+        callback = self._flow_done_callback
+        self._flow_done_callback = None
+        if callback:
+            callback(False)
 
     def _reset_flow(self) -> None:
         if self.flow_running:
             self.flow_running = False
+            callback = self._flow_done_callback
+            self._flow_done_callback = None
+            if callback:
+                callback(False)
         self.flow_step_index = 0
         self.flow_status = "空闲"
         self.flow_current_step = "-"
@@ -3105,6 +3205,10 @@ class RobotQtWindow(QMainWindow):
             self.flow_running = False
             self.flow_status = "失败"
             self._refresh_flow_status_panel()
+            callback = self._flow_done_callback
+            self._flow_done_callback = None
+            if callback:
+                callback(False)
             return
         if self.flow_step_index >= len(flow.steps):
             self.flow_running = False
@@ -3113,6 +3217,10 @@ class RobotQtWindow(QMainWindow):
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
             self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+            callback = self._flow_done_callback
+            self._flow_done_callback = None
+            if callback:
+                callback(True)
             return
 
         step_name = flow.steps[self.flow_step_index]
@@ -3127,6 +3235,10 @@ class RobotQtWindow(QMainWindow):
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
             self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", f"模板不存在: {step_name}")
+            callback = self._flow_done_callback
+            self._flow_done_callback = None
+            if callback:
+                callback(False)
             return
 
         current_step_index = self.flow_step_index
@@ -3138,6 +3250,10 @@ class RobotQtWindow(QMainWindow):
                 self._refresh_flow_steps()
                 self._refresh_flow_status_panel()
                 self._append_log("流程", f"流程第{current_step_index + 1}步失败", "失败", step_name)
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(False)
                 return
 
             self._append_log("流程", f"流程第{current_step_index + 1}步成功", "成功", step_name)
@@ -3150,6 +3266,10 @@ class RobotQtWindow(QMainWindow):
                 self._refresh_flow_steps()
                 self._refresh_flow_status_panel()
                 self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(True)
                 return
 
             self.flow_status = "运行中" if auto_continue else "空闲"
