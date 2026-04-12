@@ -8,12 +8,16 @@ project_root = spec_dir
 
 data_dir = spec_dir / "data"
 sdk_dir = spec_dir / "Windows Python（64位）"
+env_file = spec_dir / ".env"
 
 datas = []
 if data_dir.exists():
     datas.append((str(data_dir), "data"))
 if sdk_dir.exists():
     datas.append((str(sdk_dir), "Windows Python（64位）"))
+if env_file.exists():
+    datas.append((str(env_file), "."))
+    datas.append((str(env_file), "robot_modbus_lite"))
 
 a = Analysis(
     [str(spec_dir / "gui_main.py")],

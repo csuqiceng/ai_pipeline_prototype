@@ -156,6 +156,7 @@ class RobotQtWindow(QMainWindow):
         self._mic_result_path: Path | None = None
 
         self._build_ui()
+        self._refresh_microphone_devices()
         self._load_initial_record()
         self._refresh_all()
         self._check_connection()
@@ -434,6 +435,14 @@ class RobotQtWindow(QMainWindow):
         nlp_head.addWidget(QLabel("输入文本:"))
         self.nlp_use_deepseek_check = QCheckBox("使用DeepSeek")
         nlp_head.addWidget(self.nlp_use_deepseek_check)
+        nlp_head.addWidget(QLabel("麦克风:"))
+        self.mic_device_combo = QComboBox()
+        self.mic_device_combo.setMinimumWidth(220)
+        nlp_head.addWidget(self.mic_device_combo)
+        refresh_mic_btn = QPushButton("刷新设备")
+        refresh_mic_btn.setFixedWidth(100)
+        refresh_mic_btn.clicked.connect(self._refresh_microphone_devices)
+        nlp_head.addWidget(refresh_mic_btn)
         nlp_head.addStretch(1)
         nlp_left_layout.addLayout(nlp_head)
         self.nlp_input_edit = QTextEdit()
@@ -1933,6 +1942,36 @@ class RobotQtWindow(QMainWindow):
             str(result_path),
         ]
 
+    def _refresh_microphone_devices(self) -> None:
+        if not hasattr(self, "mic_device_combo"):
+            return
+        previous = self.mic_device_combo.currentData() if self.mic_device_combo.count() else None
+        self.mic_device_combo.clear()
+        self.mic_device_combo.addItem("系统默认麦克风", None)
+        try:
+            import sounddevice as sd
+
+            added = 0
+            for index, device in enumerate(sd.query_devices()):
+                if int(device.get("max_input_channels", 0)) <= 0:
+                    continue
+                name = str(device.get("name", f"设备{index}")).strip() or f"设备{index}"
+                self.mic_device_combo.addItem(f"{index}: {name}", index)
+                added += 1
+            if previous is not None:
+                restore_index = self.mic_device_combo.findData(previous)
+                if restore_index >= 0:
+                    self.mic_device_combo.setCurrentIndex(restore_index)
+            self._append_log("语音", "刷新麦克风设备", "成功", f"检测到 {added} 个输入设备")
+        except Exception as exc:
+            self._append_log("语音", "刷新麦克风设备", "失败", str(exc))
+
+    def _selected_microphone_device(self) -> int | None:
+        if not hasattr(self, "mic_device_combo"):
+            return None
+        data = self.mic_device_combo.currentData()
+        return int(data) if data is not None else None
+
     def _transcribe_audio_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -1955,7 +1994,11 @@ class RobotQtWindow(QMainWindow):
     def _transcribe_microphone(self) -> None:
         try:
             self._create_iflytek_client()
-            text = self._run_iflytek_worker(["--mode", "mic", "--duration", "4.0"])
+            args = ["--mode", "mic", "--duration", "4.0"]
+            selected_device = self._selected_microphone_device()
+            if selected_device is not None:
+                args.extend(["--device", str(selected_device)])
+            text = self._run_iflytek_worker(args)
             self.nlp_input_edit.setPlainText(text)
             self.status_label.setText("麦克风识别完成")
             self._append_log("语音", "麦克风识别", "成功", text or "-")
@@ -1982,8 +2025,12 @@ class RobotQtWindow(QMainWindow):
             stop_flag = log_dir / f"voice_stop_{timestamp}.flag"
             if stop_flag.exists():
                 stop_flag.unlink()
+            selected_device = self._selected_microphone_device()
+            mic_args = ["--mode", "mic", "--duration", "3600", "--stop-flag-path", str(stop_flag)]
+            if selected_device is not None:
+                mic_args.extend(["--device", str(selected_device)])
             cmd = self._build_iflytek_worker_command(
-                ["--mode", "mic", "--duration", "3600", "--stop-flag-path", str(stop_flag)],
+                mic_args,
                 debug_pcm,
                 result_path,
             )
@@ -2000,7 +2047,8 @@ class RobotQtWindow(QMainWindow):
             self.mic_toggle_btn.setText("停止录音")
             self.nlp_mic_status_label.setText("麦克风状态: 录音中")
             self.status_label.setText("麦克风录音中，点击“停止录音”结束并识别。")
-            self._append_log("语音", "开始录音", "成功", "麦克风录音已启动")
+            detail = "麦克风录音已启动（系统默认）" if selected_device is None else f"麦克风录音已启动（设备 {selected_device}）"
+            self._append_log("语音", "开始录音", "成功", detail)
             if self._mic_poll_timer is None:
                 self._mic_poll_timer = QTimer(self)
                 self._mic_poll_timer.setInterval(300)
