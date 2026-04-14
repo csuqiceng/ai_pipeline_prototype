@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import os
 import subprocess
 import sys
 import threading
@@ -65,6 +66,8 @@ from .system_config import (
 )
 from .zmotion_client import ZMotionVrClient
 from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter, VoiceNlpPlan
+from .license_manager import LicenseManager
+from .license_dialog import LicenseDialog
 
 
 COMMAND_TYPES = ["MOVE_ABS", "MOVE_REL", "HOME", "GRIP_SET", "DOOR_CTRL", "WAIT_MS", "CHECK_IN", "EMG_RESET", "FIXED_FUNC"]
@@ -166,9 +169,15 @@ class RobotQtWindow(QMainWindow):
         self._mic_stop_flag_path: Path | None = None
         self._mic_result_path: Path | None = None
 
+        # 授权相关
+        self.license_manager = LicenseManager(self.runtime_root / "data")
+        self._deepseek_client = None  # 外部注入的 DeepSeek 客户端
+        self._use_license_voice = False  # 是否使用订阅模式语音
+
         self._main_thread_call.connect(self._handle_main_thread_call)
 
         self._build_ui()
+        self._init_api_clients()
         self._refresh_microphone_devices()
         self._load_initial_record()
         self._refresh_all()
@@ -229,6 +238,8 @@ class RobotQtWindow(QMainWindow):
         self._build_message_box(QMessageBox.Critical, title, text).exec()
 
     def _build_ui(self) -> None:
+        self._setup_license_menu()
+
         root = QWidget()
         self.setCentralWidget(root)
         root_layout = QVBoxLayout(root)
@@ -263,7 +274,19 @@ class RobotQtWindow(QMainWindow):
         self.status_label = QLabel(f"第一版 Qt 页面已就绪 | 数据源: {self.json_path}")
         self.status_label.setObjectName("footerStatus")
         self.status_label.setMinimumHeight(28)
-        root_layout.addWidget(self.status_label)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(8, 0, 8, 0)
+        footer.addWidget(self.status_label, 1)
+        self._license_status_label = QLabel("")
+        self._license_status_label.setObjectName("footerStatus")
+        self._license_status_label.setMinimumHeight(28)
+        self._update_license_status_label()
+        footer.addWidget(self._license_status_label)
+
+        footer_widget = QWidget()
+        footer_widget.setLayout(footer)
+        root_layout.addWidget(footer_widget)
 
         self._apply_styles()
 
@@ -280,7 +303,93 @@ class RobotQtWindow(QMainWindow):
         layout.addStretch(1)
         layout.addWidget(title)
         layout.addStretch(1)
+
+        # 授权状态快捷按钮
+        self._license_btn = QPushButton("授权")
+        self._license_btn.setFlat(True)
+        self._license_btn.setFixedHeight(28)
+        self._license_btn.clicked.connect(self._show_license_dialog)
+        layout.addWidget(self._license_btn)
+
         return frame
+
+    # ---------- 授权管理 ----------
+
+    def _setup_license_menu(self) -> None:
+        menu_bar = self.menuBar()
+        license_menu = menu_bar.addMenu("授权(&L)")
+
+        show_action = QAction("授权管理(&M)...", self)
+        show_action.triggered.connect(self._show_license_dialog)
+        license_menu.addAction(show_action)
+
+    def _init_api_clients(self) -> None:
+        """初始化 API 客户端，按优先级：订阅 > 自带 Key > 免费"""
+        self._deepseek_client = None
+        self._use_license_voice = False
+
+        try:
+            status = self.license_manager.check_status()
+            if status.valid:
+                # 订阅模式 DeepSeek
+                if status.deepseek_enabled:
+                    try:
+                        from .deepseek_client import DeepSeekClient
+                        self._deepseek_client = DeepSeekClient.from_license(self.license_manager)
+                    except Exception:
+                        pass
+
+                # 订阅模式语音
+                if status.voice_enabled:
+                    self._use_license_voice = True
+
+                self._update_license_status_label()
+                return
+        except Exception:
+            pass
+
+        # 降级到自带 Key（仅测试模式，发布版本设 ALLOW_LOCAL_KEY=false）
+        if os.getenv("ALLOW_LOCAL_KEY", "true").lower() == "true":
+            try:
+                from .deepseek_client import DeepSeekClient
+                self._deepseek_client = DeepSeekClient.from_env()
+            except Exception:
+                self._deepseek_client = None
+
+        self._update_license_status_label()
+
+    def _show_license_dialog(self) -> None:
+        dlg = LicenseDialog(self.license_manager, self)
+        dlg.license_activated.connect(self._on_license_changed)
+        dlg.license_deactivated.connect(self._on_license_changed)
+        dlg.exec()
+
+    def _on_license_changed(self) -> None:
+        self._init_api_clients()
+
+    def _update_license_status_label(self) -> None:
+        try:
+            status = self.license_manager.check_status()
+        except Exception:
+            status = None
+
+        if status and status.valid:
+            type_names = {
+                "trial": "试用版",
+                "monthly": "月度订阅",
+                "yearly": "年度订阅",
+                "lifetime": "永久授权",
+            }
+            label = type_names.get(status.license_type, status.license_type)
+            self._license_status_label.setText(f"[{label}]")
+            self._license_status_label.setStyleSheet("color: green;")
+            self._license_btn.setText(label)
+            self._license_btn.setStyleSheet("color: green;")
+        else:
+            self._license_status_label.setText("[未授权]")
+            self._license_status_label.setStyleSheet("color: gray;")
+            self._license_btn.setText("授权")
+            self._license_btn.setStyleSheet("")
 
     def _build_nav(self) -> QWidget:
         frame = QFrame()
@@ -1878,7 +1987,10 @@ class RobotQtWindow(QMainWindow):
         self._refresh_logs()
 
     def _build_voice_nlp_adapter(self) -> VoiceNlpAdapter:
-        return VoiceNlpAdapter(self.table, self.service.list_flow_names())
+        adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names())
+        if self._deepseek_client:
+            adapter.set_deepseek_client(self._deepseek_client)
+        return adapter
 
     def _set_nlp_result_plan(self, plan: VoiceNlpPlan) -> None:
         self.nlp_last_plan = plan
@@ -2064,6 +2176,10 @@ class RobotQtWindow(QMainWindow):
         on_step_done(False)
 
     def _create_iflytek_client(self):
+        # 订阅模式：无需本地凭证
+        if self._use_license_voice:
+            return True
+
         from .iflytek_iat import IFlytekIATConfig, IFlytekRTASRError, expected_env_locations
 
         try:
@@ -2126,13 +2242,18 @@ class RobotQtWindow(QMainWindow):
         return str(payload.get("text", "")).strip()
 
     def _build_iflytek_worker_command(self, args: list[str], debug_pcm: Path, result_path: Path) -> list[str]:
+        license_args: list[str] = []
+        if self._use_license_voice:
+            license_args = ["--use-license", "--cache-dir", str(self.runtime_root / "data")]
+
         if getattr(sys, "frozen", False):
-            return [sys.executable, "--iflytek-worker", *args, "--debug-save-path", str(debug_pcm), "--result-path", str(result_path)]
+            return [sys.executable, "--iflytek-worker", *args, *license_args, "--debug-save-path", str(debug_pcm), "--result-path", str(result_path)]
         return [
             sys.executable,
             str(self.runtime_root / "gui_main.py"),
             "--iflytek-worker",
             *args,
+            *license_args,
             "--debug-save-path",
             str(debug_pcm),
             "--result-path",
@@ -2241,11 +2362,18 @@ class RobotQtWindow(QMainWindow):
             )
             self._mic_stop_flag_path = stop_flag
             self._mic_result_path = result_path
-            self.mic_toggle_btn.setText("停止录音")
-            self.nlp_mic_status_label.setText("麦克风状态: 录音中")
-            self.status_label.setText("麦克风录音中，点击“停止录音”结束并识别。")
-            detail = "麦克风录音已启动（系统默认）" if selected_device is None else f"麦克风录音已启动（设备 {selected_device}）"
-            self._append_log("语音", "开始录音", "成功", detail)
+            self.mic_toggle_btn.setText(“停止录音”)
+            self.nlp_mic_status_label.setText(“麦克风状态: 准备中...”)
+            self.status_label.setText(“麦克风初始化中，请稍候...”)
+            detail = “麦克风录音已启动（系统默认）” if selected_device is None else f”麦克风录音已启动（设备 {selected_device}）”
+            self._append_log(“语音”, “开始录音”, “成功”, detail)
+
+            # 延迟 1.5 秒后提示可以说话
+            self._mic_ready_timer = QTimer(self)
+            self._mic_ready_timer.setSingleShot(True)
+            self._mic_ready_timer.timeout.connect(self._on_mic_ready)
+            self._mic_ready_timer.start(1500)
+
             if self._mic_poll_timer is None:
                 self._mic_poll_timer = QTimer(self)
                 self._mic_poll_timer.setInterval(300)
@@ -2254,6 +2382,11 @@ class RobotQtWindow(QMainWindow):
         except Exception as exc:
             self._show_critical("开始录音失败", str(exc))
             self._append_log("语音", "开始录音", "失败", str(exc))
+
+    def _on_mic_ready(self) -> None:
+        """麦克风初始化完成，提示用户可以说话"""
+        self.nlp_mic_status_label.setText("麦克风状态: 录音中")
+        self.status_label.setText("麦克风录音中，请说话... 点击"停止录音"结束。")
 
     def _stop_microphone_recording(self) -> None:
         if not self._mic_process or self._mic_process.poll() is not None:

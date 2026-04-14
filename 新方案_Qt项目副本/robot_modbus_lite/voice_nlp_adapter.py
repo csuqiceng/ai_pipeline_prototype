@@ -61,6 +61,11 @@ class VoiceNlpAdapter:
     def __init__(self, table: dict[str, QueryRecord], flow_names: Iterable[str]) -> None:
         self.table = table
         self.flow_names = tuple(sorted(str(name) for name in flow_names))
+        self._external_deepseek_client = None
+
+    def set_deepseek_client(self, client) -> None:
+        """注入外部 DeepSeek 客户端（订阅模式或自带 Key）"""
+        self._external_deepseek_client = client
 
     def parse(self, text: str, *, use_deepseek: bool = False) -> VoiceNlpPlan:
         normalized = text.strip()
@@ -117,7 +122,7 @@ class VoiceNlpAdapter:
 
     def _parse_with_deepseek(self, text: str) -> VoiceNlpPlan | None:
         try:
-            client = DeepSeekClient()
+            client = self._external_deepseek_client or DeepSeekClient.from_env()
             prompt = self._build_deepseek_prompt(text)
             payload = client.parse_json(prompt, model="deepseek-chat")
             if not payload:

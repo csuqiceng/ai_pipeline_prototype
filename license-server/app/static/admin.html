@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>授权管理后台</title>
+<style>
+:root {
+  --bg: #f0f2f5;
+  --card: #fff;
+  --border: #e8e8e8;
+  --text: #333;
+  --text2: #666;
+  --primary: #1677ff;
+  --primary-light: #e6f4ff;
+  --success: #52c41a;
+  --warning: #faad14;
+  --danger: #ff4d4f;
+  --radius: 8px;
+  --shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+/* Login */
+.login-wrap { display:flex; justify-content:center; align-items:center; min-height:100vh; }
+.login-box { background:var(--card); padding:40px; border-radius:var(--radius); box-shadow:var(--shadow); width:360px; }
+.login-box h2 { text-align:center; margin-bottom:24px; font-size:22px; }
+.login-box label { display:block; margin-bottom:4px; font-size:14px; color:var(--text2); }
+.login-box input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; margin-bottom:16px; outline:none; }
+.login-box input:focus { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary-light); }
+.login-box .error-msg { color:var(--danger); font-size:13px; margin-bottom:12px; display:none; }
+
+/* Layout */
+.app { display:none; }
+.navbar { background:var(--card); border-bottom:1px solid var(--border); padding:0 24px; display:flex; align-items:center; height:56px; }
+.navbar .logo { font-size:16px; font-weight:600; margin-right:32px; }
+.navbar .nav-links { display:flex; gap:4px; }
+.navbar .nav-links a { padding:8px 16px; border-radius:6px; text-decoration:none; color:var(--text2); font-size:14px; cursor:pointer; }
+.navbar .nav-links a:hover { background:var(--bg); }
+.navbar .nav-links a.active { background:var(--primary-light); color:var(--primary); font-weight:500; }
+.navbar .spacer { flex:1; }
+.navbar .logout { padding:8px 16px; border:1px solid var(--border); border-radius:6px; background:none; cursor:pointer; font-size:13px; color:var(--text2); }
+.navbar .logout:hover { border-color:var(--danger); color:var(--danger); }
+
+.main { max-width:1200px; margin:24px auto; padding:0 24px; }
+.page { display:none; }
+.page.active { display:block; }
+
+/* Dashboard cards */
+.stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px; }
+.stat-card { background:var(--card); border-radius:var(--radius); padding:20px; box-shadow:var(--shadow); }
+.stat-card .label { font-size:13px; color:var(--text2); margin-bottom:8px; }
+.stat-card .value { font-size:28px; font-weight:600; }
+
+/* Table */
+.table-wrap { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+.table-header { padding:16px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+.table-header h3 { font-size:16px; }
+table { width:100%; border-collapse:collapse; }
+th { background:#fafafa; text-align:left; padding:12px 16px; font-size:13px; color:var(--text2); font-weight:500; border-bottom:1px solid var(--border); }
+td { padding:12px 16px; font-size:14px; border-bottom:1px solid var(--border); }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#fafbfc; }
+.code { font-family:monospace; font-size:13px; background:#f5f5f5; padding:2px 8px; border-radius:4px; }
+
+/* Badges */
+.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:500; }
+.badge-active { background:#f6ffed; color:var(--success); }
+.badge-inactive { background:#f5f5f5; color:#999; }
+.badge-expired { background:#fff7e6; color:var(--warning); }
+.badge-revoked { background:#fff2f0; color:var(--danger); }
+.badge-suspended { background:#fff7e6; color:var(--warning); }
+.badge-trial { background:#e6f4ff; color:var(--primary); }
+.badge-monthly { background:#f9f0ff; color:#722ed1; }
+.badge-yearly { background:#e6fffb; color:#13c2c2; }
+.badge-lifetime { background:#f6ffed; color:var(--success); }
+.badge-custom { background:#fff0f6; color:#eb2f96; }
+
+/* Buttons */
+.btn { padding:6px 16px; border-radius:6px; border:1px solid var(--border); background:var(--card); cursor:pointer; font-size:13px; }
+.btn:hover { border-color:var(--primary); color:var(--primary); }
+.btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+.btn-primary:hover { background:#4096ff; }
+.btn-danger { color:var(--danger); border-color:var(--danger); }
+.btn-danger:hover { background:var(--danger); color:#fff; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.btn-group { display:flex; gap:6px; }
+
+/* Modal */
+.modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.4); z-index:100; justify-content:center; align-items:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--card); border-radius:var(--radius); padding:24px; width:480px; max-width:90vw; max-height:90vh; overflow-y:auto; }
+.modal h3 { margin-bottom:20px; font-size:16px; }
+.form-group { margin-bottom:16px; }
+.form-group label { display:block; margin-bottom:4px; font-size:13px; color:var(--text2); }
+.form-group input, .form-group select { width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px; outline:none; }
+.form-group input:focus, .form-group select:focus { border-color:var(--primary); }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.form-check { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.form-check input[type=checkbox] { width:16px; height:16px; }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+
+/* Empty */
+.empty { text-align:center; padding:48px; color:var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div class="login-wrap" id="loginPage">
+  <div class="login-box">
+    <h2>授权管理后台</h2>
+    <div class="error-msg" id="loginError"></div>
+    <label>用户名</label>
+    <input type="text" id="loginUser" placeholder="请输入用户名" autofocus>
+    <label>密码</label>
+    <input type="password" id="loginPass" placeholder="请输入密码">
+    <button class="btn btn-primary" style="width:100%;padding:10px;margin-top:8px" onclick="doLogin()">登 录</button>
+  </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app">
+  <div class="navbar">
+    <div class="logo">授权管理后台</div>
+    <div class="nav-links">
+      <a class="active" onclick="showPage('dashboard')">仪表盘</a>
+      <a onclick="showPage('licenses')">授权码管理</a>
+      <a onclick="showPage('users')">用户管理</a>
+    </div>
+    <div class="spacer"></div>
+    <button class="logout" onclick="doLogout()">退出登录</button>
+  </div>
+  <div class="main">
+
+    <!-- Dashboard -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats">
+        <div class="stat-card"><div class="label">总授权数</div><div class="value" id="stat-total">-</div></div>
+        <div class="stat-card"><div class="label">活跃授权</div><div class="value" id="stat-active" style="color:var(--success)">-</div></div>
+        <div class="stat-card"><div class="label">总用户数</div><div class="value" id="stat-users">-</div></div>
+        <div class="stat-card"><div class="label">今日 DeepSeek</div><div class="value" id="stat-ds">-</div></div>
+        <div class="stat-card"><div class="label">今日语音</div><div class="value" id="stat-voice">-</div></div>
+      </div>
+    </div>
+
+    <!-- Licenses -->
+    <div class="page" id="page-licenses">
+      <div class="table-wrap">
+        <div class="table-header">
+          <h3>授权码列表</h3>
+          <button class="btn btn-primary" onclick="openCreateModal()">+ 创建授权码</button>
+        </div>
+        <div id="licensesContent">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Users -->
+    <div class="page" id="page-users">
+      <div class="table-wrap">
+        <div class="table-header"><h3>用户列表</h3></div>
+        <div id="usersContent">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Create License Modal -->
+<div class="modal-overlay" id="createModal">
+  <div class="modal">
+    <h3 id="modalTitle">创建授权码</h3>
+    <input type="hidden" id="editId">
+    <div class="form-group">
+      <label>授权类型</label>
+      <select id="fType">
+        <option value="trial">试用版</option>
+        <option value="monthly" selected>月度订阅</option>
+        <option value="yearly">年度订阅</option>
+        <option value="lifetime">永久授权</option>
+        <option value="custom">自定义</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>有效期（天，0=永不过期）</label>
+        <input type="number" id="fDays" value="30" min="0">
+      </div>
+      <div class="form-group">
+        <label>状态（编辑时）</label>
+        <select id="fStatus">
+          <option value="active">激活</option>
+          <option value="inactive">未激活</option>
+          <option value="suspended">暂停</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-check">
+      <input type="checkbox" id="fVoice" checked><label for="fVoice">启用语音功能</label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>语音每日配额（0=无限）</label>
+        <input type="number" id="fVoiceQuota" value="100" min="0">
+      </div>
+    </div>
+    <div class="form-check">
+      <input type="checkbox" id="fDeepseek" checked><label for="fDeepseek">启用 DeepSeek</label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>DeepSeek 月配额（0=无限）</label>
+        <input type="number" id="fDsQuota" value="1000" min="0">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('createModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitLicense()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="width:360px">
+    <h3 id="confirmTitle">确认操作</h3>
+    <p id="confirmMsg" style="margin:12px 0;color:var(--text2)"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('confirmModal')">取消</button>
+      <button class="btn btn-danger" id="confirmBtn" onclick="">确认</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1';
+let token = localStorage.getItem('admin_token');
+
+// --- Auth ---
+async function doLogin() {
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginError');
+  if (!username || !password) { errEl.textContent='请填写用户名和密码'; errEl.style.display='block'; return; }
+  try {
+    const r = await fetch(API+'/admin/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username, password})
+    });
+    const d = await r.json();
+    if (d.data && d.data.access_token) {
+      token = d.data.access_token;
+      localStorage.setItem('admin_token', token);
+      enterApp();
+    } else {
+      errEl.textContent = d.message || d.detail || '登录失败';
+      errEl.style.display = 'block';
+    }
+  } catch(e) { errEl.textContent='网络错误'; errEl.style.display='block'; }
+}
+
+function doLogout() {
+  token = null;
+  localStorage.removeItem('admin_token');
+  document.getElementById('loginPage').style.display='flex';
+  document.getElementById('app').style.display='none';
+}
+
+function enterApp() {
+  document.getElementById('loginPage').style.display='none';
+  document.getElementById('app').style.display='block';
+  showPage('dashboard');
+}
+
+// Enter key on login
+document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+document.getElementById('loginUser').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
+
+// Auto-login
+if (token) enterApp();
+
+// 自动刷新当前页面数据（30秒）
+setInterval(() => {
+  const active = document.querySelector('.page.active');
+  if (!active) return;
+  if (active.id === 'page-dashboard') loadStats();
+  else if (active.id === 'page-licenses') loadLicenses();
+  else if (active.id === 'page-users') loadUsers();
+}, 30000);
+
+// --- API helper ---
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Authorization':'Bearer '+token, 'Content-Type':'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API+path, opts);
+  if (r.status === 401) { doLogout(); throw new Error('登录已过期'); }
+  return r.json();
+}
+
+// --- Pages ---
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+  document.querySelectorAll('.nav-links a').forEach(a => { if(a.textContent.includes(name==='dashboard'?'仪表':name==='licenses'?'授权':'用户')) a.classList.add('active'); });
+  if (name==='dashboard') loadStats();
+  if (name==='licenses') loadLicenses();
+  if (name==='users') loadUsers();
+}
+
+// --- Dashboard ---
+async function loadStats() {
+  try {
+    const d = await api('GET', '/admin/statistics');
+    const s = d.data;
+    document.getElementById('stat-total').textContent = s.total_licenses;
+    document.getElementById('stat-active').textContent = s.active_licenses;
+    document.getElementById('stat-users').textContent = s.total_users;
+    document.getElementById('stat-ds').textContent = s.deepseek_calls_today;
+    document.getElementById('stat-voice').textContent = s.voice_calls_today;
+  } catch(e) { console.error(e); }
+}
+
+// --- Licenses ---
+async function loadLicenses() {
+  const el = document.getElementById('licensesContent');
+  try {
+    const d = await api('GET', '/admin/licenses');
+    const list = d.data;
+    if (!list || !list.length) { el.innerHTML='<div class="empty">暂无授权码</div>'; return; }
+    let html = '<table><thead><tr><th>授权码</th><th>类型</th><th>状态</th><th>语音</th><th>DeepSeek</th><th>配额(语音/DS)</th><th>到期时间</th><th>设备</th><th>操作</th></tr></thead><tbody>';
+    list.forEach(l => {
+      const statusBadge = `<span class="badge badge-${l.status}">${statusText(l.status)}</span>`;
+      const typeBadge = `<span class="badge badge-${l.license_type}">${typeText(l.license_type)}</span>`;
+      const voiceIcon = l.voice_enabled ? '✓' : '✗';
+      const dsIcon = l.deepseek_enabled ? '✓' : '✗';
+      const quota = `${l.voice_daily_quota || '∞'} / ${l.deepseek_monthly_quota || '∞'}`;
+      const expires = l.expires_at ? new Date(l.expires_at).toLocaleDateString('zh-CN') : '永久';
+      const machine = l.machine_name || l.machine_id || '-';
+      html += `<tr>
+        <td><span class="code">${l.license_code}</span></td>
+        <td>${typeBadge}</td>
+        <td>${statusBadge}</td>
+        <td>${voiceIcon}</td><td>${dsIcon}</td>
+        <td>${quota}</td>
+        <td>${expires}</td>
+        <td title="${l.machine_id||''}">${machine.length>12?machine.substring(0,12)+'…':machine}</td>
+        <td><div class="btn-group">
+          <button class="btn btn-sm" onclick='openEditModal(${JSON.stringify(l)})'>编辑</button>
+          ${l.status!=='revoked'?`<button class="btn btn-sm btn-danger" onclick="confirmRevoke(${l.id},'${l.license_code}')">吊销</button>`:''}
+        </div></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML=`<div class="empty">加载失败: ${e.message}</div>`; }
+}
+
+function statusText(s) { return {active:'活跃',inactive:'未激活',expired:'已过期',suspended:'已暂停',revoked:'已吊销'}[s]||s; }
+function typeText(t) { return {trial:'试用版',monthly:'月度',yearly:'年度',lifetime:'永久',custom:'自定义'}[t]||t; }
+
+// --- Create/Edit Modal ---
+function openCreateModal() {
+  document.getElementById('modalTitle').textContent = '创建授权码';
+  document.getElementById('editId').value = '';
+  document.getElementById('fType').value = 'monthly';
+  document.getElementById('fType').disabled = false;
+  document.getElementById('fDays').value = 30;
+  document.getElementById('fStatus').value = 'active';
+  document.getElementById('fStatus').parentElement.style.display = 'none';
+  document.getElementById('fVoice').checked = true;
+  document.getElementById('fDeepseek').checked = true;
+  document.getElementById('fVoiceQuota').value = 100;
+  document.getElementById('fDsQuota').value = 1000;
+  document.getElementById('createModal').classList.add('show');
+}
+
+function openEditModal(l) {
+  document.getElementById('modalTitle').textContent = '编辑授权码';
+  document.getElementById('editId').value = l.id;
+  document.getElementById('fType').value = l.license_type;
+  document.getElementById('fType').disabled = true;
+  document.getElementById('fDays').value = 0;
+  document.getElementById('fStatus').value = l.status;
+  document.getElementById('fStatus').parentElement.style.display = '';
+  document.getElementById('fVoice').checked = l.voice_enabled;
+  document.getElementById('fDeepseek').checked = l.deepseek_enabled;
+  document.getElementById('fVoiceQuota').value = l.voice_daily_quota;
+  document.getElementById('fDsQuota').value = l.deepseek_monthly_quota;
+  document.getElementById('createModal').classList.add('show');
+}
+
+async function submitLicense() {
+  const editId = document.getElementById('editId').value;
+  const body = {
+    license_type: document.getElementById('fType').value,
+    voice_enabled: document.getElementById('fVoice').checked,
+    deepseek_enabled: document.getElementById('fDeepseek').checked,
+    voice_daily_quota: parseInt(document.getElementById('fVoiceQuota').value) || 0,
+    deepseek_monthly_quota: parseInt(document.getElementById('fDsQuota').value) || 0,
+  };
+  try {
+    if (editId) {
+      body.status = document.getElementById('fStatus').value;
+      await api('PUT', '/admin/licenses/'+editId, body);
+      alert('更新成功');
+    } else {
+      body.validity_days = parseInt(document.getElementById('fDays').value) || 0;
+      const d = await api('POST', '/admin/licenses/create', body);
+      if (d.data && d.data.license_code) {
+        alert('创建成功！授权码: ' + d.data.license_code);
+      } else {
+        alert('创建成功');
+      }
+    }
+    closeModal('createModal');
+    loadLicenses();
+    loadStats();
+  } catch(e) { alert('操作失败: ' + e.message); }
+}
+
+function confirmRevoke(id, code) {
+  document.getElementById('confirmTitle').textContent = '确认吊销';
+  document.getElementById('confirmMsg').textContent = `确定要吊销授权码 ${code} 吗？吊销后客户端将无法使用。`;
+  document.getElementById('confirmBtn').onclick = async () => {
+    try {
+      await api('DELETE', '/admin/licenses/'+id);
+      closeModal('confirmModal');
+      loadLicenses();
+      loadStats();
+    } catch(e) { alert('吊销失败: '+e.message); }
+  };
+  document.getElementById('confirmModal').classList.add('show');
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if(e.target===el) el.classList.remove('show'); });
+});
+
+// --- Users ---
+async function loadUsers() {
+  const el = document.getElementById('usersContent');
+  try {
+    const d = await api('GET', '/admin/users');
+    const list = d.data;
+    if (!list || !list.length) { el.innerHTML='<div class="empty">暂无用户</div>'; return; }
+    let html = '<table><thead><tr><th>ID</th><th>联系人</th><th>公司</th><th>邮箱</th><th>电话</th><th>状态</th><th>注册时间</th></tr></thead><tbody>';
+    list.forEach(u => {
+      const statusBadge = `<span class="badge badge-${u.status}">${statusText(u.status)}</span>`;
+      const created = u.created_at ? new Date(u.created_at).toLocaleDateString('zh-CN') : '-';
+      html += `<tr><td>${u.id}</td><td>${u.contact_name||'-'}</td><td>${u.company_name||'-'}</td><td>${u.email||'-'}</td><td>${u.phone||'-'}</td><td>${statusBadge}</td><td>${created}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  } catch(e) { el.innerHTML=`<div class="empty">加载失败: ${e.message}</div>`; }
+}
+</script>
+</body>
+</html>

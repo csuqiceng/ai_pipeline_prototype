@@ -10,6 +10,7 @@ from .iflytek_iat import (
     IFlytekIATConfig,
     IFlytekMicrophoneConfig,
 )
+from .license_manager import LicenseManager
 
 
 def _ok_payload(text: str, chunks: list[str] | None = None) -> int:
@@ -32,10 +33,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--debug-save-path")
     parser.add_argument("--stop-flag-path")
     parser.add_argument("--result-path")
+    parser.add_argument("--use-license", action="store_true",
+                        help="使用订阅模式（代理模式）")
+    parser.add_argument("--cache-dir",
+                        help="授权缓存目录（订阅模式时需要）")
     args = parser.parse_args(argv)
 
     try:
-        client = IFlytekIATClient(IFlytekIATConfig.from_env())
+        if args.use_license:
+            cache_dir = Path(args.cache_dir) if args.cache_dir else Path(__file__).resolve().parent
+            license_manager = LicenseManager(cache_dir)
+            client = IFlytekIATClient.from_license(license_manager)
+        else:
+            client = IFlytekIATClient(IFlytekIATConfig.from_env())
         if args.mode == "audio":
             if not args.input:
                 return _write_result_and_exit(args.result_path, {"ok": False, "error": "音频识别缺少 --input 参数。"}, 1)

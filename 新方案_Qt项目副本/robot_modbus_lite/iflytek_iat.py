@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import requests
 
 
 class IFlytekRTASRError(RuntimeError):
@@ -59,7 +62,7 @@ class IFlytekMicrophoneConfig:
     sample_width_bytes: int = 2
     preferred_backend: str | None = None
     device: int | None = None
-    warmup_sec: float = 0.2
+    warmup_sec: float = 0.5
     debug_save_path: str | None = None
     stop_flag_path: str | None = None
 
@@ -67,6 +70,8 @@ class IFlytekMicrophoneConfig:
 class IFlytekIATClient:
     def __init__(self, config: IFlytekIATConfig) -> None:
         self.config = config
+        self._license_manager = None
+        self._use_proxy = False
         try:
             from xfyunsdkspeech.iat_client import IatClient
         except Exception as exc:
@@ -88,7 +93,20 @@ class IFlytekIATClient:
             request_timeout=config.request_timeout,
         )
 
+    @classmethod
+    def from_license(cls, license_manager) -> "IFlytekIATClient":
+        """工厂方法：从授权管理器创建客户端（代理模式）"""
+        instance = cls.__new__(cls)
+        instance.config = None
+        instance._client = None
+        instance._license_manager = license_manager
+        instance._use_proxy = True
+        return instance
+
     def transcribe_file(self, file_path: str) -> IFlytekIATResult:
+        if self._use_proxy:
+            return self._transcribe_via_proxy(file_path)
+
         path = Path(file_path)
         if not path.exists():
             raise IFlytekRTASRError(f"未找到音频文件: {path}")
@@ -105,8 +123,51 @@ class IFlytekIATClient:
 
         return IFlytekIATResult(text="".join(chunks).strip(), chunks=chunks)
 
+    def _transcribe_via_proxy(self, file_path: str) -> IFlytekIATResult:
+        """通过后台代理转写音频"""
+        token = self._license_manager.get_access_token()
+        if not token:
+            raise IFlytekRTASRError("授权无效或已过期，请重新激活")
+
+        path = Path(file_path)
+        if not path.exists():
+            raise IFlytekRTASRError(f"未找到音频文件: {path}")
+
+        audio_base64 = base64.b64encode(path.read_bytes()).decode()
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        payload = {
+            "audio_data": audio_base64,
+            "audio_format": path.suffix.lstrip(".") or "raw",
+        }
+
+        proxy_url = f"{self._license_manager.SERVER_URL}/api/v1/proxy/voice/transcribe"
+
+        response = requests.post(proxy_url, headers=headers, json=payload, timeout=60)
+
+        if response.status_code == 401:
+            raise IFlytekRTASRError("授权已过期，请重新激活")
+        elif response.status_code == 403:
+            raise IFlytekRTASRError("当前授权未启用语音功能")
+        elif response.status_code == 429:
+            raise IFlytekRTASRError("今日语音配额已用尽")
+
+        response.raise_for_status()
+        result = response.json()
+
+        text = result.get("data", {}).get("text", "")
+        return IFlytekIATResult(text=text.strip(), chunks=[text.strip()] if text.strip() else [])
+
     def transcribe_microphone(self, mic_config: IFlytekMicrophoneConfig | None = None) -> IFlytekIATResult:
         mic_config = mic_config or IFlytekMicrophoneConfig()
+
+        # 代理模式：先录音到临时文件，再通过代理上传
+        if self._use_proxy:
+            return self._transcribe_mic_via_proxy(mic_config)
+
         stream = self._open_microphone_stream(mic_config)
         chunks: list[str] = []
         try:
@@ -127,6 +188,47 @@ class IFlytekIATClient:
                 pass
 
         return IFlytekIATResult(text="".join(chunks).strip(), chunks=chunks)
+
+    def _transcribe_mic_via_proxy(self, mic_config: IFlytekMicrophoneConfig) -> IFlytekIATResult:
+        """代理模式：先录音到临时文件，再上传代理转写"""
+        import tempfile
+
+        stream = self._open_microphone_stream(mic_config)
+
+        # 丢弃 warmup 阶段的噪声帧，避免开头识别丢失
+        warmup_frames = int(mic_config.sample_rate * mic_config.warmup_sec)
+        if warmup_frames > 0:
+            stream.read(warmup_frames * mic_config.channels * mic_config.sample_width_bytes)
+
+        captured = bytearray()
+        try:
+            while True:
+                data = stream.read(3200)
+                if not data:
+                    break
+                captured.extend(data)
+        finally:
+            try:
+                stream.stop_stream()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+        if not captured:
+            return IFlytekIATResult(text="", chunks=[])
+
+        # 保存为临时文件再通过代理上传
+        with tempfile.NamedTemporaryFile(suffix=".pcm", delete=False) as tmp:
+            tmp.write(bytes(captured))
+            tmp_path = tmp.name
+
+        try:
+            return self._transcribe_via_proxy(tmp_path)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
     def _extract_text(self, chunk: object) -> str:
         if not isinstance(chunk, dict):
