@@ -168,6 +168,8 @@ class RobotQtWindow(QMainWindow):
         self._mic_poll_timer: QTimer | None = None
         self._mic_stop_flag_path: Path | None = None
         self._mic_result_path: Path | None = None
+        self._mic_recorder_thread = None  # 代理模式 QThread 持久录音线程
+        self._proxy_mic_capturing = False  # 代理模式是否正在采集
 
         # 授权相关
         self.license_manager = LicenseManager(self.runtime_root / "data")
@@ -344,6 +346,8 @@ class RobotQtWindow(QMainWindow):
                     self._use_license_voice = True
 
                 self._update_license_status_label()
+                # 预打开麦克风流（无论订阅还是本地模式，都零延迟）
+                self._ensure_mic_stream()
                 return
         except Exception:
             pass
@@ -357,6 +361,7 @@ class RobotQtWindow(QMainWindow):
                 self._deepseek_client = None
 
         self._update_license_status_label()
+        self._ensure_mic_stream()
 
     def _show_license_dialog(self) -> None:
         dlg = LicenseDialog(self.license_manager, self)
@@ -636,9 +641,7 @@ class RobotQtWindow(QMainWindow):
         nlp_btn_layout.addWidget(self.nlp_execute_btn)
         nlp_btn_layout.addStretch(1)
         nlp_left_layout.addLayout(nlp_btn_layout)
-        self.nlp_mic_status_label = QLabel("麦克风状态: 空闲")
-        self.nlp_mic_status_label.setObjectName("tip")
-        nlp_left_layout.addWidget(self.nlp_mic_status_label)
+
         nlp_layout.addWidget(nlp_left, 3)
 
         nlp_right = QGroupBox("解析结果")
@@ -2325,6 +2328,15 @@ class RobotQtWindow(QMainWindow):
             self._append_log("语音", "麦克风识别", "失败", str(exc))
 
     def _toggle_microphone_recording(self) -> None:
+        # 持久线程：正在采集 → 停止
+        if self._proxy_mic_capturing and self._mic_recorder_thread is not None:
+            self._mic_recorder_thread.stop_capturing()
+            self._proxy_mic_capturing = False
+            self.mic_toggle_btn.setEnabled(False)
+            self.status_label.setText("正在停止录音并等待识别结果。")
+            self._append_log("语音", "停止录音", "成功", "已发送停止信号")
+            return
+        # 子进程模式：停止
         if self._mic_process and self._mic_process.poll() is None:
             self._stop_microphone_recording()
             return
@@ -2333,68 +2345,260 @@ class RobotQtWindow(QMainWindow):
     def _start_microphone_recording(self) -> None:
         if self._mic_process and self._mic_process.poll() is None:
             return
+        if self._proxy_mic_capturing:
+            return
         try:
             self._create_iflytek_client()
-            log_dir = self.runtime_root / "data" / "exported_logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            debug_pcm = log_dir / f"voice_debug_{timestamp}.pcm"
-            result_path = log_dir / f"iflytek_result_mic_{timestamp}.json"
-            stop_flag = log_dir / f"voice_stop_{timestamp}.flag"
-            if stop_flag.exists():
-                stop_flag.unlink()
-            selected_device = self._selected_microphone_device()
-            mic_args = ["--mode", "mic", "--duration", "3600", "--stop-flag-path", str(stop_flag)]
-            if selected_device is not None:
-                mic_args.extend(["--device", str(selected_device)])
-            cmd = self._build_iflytek_worker_command(
-                mic_args,
-                debug_pcm,
-                result_path,
-            )
-            self._mic_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                cwd=str(self.runtime_root),
-            )
-            self._mic_stop_flag_path = stop_flag
-            self._mic_result_path = result_path
-            self.mic_toggle_btn.setText(“停止录音”)
-            self.nlp_mic_status_label.setText(“麦克风状态: 准备中...”)
-            self.status_label.setText(“麦克风初始化中，请稍候...”)
-            detail = “麦克风录音已启动（系统默认）” if selected_device is None else f”麦克风录音已启动（设备 {selected_device}）”
-            self._append_log(“语音”, “开始录音”, “成功”, detail)
 
-            # 延迟 1.5 秒后提示可以说话
-            self._mic_ready_timer = QTimer(self)
-            self._mic_ready_timer.setSingleShot(True)
-            self._mic_ready_timer.timeout.connect(self._on_mic_ready)
-            self._mic_ready_timer.start(1500)
-
-            if self._mic_poll_timer is None:
-                self._mic_poll_timer = QTimer(self)
-                self._mic_poll_timer.setInterval(300)
-                self._mic_poll_timer.timeout.connect(self._poll_microphone_recording)
-            self._mic_poll_timer.start()
+            # 优先使用持久线程（零延迟）
+            if self._mic_recorder_thread is not None:
+                self._mic_recorder_thread.start_capturing()
+                self._proxy_mic_capturing = True
+                self.mic_toggle_btn.setText("停止录音")
+                self.status_label.setText("麦克风录音中，请说话...")
+                self._append_log("语音", "开始录音", "成功", "零延迟模式")
+            else:
+                # 降级到子进程模式
+                self._start_subprocess_recording()
         except Exception as exc:
             self._show_critical("开始录音失败", str(exc))
             self._append_log("语音", "开始录音", "失败", str(exc))
 
+    def _ensure_mic_stream(self) -> None:
+        """预打开麦克风流，保持待命状态，点击录音时零延迟（订阅/本地模式通用）。"""
+        if self._mic_recorder_thread is not None:
+            return
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return
+
+        from PySide6.QtCore import QThread as _QThread
+
+        selected_device = self._selected_microphone_device()
+        sample_rate = 16000
+
+        class MicStreamThread(_QThread):
+            audio_captured = Signal(bytes)  # 原始 PCM 数据
+
+            def __init__(self, parent_win, sample_rate, device):
+                super().__init__(parent_win)
+                self._sample_rate = sample_rate
+                self._device = device
+                self._capturing = False
+                self._shutdown = False
+                self._frames = []
+                self._stop_requested = False
+
+            def start_capturing(self):
+                self._frames = []
+                self._capturing = True
+
+            def stop_capturing(self):
+                self._capturing = False
+                self._stop_requested = True
+
+            def shutdown(self):
+                self._shutdown = True
+                self._capturing = False
+
+            def run(self):
+                try:
+                    def callback(indata, frames_count, time_info, status):
+                        if self._capturing:
+                            self._frames.append(indata.copy())
+                        if self._shutdown:
+                            raise sd.CallbackStop()
+
+                    with sd.InputStream(
+                        samplerate=self._sample_rate,
+                        channels=1,
+                        dtype='int16',
+                        device=self._device,
+                        callback=callback,
+                    ):
+                        while not self._shutdown:
+                            time.sleep(0.05)
+                            if self._stop_requested:
+                                self._stop_requested = False
+                                import numpy as np
+                                captured = self._frames
+                                self._frames = []
+                                if captured:
+                                    audio = np.concatenate(captured)
+                                    self.audio_captured.emit(audio.tobytes())
+                                else:
+                                    self.audio_captured.emit(b'')
+                except sd.CallbackStop:
+                    pass
+                except Exception:
+                    if not self._shutdown:
+                        self.audio_captured.emit(b'')
+
+        self._mic_recorder_thread = MicStreamThread(self, sample_rate, selected_device)
+        self._mic_recorder_thread.audio_captured.connect(self._on_mic_audio_captured)
+        self._mic_recorder_thread.start()
+        self._append_log("语音", "预热麦克风", "成功", "麦克风流已后台启动")
+
+    def _on_mic_audio_captured(self, pcm_data: bytes) -> None:
+        """录音采集完成，根据模式选择识别方式"""
+        self._proxy_mic_capturing = False
+
+        if not pcm_data:
+            self.mic_toggle_btn.setEnabled(True)
+            self.mic_toggle_btn.setText("开始录音")
+            self._show_critical("麦克风识别失败", "未录到音频")
+            self._append_log("语音", "麦克风识别", "失败", "未录到音频")
+            return
+
+        if self._use_license_voice:
+            self._recognize_via_proxy(pcm_data)
+        else:
+            self._recognize_via_local(pcm_data)
+
+    def _recognize_via_proxy(self, pcm_data: bytes) -> None:
+        """订阅模式：上传代理服务器识别"""
+        import base64
+        import requests as _requests
+
+        self.status_label.setText("正在上传语音识别...")
+        self.mic_toggle_btn.setEnabled(False)
+        self.mic_toggle_btn.setText("识别中...")
+
+        def work():
+            audio_b64 = base64.b64encode(pcm_data).decode()
+            token = self.license_manager.get_access_token()
+            if not token:
+                raise RuntimeError("授权已过期")
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            payload = {
+                "audio_data": audio_b64,
+                "audio_format": "pcm",
+                "sample_rate": 16000,
+            }
+            proxy_url = f"{self.license_manager.SERVER_URL}/api/v1/proxy/voice/transcribe"
+            resp = _requests.post(proxy_url, headers=headers, json=payload, timeout=60)
+            if resp.status_code == 401:
+                raise RuntimeError("授权已过期")
+            elif resp.status_code == 429:
+                raise RuntimeError("今日语音配额已用尽")
+            resp.raise_for_status()
+            return resp.json().get("data", {}).get("text", "").strip()
+
+        def on_result(result):
+            self.mic_toggle_btn.setEnabled(True)
+            self.mic_toggle_btn.setText("开始录音")
+            if isinstance(result, Exception):
+                self._show_critical("麦克风识别失败", str(result))
+                self._append_log("语音", "麦克风识别", "失败", str(result))
+            else:
+                self.nlp_input_edit.setPlainText(result)
+                self.status_label.setText("麦克风识别完成")
+                self._append_log("语音", "麦克风识别", "成功", result or "-")
+
+        self._run_in_background(work, on_result)
+
+    def _recognize_via_local(self, pcm_data: bytes) -> None:
+        """本地模式：保存临时文件 + 调用 iflytek worker 识别"""
+        import tempfile
+
+        self.status_label.setText("正在识别语音...")
+        self.mic_toggle_btn.setEnabled(False)
+        self.mic_toggle_btn.setText("识别中...")
+
+        def work():
+            tmp = tempfile.NamedTemporaryFile(suffix='.pcm', delete=False)
+            tmp.write(pcm_data)
+            tmp_name = tmp.name
+            tmp.close()
+            try:
+                return self._run_iflytek_worker(["--mode", "audio", "--input", tmp_name])
+            finally:
+                Path(tmp_name).unlink(missing_ok=True)
+
+        def on_result(result):
+            self.mic_toggle_btn.setEnabled(True)
+            self.mic_toggle_btn.setText("开始录音")
+            if isinstance(result, Exception):
+                self._show_critical("麦克风识别失败", str(result))
+                self._append_log("语音", "麦克风识别", "失败", str(result))
+            else:
+                self.nlp_input_edit.setPlainText(result)
+                self.status_label.setText("麦克风识别完成")
+                self._append_log("语音", "麦克风识别", "成功", result or "-")
+
+        self._run_in_background(work, on_result)
+
+    def _start_subprocess_recording(self) -> None:
+        """直连模式：子进程录音"""
+        log_dir = self.runtime_root / "data" / "exported_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        debug_pcm = log_dir / f"voice_debug_{timestamp}.pcm"
+        result_path = log_dir / f"iflytek_result_mic_{timestamp}.json"
+        stop_flag = log_dir / f"voice_stop_{timestamp}.flag"
+        if stop_flag.exists():
+            stop_flag.unlink()
+        selected_device = self._selected_microphone_device()
+        mic_args = ["--mode", "mic", "--duration", "3600", "--stop-flag-path", str(stop_flag)]
+        if selected_device is not None:
+            mic_args.extend(["--device", str(selected_device)])
+        cmd = self._build_iflytek_worker_command(
+            mic_args,
+            debug_pcm,
+            result_path,
+        )
+        self._mic_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            cwd=str(self.runtime_root),
+        )
+        self._mic_stop_flag_path = stop_flag
+        self._mic_result_path = result_path
+        self.mic_toggle_btn.setText("停止录音")
+
+        self.status_label.setText("麦克风初始化中，请稍候...")
+        detail = "麦克风录音已启动（系统默认）" if selected_device is None else f"麦克风录音已启动（设备 {selected_device}）"
+        self._append_log("语音", "开始录音", "成功", detail)
+
+        # 延迟 1.5 秒后提示可以说话
+        self._mic_ready_timer = QTimer(self)
+        self._mic_ready_timer.setSingleShot(True)
+        self._mic_ready_timer.timeout.connect(self._on_mic_ready)
+        self._mic_ready_timer.start(1500)
+
+        if self._mic_poll_timer is None:
+            self._mic_poll_timer = QTimer(self)
+            self._mic_poll_timer.setInterval(300)
+            self._mic_poll_timer.timeout.connect(self._poll_microphone_recording)
+        self._mic_poll_timer.start()
+
     def _on_mic_ready(self) -> None:
         """麦克风初始化完成，提示用户可以说话"""
-        self.nlp_mic_status_label.setText("麦克风状态: 录音中")
-        self.status_label.setText("麦克风录音中，请说话... 点击"停止录音"结束。")
+
+        self.status_label.setText("麦克风录音中，请说话... 点击'停止录音'结束。")
 
     def _stop_microphone_recording(self) -> None:
+        # 代理模式：停止采集并上传
+        if self._proxy_mic_capturing and self._mic_recorder_thread is not None:
+            self._mic_recorder_thread.stop_capturing()
+            self._proxy_mic_capturing = False
+            self.mic_toggle_btn.setEnabled(False)
+            self.status_label.setText("正在停止录音并等待识别结果。")
+            self._append_log("语音", "停止录音", "成功", "已发送停止信号")
+            return
+        # 直连模式：写停止标记给子进程
         if not self._mic_process or self._mic_process.poll() is not None:
             return
         if self._mic_stop_flag_path:
             self._mic_stop_flag_path.write_text("stop", encoding="utf-8")
         self.mic_toggle_btn.setEnabled(False)
-        self.nlp_mic_status_label.setText("麦克风状态: 正在停止")
         self.status_label.setText("正在停止录音并等待识别结果。")
         self._append_log("语音", "停止录音", "成功", "已发送停止信号")
 
@@ -2440,7 +2644,7 @@ class RobotQtWindow(QMainWindow):
         if not result_path or not Path(result_path).exists():
             error_text = (stderr or "").strip() or "麦克风识别未返回结果。"
             error_text = f"{error_text}\n调试日志: {worker_log}"
-            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+    
             self._show_critical("麦克风识别失败", error_text)
             self._append_log("语音", "麦克风识别", "失败", error_text)
             return
@@ -2448,20 +2652,20 @@ class RobotQtWindow(QMainWindow):
             payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             message = f"麦克风识别结果文件不是合法 JSON。\n调试日志: {worker_log}"
-            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+    
             self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
         if not payload.get("ok"):
             message = f"{payload.get('error', '麦克风识别失败。')}\n调试日志: {worker_log}"
-            self.nlp_mic_status_label.setText("麦克风状态: 失败")
+    
             self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
 
         text = str(payload.get("text", "")).strip()
         self.nlp_input_edit.setPlainText(text)
-        self.nlp_mic_status_label.setText("麦克风状态: 完成")
+
         self.status_label.setText("麦克风识别完成")
         self._append_log("语音", "麦克风识别", "成功", text or "-")
 
@@ -3152,6 +3356,10 @@ class RobotQtWindow(QMainWindow):
             self._cached_client_host = ""
 
     def closeEvent(self, event) -> None:
+        if self._mic_recorder_thread is not None:
+            self._mic_recorder_thread.shutdown()
+            self._mic_recorder_thread.wait(3000)
+            self._mic_recorder_thread = None
         self._disconnect_client()
         super().closeEvent(event)
 
