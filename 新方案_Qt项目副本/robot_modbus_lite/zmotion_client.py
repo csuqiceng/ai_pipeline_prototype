@@ -84,6 +84,44 @@ class ZMotionVrClient:
             self._ensure_ok(ret, "ZAux_Direct_GetVrf")
             return [float(item) for item in values]
 
+    # ── V3.0 Modbus TCP 方法 ──────────────────────────────────────
+
+    def write_modbus_float(self, request: VrWriteRequest) -> None:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret = self._device.ZAux_Modbus_Set4x_Float(
+                request.start_vr,
+                len(request.values),
+                list(request.values),
+            )
+            self._ensure_ok(ret, "ZAux_Modbus_Set4x_Float")
+
+    def read_modbus_float(self, request: VrReadRequest) -> list[float]:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret, values = self._device.ZAux_Modbus_Get4x_Float(
+                request.start_vr, request.count,
+            )
+            self._ensure_ok(ret, "ZAux_Modbus_Get4x_Float")
+            return [float(item) for item in values]
+
+    def write_modbus_bit(self, start: int, values: list[int]) -> None:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret = self._device.ZAux_Modbus_Set0x(start, len(values), values)
+            self._ensure_ok(ret, "ZAux_Modbus_Set0x")
+
+    def read_modbus_bit(self, start: int, count: int) -> list[int]:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret, values = self._device.ZAux_Modbus_Get0x(start, count)
+            self._ensure_ok(ret, "ZAux_Modbus_Get0x")
+            return [int(item) for item in values]
+
     def _ensure_ok(self, ret: int, action: str) -> None:
         if ret != 0:
             raise ZMotionClientError(f"{action} failed with code {ret}")

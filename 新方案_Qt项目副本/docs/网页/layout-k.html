@@ -1,0 +1,1783 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>机器人控制系统 - Touch Panel HMI</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #2C3E50;
+  --bg-panel: #34495E;
+  --bg-panel-light: #3D566E;
+  --bg-input: #283848;
+  --text-primary: #ECF0F1;
+  --text-secondary: #BDC3C7;
+  --text-muted: #95A5A6;
+  --accent-green: #2ECC71;
+  --accent-red: #E74C3C;
+  --accent-yellow: #F1C40F;
+  --accent-blue: #3498DB;
+  --accent-orange: #E67E22;
+  --border-color: #4A6278;
+  --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-lg: 0 2px 8px rgba(0,0,0,0.3);
+  --radius: 6px;
+  --radius-lg: 8px;
+  --touch-min: 44px;
+  --header-h: 48px;
+  --statusbar-h: 36px;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* ===== LAYOUT SHELL ===== */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* ===== HEADER ===== */
+.app-header {
+  height: var(--header-h);
+  min-height: var(--header-h);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.header-brand svg {
+  width: 28px;
+  height: 28px;
+  fill: var(--accent-blue);
+}
+
+.header-brand span {
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.header-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+}
+
+.tab-btn {
+  min-height: var(--touch-min);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s;
+  white-space: nowrap;
+}
+
+.tab-btn:active {
+  background: var(--bg-panel-light);
+}
+
+.tab-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+  font-weight: 700;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.conn-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conn-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  box-shadow: 0 0 6px rgba(46,204,113,0.5);
+  animation: pulse-green 2s infinite;
+}
+
+.conn-dot.disconnected {
+  background: var(--accent-red);
+  box-shadow: 0 0 6px rgba(231,76,60,0.5);
+  animation: none;
+}
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.conn-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.estop-btn {
+  min-height: var(--touch-min);
+  padding: 0 20px;
+  border: 2px solid var(--accent-red);
+  border-radius: var(--radius);
+  background: var(--accent-red);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.15);
+  white-space: nowrap;
+}
+
+.estop-btn:active {
+  background: #C0392B;
+  border-color: #C0392B;
+  transform: scale(0.97);
+}
+
+/* ===== MAIN CONTENT ===== */
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+}
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* ===== CONNECTION STRIP ===== */
+.strip {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+
+.strip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.strip-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+/* ===== FORM CONTROLS ===== */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  min-height: var(--touch-min);
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2395A5A6' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.ip-input {
+  width: 180px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.port-input {
+  width: 80px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.protocol-select {
+  min-width: 120px;
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  min-height: var(--touch-min);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  transition: transform 0.05s;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  color: #fff;
+}
+.btn-primary:active { background: #2980B9; }
+
+.btn-success {
+  background: var(--accent-green);
+  color: #fff;
+}
+.btn-success:active { background: #27AE60; }
+
+.btn-danger {
+  background: var(--accent-red);
+  color: #fff;
+}
+.btn-danger:active { background: #C0392B; }
+
+.btn-warning {
+  background: var(--accent-yellow);
+  color: #2C3E50;
+}
+.btn-warning:active { background: #D4AC0D; }
+
+.btn-secondary {
+  background: var(--bg-panel-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+.btn-secondary:active { background: #2C3E50; }
+
+.btn-orange {
+  background: var(--accent-orange);
+  color: #fff;
+}
+.btn-orange:active { background: #D35400; }
+
+/* ===== CONTROL STRIP BUTTONS ===== */
+.ctrl-btn {
+  min-height: var(--touch-min);
+  min-width: 72px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.ctrl-btn:active { transform: scale(0.97); }
+
+.ctrl-btn.power { background: var(--accent-green); color: #fff; }
+.ctrl-btn.power:active { background: #27AE60; }
+.ctrl-btn.start { background: var(--accent-blue); color: #fff; }
+.ctrl-btn.start:active { background: #2980B9; }
+.ctrl-btn.stop { background: var(--accent-red); color: #fff; }
+.ctrl-btn.stop:active { background: #C0392B; }
+.ctrl-btn.pause { background: var(--accent-yellow); color: #2C3E50; }
+.ctrl-btn.pause:active { background: #D4AC0D; }
+.ctrl-btn.resume { background: var(--accent-orange); color: #fff; }
+.ctrl-btn.resume:active { background: #D35400; }
+
+/* ===== STATUS DISPLAY ===== */
+.status-display {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  min-height: 44px;
+}
+
+.status-item .label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status-item .value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-item .value.running { color: var(--accent-green); }
+.status-item .value.stopped { color: var(--accent-red); }
+.status-item .value.paused { color: var(--accent-yellow); }
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.green { background: var(--accent-green); box-shadow: 0 0 4px rgba(46,204,113,0.4); }
+.status-dot.red { background: var(--accent-red); box-shadow: 0 0 4px rgba(231,76,60,0.4); }
+.status-dot.yellow { background: var(--accent-yellow); box-shadow: 0 0 4px rgba(241,196,15,0.4); }
+.status-dot.blue { background: var(--accent-blue); box-shadow: 0 0 4px rgba(52,152,219,0.4); }
+
+/* ===== SUB-TABS ===== */
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.sub-tab-btn {
+  min-height: var(--touch-min);
+  padding: 0 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sub-tab-btn:active { background: var(--bg-panel-light); }
+.sub-tab-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+  font-weight: 700;
+}
+
+/* ===== COMMAND CARDS ===== */
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.cmd-card {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100px;
+}
+
+.cmd-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cmd-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.cmd-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.cmd-tag.move { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.cmd-tag.io { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+.cmd-tag.logic { background: rgba(241,196,15,0.2); color: var(--accent-yellow); }
+.cmd-tag.system { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+.cmd-tag.wait { background: rgba(149,165,166,0.2); color: var(--text-muted); }
+
+.cmd-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.cmd-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cmd-params {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cmd-exec-btn {
+  min-height: 40px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent-blue);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.cmd-exec-btn:active { background: #2980B9; transform: scale(0.97); }
+
+/* ===== NL INPUT ===== */
+.nl-input-area {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.nl-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  resize: vertical;
+  outline: none;
+}
+.nl-textarea:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
+}
+
+.nl-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.nl-result {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--text-secondary);
+  display: none;
+}
+
+.nl-result.show { display: block; }
+
+/* ===== FLOW EXECUTION ===== */
+.flow-list {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.flow-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(74,98,120,0.3);
+}
+.flow-item:last-child { border-bottom: none; }
+
+.flow-step-num {
+  min-width: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-blue);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.flow-step-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-step-status {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.flow-step-status.pending { background: rgba(149,165,166,0.2); color: var(--text-muted); }
+.flow-step-status.running { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.flow-step-status.done { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+.flow-step-status.error { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+
+.flow-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ===== MANAGEMENT PAGE ===== */
+.mgmt-section {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+}
+
+.mgmt-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mgmt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.mgmt-item {
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mgmt-item-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.mgmt-item-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ===== CONFIG PAGE ===== */
+.config-group {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+}
+
+.config-group-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--accent-blue);
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.config-row:last-child { margin-bottom: 0; }
+
+.config-label {
+  min-width: 100px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.config-value {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* Large checkbox */
+.checkbox-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: var(--touch-min);
+  padding: 0 4px;
+}
+
+.checkbox-wrap input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.checkbox-wrap span {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* ===== LOG PAGE ===== */
+.log-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.log-list {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  font-size: 13px;
+}
+.log-entry:last-child { border-bottom: none; }
+
+.log-time {
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  min-width: 140px;
+}
+
+.log-level {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: center;
+}
+.log-level.info { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.log-level.warn { background: rgba(241,196,15,0.2); color: var(--accent-yellow); }
+.log-level.error { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+.log-level.success { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+
+.log-msg {
+  color: var(--text-secondary);
+  flex: 1;
+  word-break: break-all;
+}
+
+.log-load-more {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-min);
+  border: none;
+  background: var(--bg-panel-light);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.log-load-more:active { background: var(--bg-primary); }
+
+/* ===== AUTH PAGE ===== */
+.auth-card {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.auth-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.auth-field {
+  margin-bottom: 12px;
+}
+
+.auth-field label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.auth-field input {
+  width: 100%;
+}
+
+.auth-submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+}
+
+.auth-info {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.auth-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+/* ===== BOTTOM STATUS BAR ===== */
+.app-statusbar {
+  height: var(--statusbar-h);
+  min-height: var(--statusbar-h);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  z-index: 100;
+}
+
+.statusbar-left, .statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ===== TOAST ===== */
+.toast-container {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  width: 90%;
+  max-width: 500px;
+}
+
+.toast {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: toast-in 0.2s ease-out;
+  pointer-events: auto;
+  border-left: 4px solid var(--accent-blue);
+}
+
+.toast.success { border-left-color: var(--accent-green); }
+.toast.error { border-left-color: var(--accent-red); }
+.toast.warning { border-left-color: var(--accent-yellow); }
+
+.toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.toast-msg { flex: 1; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .header-brand span { display: none; }
+  .tab-btn { padding: 0 12px; font-size: 13px; }
+  .conn-text { display: none; }
+  .estop-btn { padding: 0 14px; font-size: 14px; }
+  .cmd-grid { grid-template-columns: 1fr; }
+  .ip-input { width: 140px; }
+  .mgmt-grid { grid-template-columns: 1fr; }
+  .config-row { flex-direction: column; align-items: stretch; }
+  .config-label { min-width: auto; }
+  .status-display { flex-direction: column; align-items: stretch; }
+  .status-item { justify-content: space-between; }
+  .log-time { min-width: auto; }
+  .log-entry { flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  .header-tabs { gap: 2px; }
+  .tab-btn { padding: 0 8px; font-size: 12px; }
+  .estop-btn { padding: 0 10px; font-size: 13px; }
+  .strip-row { flex-direction: column; align-items: stretch; }
+  .strip-label { min-width: auto; }
+}
+
+/* Scrollbar styling */
+.app-main::-webkit-scrollbar { width: 6px; }
+.app-main::-webkit-scrollbar-track { background: transparent; }
+.app-main::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1.07A7 7 0 0113 22h-2a7 7 0 01-6.93-3H3a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73A2 2 0 0112 2zm-3 12a1 1 0 100 2 1 1 0 000-2zm6 0a1 1 0 100 2 1 1 0 000-2z"/></svg>
+      <span>机器人控制系统</span>
+    </div>
+
+    <nav class="header-tabs">
+      <button class="tab-btn active" data-tab="run">运行</button>
+      <button class="tab-btn" data-tab="mgmt">管理</button>
+      <button class="tab-btn" data-tab="config">配置</button>
+      <button class="tab-btn" data-tab="logs">日志</button>
+      <button class="tab-btn" data-tab="auth">授权</button>
+    </nav>
+
+    <div class="header-right">
+      <div class="conn-indicator">
+        <div class="conn-dot" id="connDot"></div>
+        <span class="conn-text" id="connText">已连接</span>
+      </div>
+      <button class="estop-btn" id="estopBtn">急停</button>
+    </div>
+  </header>
+
+  <!-- ===== MAIN ===== -->
+  <main class="app-main" id="appMain">
+
+    <!-- ===== RUN PAGE ===== -->
+    <div class="page active" id="page-run">
+
+      <!-- Connection Strip -->
+      <div class="strip">
+        <div class="strip-row">
+          <span class="strip-label">IP地址</span>
+          <input type="text" class="ip-input" id="ipInput" value="192.168.1.100" placeholder="192.168.1.100">
+          <span class="strip-label">端口</span>
+          <input type="text" class="port-input" id="portInput" value="502" placeholder="502">
+          <span class="strip-label">协议</span>
+          <select class="protocol-select" id="protocolSelect">
+            <option value="modbus-tcp">Modbus TCP</option>
+            <option value="modbus-rtu">Modbus RTU</option>
+            <option value="opc-ua">OPC UA</option>
+            <option value="tcp-custom">TCP 自定义</option>
+          </select>
+          <button class="btn btn-primary" onclick="doConnect()">检测连接</button>
+          <button class="btn btn-success" onclick="doReadFeedback()">读取反馈</button>
+        </div>
+      </div>
+
+      <!-- System Control Strip -->
+      <div class="strip">
+        <div class="strip-row">
+          <span class="strip-label">系统控制</span>
+          <button class="ctrl-btn power" onclick="doCtrl('上电')">上电</button>
+          <button class="ctrl-btn start" onclick="doCtrl('启动')">启动</button>
+          <button class="ctrl-btn stop" onclick="doCtrl('停机')">停机</button>
+          <button class="ctrl-btn pause" onclick="doCtrl('暂停')">暂停</button>
+          <button class="ctrl-btn resume" onclick="doCtrl('继续')">继续</button>
+        </div>
+      </div>
+
+      <!-- Status Display -->
+      <div class="status-display" id="statusDisplay">
+        <div class="status-item">
+          <span class="label">X</span>
+          <span class="value" id="valX">1250.0</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Y</span>
+          <span class="value" id="valY">0.0</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Z</span>
+          <span class="value" id="valZ">860.0</span>
+        </div>
+        <div class="status-item">
+          <span class="label">速度</span>
+          <span class="value" id="valSpeed">30%</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot green" id="statusDot"></span>
+          <span class="label">状态</span>
+          <span class="value running" id="valStatus">运行中</span>
+        </div>
+        <div class="status-item">
+          <span class="label">温度</span>
+          <span class="value" id="valTemp">42.3°C</span>
+        </div>
+        <div class="status-item">
+          <span class="label">电流</span>
+          <span class="value" id="valCurrent">2.8A</span>
+        </div>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="sub-tabs">
+        <button class="sub-tab-btn active" data-subtab="single">单次执行</button>
+        <button class="sub-tab-btn" data-subtab="flow">流程执行</button>
+        <button class="sub-tab-btn" data-subtab="nl">自然语言</button>
+      </div>
+
+      <!-- Single Execution -->
+      <div class="sub-page active" id="subtab-single">
+        <div class="cmd-grid" id="cmdGrid">
+          <!-- Cards generated by JS -->
+        </div>
+      </div>
+
+      <!-- Flow Execution -->
+      <div class="sub-page" id="subtab-flow" style="display:none;">
+        <div class="flow-list" id="flowList">
+          <!-- Generated by JS -->
+        </div>
+        <div class="flow-controls">
+          <button class="btn btn-success" onclick="doFlowAction('start')">执行流程</button>
+          <button class="btn btn-warning" onclick="doFlowAction('pause')">暂停流程</button>
+          <button class="btn btn-danger" onclick="doFlowAction('stop')">终止流程</button>
+          <button class="btn btn-secondary" onclick="doFlowAction('reset')">重置流程</button>
+        </div>
+      </div>
+
+      <!-- Natural Language -->
+      <div class="sub-page" id="subtab-nl" style="display:none;">
+        <div class="nl-input-area">
+          <textarea class="nl-textarea" id="nlInput" placeholder="输入自然语言指令，例如：&#10;将机械臂移动到 X=500 Y=300 Z=200&#10;以50%速度执行抓取动作&#10;回到原点位置"></textarea>
+          <div class="nl-actions">
+            <button class="btn btn-primary" onclick="doNLExecute()" style="flex:1;">解析并执行</button>
+            <button class="btn btn-secondary" onclick="doNLClear()">清空</button>
+          </div>
+          <div class="nl-result" id="nlResult"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== MANAGEMENT PAGE ===== -->
+    <div class="page" id="page-mgmt">
+
+      <div class="mgmt-section">
+        <div class="mgmt-section-title">
+          <span class="status-dot green"></span> 设备状态总览
+        </div>
+        <div class="mgmt-grid">
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">控制器</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">在线</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">伺服驱动 X</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">正常</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">伺服驱动 Y</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">正常</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">伺服驱动 Z</span>
+            <span class="status-dot yellow"></span>
+            <span class="mgmt-item-value">警告</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">末端执行器</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">就绪</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">安全光栅</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">正常</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">急停回路</span>
+            <span class="status-dot green"></span>
+            <span class="mgmt-item-value">闭合</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">气动系统</span>
+            <span class="status-dot blue"></span>
+            <span class="mgmt-item-value">0.6MPa</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mgmt-section">
+        <div class="mgmt-section-title">
+          <span class="status-dot blue"></span> 运行统计
+        </div>
+        <div class="mgmt-grid">
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">今日产量</span>
+            <span class="mgmt-item-value" style="color:var(--accent-green);">1,247</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">运行时间</span>
+            <span class="mgmt-item-value">6h 32m</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">故障次数</span>
+            <span class="mgmt-item-value" style="color:var(--accent-red);">2</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">良品率</span>
+            <span class="mgmt-item-value" style="color:var(--accent-green);">99.4%</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">节拍时间</span>
+            <span class="mgmt-item-value">4.2s</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">能耗</span>
+            <span class="mgmt-item-value">12.8kWh</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mgmt-section">
+        <div class="mgmt-section-title">
+          <span class="status-dot yellow"></span> 维护提醒
+        </div>
+        <div class="mgmt-grid">
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">Z轴润滑</span>
+            <span class="mgmt-item-value" style="color:var(--accent-yellow);">剩余 15%</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">滤芯更换</span>
+            <span class="mgmt-item-value" style="color:var(--accent-red);">已过期</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">皮带张紧</span>
+            <span class="mgmt-item-value" style="color:var(--accent-green);">正常</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="showToast('正在导出报表...','info')">导出日报表</button>
+        <button class="btn btn-secondary" onclick="showToast('正在同步数据...','info')">同步数据</button>
+        <button class="btn btn-warning" onclick="showToast('维护模式已开启','warning')">进入维护模式</button>
+      </div>
+
+    </div>
+
+    <!-- ===== CONFIG PAGE ===== -->
+    <div class="page" id="page-config">
+
+      <div class="config-group">
+        <div class="config-group-title">通信参数</div>
+        <div class="config-row">
+          <span class="config-label">IP 地址</span>
+          <div class="config-value"><input type="text" value="192.168.1.100" style="width:100%;"></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">端口号</span>
+          <div class="config-value"><input type="text" value="502" style="width:100%;"></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">通信协议</span>
+          <div class="config-value">
+            <select style="width:100%;">
+              <option>Modbus TCP</option>
+              <option>Modbus RTU</option>
+              <option>OPC UA</option>
+              <option>TCP 自定义</option>
+            </select>
+          </div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">超时时间</span>
+          <div class="config-value"><input type="text" value="3000" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">ms</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">重试次数</span>
+          <div class="config-value"><input type="text" value="3" style="width:100%;"></div>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">运动参数</div>
+        <div class="config-row">
+          <span class="config-label">最大速度</span>
+          <div class="config-value"><input type="text" value="100" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">%</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">加速度</span>
+          <div class="config-value"><input type="text" value="500" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">mm/s²</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">减速度</span>
+          <div class="config-value"><input type="text" value="500" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">mm/s²</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">软限位 X</span>
+          <div class="config-value"><input type="text" value="0 ~ 2000" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">mm</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">软限位 Y</span>
+          <div class="config-value"><input type="text" value="0 ~ 1500" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">mm</span></div>
+        </div>
+        <div class="config-row">
+          <span class="config-label">软限位 Z</span>
+          <div class="config-value"><input type="text" value="0 ~ 1000" style="width:100%;"> <span style="color:var(--text-muted);font-size:12px;">mm</span></div>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">安全设置</div>
+        <div class="config-row">
+          <label class="checkbox-wrap">
+            <input type="checkbox" checked>
+            <span>启用软限位保护</span>
+          </label>
+        </div>
+        <div class="config-row">
+          <label class="checkbox-wrap">
+            <input type="checkbox" checked>
+            <span>启用碰撞检测</span>
+          </label>
+        </div>
+        <div class="config-row">
+          <label class="checkbox-wrap">
+            <input type="checkbox" checked>
+            <span>启用急停保护</span>
+          </label>
+        </div>
+        <div class="config-row">
+          <label class="checkbox-wrap">
+            <input type="checkbox">
+            <span>启用低速模式</span>
+          </label>
+        </div>
+        <div class="config-row">
+          <label class="checkbox-wrap">
+            <input type="checkbox" checked>
+            <span>安全光栅联动</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-success" onclick="showToast('配置已保存','success')">保存配置</button>
+        <button class="btn btn-secondary" onclick="showToast('配置已重载','info')">重新加载</button>
+        <button class="btn btn-warning" onclick="showToast('已恢复出厂设置','warning')">恢复出厂</button>
+      </div>
+
+    </div>
+
+    <!-- ===== LOG PAGE ===== -->
+    <div class="page" id="page-logs">
+
+      <div class="log-filters">
+        <select id="logLevelFilter" style="min-width:120px;">
+          <option value="all">全部级别</option>
+          <option value="info">信息</option>
+          <option value="warn">警告</option>
+          <option value="error">错误</option>
+          <option value="success">成功</option>
+        </select>
+        <input type="text" placeholder="搜索日志..." style="flex:1;min-width:150px;" id="logSearch">
+        <button class="btn btn-secondary" onclick="clearLogs()">清空日志</button>
+        <button class="btn btn-primary" onclick="exportLogs()">导出日志</button>
+      </div>
+
+      <div class="log-list" id="logList">
+        <!-- Generated by JS -->
+      </div>
+
+    </div>
+
+    <!-- ===== AUTH PAGE ===== -->
+    <div class="page" id="page-auth">
+
+      <div class="auth-card">
+        <h3>操作员登录</h3>
+        <div class="auth-field">
+          <label>用户名</label>
+          <input type="text" id="authUser" placeholder="输入用户名" value="admin">
+        </div>
+        <div class="auth-field">
+          <label>密码</label>
+          <input type="password" id="authPass" placeholder="输入密码">
+        </div>
+        <button class="btn btn-primary auth-submit" onclick="doAuth()">登 录</button>
+
+        <div class="auth-info" id="authInfo">
+          <div class="auth-info-row">
+            <span>当前用户</span>
+            <span style="color:var(--accent-green);font-weight:700;">admin</span>
+          </div>
+          <div class="auth-info-row">
+            <span>权限等级</span>
+            <span style="font-weight:700;">管理员</span>
+          </div>
+          <div class="auth-info-row">
+            <span>登录时间</span>
+            <span>2026-04-23 08:00:12</span>
+          </div>
+          <div class="auth-info-row">
+            <span>会话有效期</span>
+            <span>8 小时</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mgmt-section" style="margin-top:16px;">
+        <div class="mgmt-section-title">权限管理</div>
+        <div class="mgmt-grid">
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">操作员</span>
+            <span class="mgmt-item-value">3 人在线</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">工程师</span>
+            <span class="mgmt-item-value">1 人在线</span>
+          </div>
+          <div class="mgmt-item">
+            <span class="mgmt-item-label">管理员</span>
+            <span class="mgmt-item-value">1 人在线</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ===== STATUS BAR ===== -->
+  <footer class="app-statusbar">
+    <div class="statusbar-left">
+      <span>数据源: query_table.json</span>
+      <span>配额: <span id="quotaVal">50</span>/100</span>
+    </div>
+    <div class="statusbar-right">
+      <span id="clockDisplay">2026-04-23 14:22:01</span>
+    </div>
+  </footer>
+</div>
+
+<!-- ===== TOAST CONTAINER ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ===== TOAST SYSTEM =====
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  const icons = { info: '\u2139\uFE0F', success: '\u2705', error: '\u274C', warning: '\u26A0\uFE0F' };
+  toast.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span><span class="toast-msg">' + msg + '</span>';
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'toast-out 0.2s ease-in forwards';
+    setTimeout(() => toast.remove(), 200);
+  }, 2000);
+}
+
+// ===== TAB NAVIGATION =====
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('page-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ===== SUB-TAB NAVIGATION =====
+document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sub-page').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+    btn.classList.add('active');
+    const target = document.getElementById('subtab-' + btn.dataset.subtab);
+    target.style.display = 'block';
+    target.classList.add('active');
+  });
+});
+
+// ===== CONNECTION =====
+let connected = true;
+function doConnect() {
+  const ip = document.getElementById('ipInput').value;
+  const port = document.getElementById('portInput').value;
+  const proto = document.getElementById('protocolSelect').value;
+  showToast('正在检测 ' + ip + ':' + port + ' (' + proto + ') ...', 'info');
+  setTimeout(() => {
+    connected = true;
+    document.getElementById('connDot').classList.remove('disconnected');
+    document.getElementById('connText').textContent = '已连接';
+    showToast('连接成功', 'success');
+  }, 800);
+}
+
+function doReadFeedback() {
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  showToast('正在读取反馈数据...', 'info');
+  setTimeout(() => {
+    updateStatusValues();
+    showToast('反馈数据已更新', 'success');
+  }, 600);
+}
+
+// ===== SYSTEM CONTROL =====
+function doCtrl(action) {
+  if (!connected) { showToast('设备未连接，无法执行 ' + action, 'error'); return; }
+  const statusEl = document.getElementById('valStatus');
+  const dotEl = document.getElementById('statusDot');
+
+  switch(action) {
+    case '上电':
+      showToast('系统上电中...', 'info');
+      setTimeout(() => { showToast('系统已上电', 'success'); }, 1000);
+      break;
+    case '启动':
+      statusEl.textContent = '运行中';
+      statusEl.className = 'value running';
+      dotEl.className = 'status-dot green';
+      showToast('系统已启动', 'success');
+      break;
+    case '停机':
+      statusEl.textContent = '已停止';
+      statusEl.className = 'value stopped';
+      dotEl.className = 'status-dot red';
+      showToast('系统已停机', 'warning');
+      break;
+    case '暂停':
+      statusEl.textContent = '已暂停';
+      statusEl.className = 'value paused';
+      dotEl.className = 'status-dot yellow';
+      showToast('系统已暂停', 'warning');
+      break;
+    case '继续':
+      statusEl.textContent = '运行中';
+      statusEl.className = 'value running';
+      dotEl.className = 'status-dot green';
+      showToast('系统继续运行', 'success');
+      break;
+  }
+}
+
+// ===== EMERGENCY STOP =====
+document.getElementById('estopBtn').addEventListener('click', () => {
+  connected = false;
+  document.getElementById('connDot').classList.add('disconnected');
+  document.getElementById('connText').textContent = '急停';
+  document.getElementById('valStatus').textContent = '急停';
+  document.getElementById('valStatus').className = 'value stopped';
+  document.getElementById('statusDot').className = 'status-dot red';
+  showToast('!!! 紧急停机已触发 !!!', 'error');
+  addLog('error', '紧急停机按钮被触发');
+});
+
+// ===== COMMAND CARDS =====
+const commands = [
+  { name: '移动到原点', tag: 'move', desc: '将所有轴回零至机械原点位置', params: '速度: 30%', cmd: 'HOME' },
+  { name: '直线插补', tag: 'move', desc: '沿直线路径移动到目标坐标', params: 'X Y Z 速度', cmd: 'MOV_L' },
+  { name: '圆弧插补', tag: 'move', desc: '沿圆弧路径移动到目标位置', params: '终点 圆心 速度', cmd: 'MOV_C' },
+  { name: '关节运动', tag: 'move', desc: '各关节独立运动到指定角度', params: 'J1 J2 J3 J4', cmd: 'MOV_J' },
+  { name: '抓取工件', tag: 'io', desc: '控制末端执行器闭合抓取', params: '力度: 50%', cmd: 'GRIP' },
+  { name: '释放工件', tag: 'io', desc: '控制末端执行器张开释放', params: '延时: 200ms', cmd: 'RELEASE' },
+  { name: '等待信号', tag: 'wait', desc: '等待外部输入信号触发', params: 'DI端口 超时', cmd: 'WAIT_DI' },
+  { name: '延时等待', tag: 'wait', desc: '等待指定时间后继续执行', params: '时间: 1000ms', cmd: 'DELAY' },
+  { name: '设置输出', tag: 'io', desc: '设置数字输出端口状态', params: 'DO端口 值', cmd: 'SET_DO' },
+  { name: '条件判断', tag: 'logic', desc: '根据条件执行不同分支', params: '条件 真分支 假分支', cmd: 'IF_ELSE' },
+  { name: '循环执行', tag: 'logic', desc: '重复执行指定次数', params: '次数: 10', cmd: 'LOOP' },
+  { name: '调用子程序', tag: 'system', desc: '调用已定义的子程序', params: '子程序名 参数', cmd: 'CALL' },
+  { name: '速度设置', tag: 'system', desc: '设置运动速度百分比', params: '速度: 50%', cmd: 'SET_SPEED' },
+  { name: '坐标系切换', tag: 'system', desc: '切换工作坐标系', params: '坐标系: 基座/工件', cmd: 'SET_FRAME' },
+  { name: '急停复位', tag: 'system', desc: '复位急停状态并重新上电', params: '无', cmd: 'ESTOP_RESET' },
+];
+
+function renderCommands() {
+  const grid = document.getElementById('cmdGrid');
+  grid.innerHTML = '';
+  commands.forEach(cmd => {
+    const card = document.createElement('div');
+    card.className = 'cmd-card';
+    card.innerHTML = `
+      <div class="cmd-card-header">
+        <span class="cmd-name">${cmd.name}</span>
+        <span class="cmd-tag ${cmd.tag}">${cmd.tag}</span>
+      </div>
+      <div class="cmd-desc">${cmd.desc}</div>
+      <div class="cmd-card-footer">
+        <span class="cmd-params">${cmd.params}</span>
+        <button class="cmd-exec-btn" onclick="execCmd('${cmd.name}')">执行</button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+renderCommands();
+
+function execCmd(name) {
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  showToast('正在执行: ' + name, 'info');
+  addLog('info', '执行指令: ' + name);
+  setTimeout(() => {
+    showToast(name + ' 执行完成', 'success');
+    addLog('success', name + ' 执行完成');
+    updateStatusValues();
+  }, 800 + Math.random() * 600);
+}
+
+// ===== FLOW EXECUTION =====
+const flowSteps = [
+  { name: '初始化系统参数', status: 'done' },
+  { name: '移动到取料位置', status: 'done' },
+  { name: '闭合夹爪抓取', status: 'done' },
+  { name: '抬起至安全高度', status: 'running' },
+  { name: '移动到放料位置', status: 'pending' },
+  { name: '张开夹爪释放', status: 'pending' },
+  { name: '返回安全位置', status: 'pending' },
+  { name: '记录生产数据', status: 'pending' },
+];
+
+function renderFlow() {
+  const list = document.getElementById('flowList');
+  list.innerHTML = '';
+  flowSteps.forEach((step, i) => {
+    const item = document.createElement('div');
+    item.className = 'flow-item';
+    item.innerHTML = `
+      <span class="flow-step-num">${i + 1}</span>
+      <span class="flow-step-name">${step.name}</span>
+      <span class="flow-step-status ${step.status}">${statusText(step.status)}</span>
+    `;
+    list.appendChild(item);
+  });
+}
+renderFlow();
+
+function statusText(s) {
+  return { pending: '等待中', running: '执行中', done: '已完成', error: '错误' }[s] || s;
+}
+
+function doFlowAction(action) {
+  if (!connected && action !== 'reset') { showToast('设备未连接', 'error'); return; }
+  switch(action) {
+    case 'start':
+      showToast('流程开始执行', 'success');
+      addLog('info', '流程执行开始');
+      simulateFlow();
+      break;
+    case 'pause':
+      showToast('流程已暂停', 'warning');
+      addLog('warn', '流程暂停');
+      break;
+    case 'stop':
+      flowSteps.forEach(s => { if (s.status === 'running') s.status = 'pending'; });
+      renderFlow();
+      showToast('流程已终止', 'error');
+      addLog('error', '流程终止');
+      break;
+    case 'reset':
+      flowSteps.forEach(s => s.status = 'pending');
+      flowSteps[0].status = 'running';
+      renderFlow();
+      showToast('流程已重置', 'info');
+      break;
+  }
+}
+
+function simulateFlow() {
+  let idx = flowSteps.findIndex(s => s.status === 'running');
+  if (idx === -1) idx = flowSteps.findIndex(s => s.status === 'pending');
+  if (idx === -1) return;
+  flowSteps[idx].status = 'done';
+  if (idx + 1 < flowSteps.length) {
+    flowSteps[idx + 1].status = 'running';
+    renderFlow();
+    setTimeout(simulateFlow, 1200);
+  } else {
+    renderFlow();
+    showToast('流程全部执行完成', 'success');
+    addLog('success', '流程全部执行完成');
+  }
+}
+
+// ===== NATURAL LANGUAGE =====
+function doNLExecute() {
+  const input = document.getElementById('nlInput').value.trim();
+  if (!input) { showToast('请输入指令', 'warning'); return; }
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+
+  showToast('正在解析自然语言指令...', 'info');
+  const resultEl = document.getElementById('nlResult');
+
+  setTimeout(() => {
+    const parsed = parseNL(input);
+    resultEl.innerHTML = '<strong>解析结果:</strong><br>' + parsed;
+    resultEl.classList.add('show');
+    showToast('指令已解析并下发', 'success');
+    addLog('info', '自然语言指令: ' + input);
+    addLog('success', '解析结果: ' + parsed);
+  }, 600);
+}
+
+function parseNL(input) {
+  if (input.includes('原点') || input.includes('回零')) return 'MOV_J -> HOME (速度: 30%)';
+  if (input.includes('抓取') || input.includes('夹取')) return 'MOV_L -> 目标位置 -> GRIP (力度: 50%)';
+  if (input.includes('释放') || input.includes('放下') || input.includes('松开')) return 'RELEASE -> 延时 200ms';
+  if (input.includes('移动') || input.includes('移动到')) {
+    const coords = input.match(/(\d+)/g);
+    if (coords && coords.length >= 2) return 'MOV_L -> X:' + coords[0] + ' Y:' + coords[1] + (coords[2] ? ' Z:' + coords[2] : '');
+    return 'MOV_L -> 目标位置 (需指定坐标)';
+  }
+  if (input.includes('速度')) {
+    const speed = input.match(/(\d+)/g);
+    return 'SET_SPEED -> ' + (speed ? speed[0] : '50') + '%';
+  }
+  return '复合指令序列已生成，共 3 步操作';
+}
+
+function doNLClear() {
+  document.getElementById('nlInput').value = '';
+  document.getElementById('nlResult').classList.remove('show');
+}
+
+// ===== LOG SYSTEM =====
+const logData = [
+  { time: '14:22:01', level: 'info', msg: '系统状态刷新完成' },
+  { time: '14:21:55', level: 'success', msg: '抓取工件执行完成，耗时 1.2s' },
+  { time: '14:21:50', level: 'info', msg: '执行指令: MOV_L X:500 Y:300 Z:200' },
+  { time: '14:21:45', level: 'warn', msg: 'Z轴伺服温度偏高: 62.5°C' },
+  { time: '14:21:30', level: 'success', msg: '流程步骤 3/8 执行完成' },
+  { time: '14:21:20', level: 'info', msg: '操作员 张三 登录系统' },
+  { time: '14:20:00', level: 'info', msg: '系统上电完成，自检通过' },
+  { time: '14:19:58', level: 'success', msg: '通信连接建立: 192.168.1.100:502' },
+  { time: '14:19:50', level: 'warn', msg: '气动系统压力低于设定值: 0.55MPa' },
+  { time: '14:15:00', level: 'error', msg: '通信超时，正在重试 (1/3)' },
+  { time: '14:10:00', level: 'info', msg: '系统初始化完成' },
+  { time: '08:00:12', level: 'success', msg: '管理员登录成功' },
+];
+
+function renderLogs(filter = 'all', search = '') {
+  const list = document.getElementById('logList');
+  list.innerHTML = '';
+  const filtered = logData.filter(l => {
+    if (filter !== 'all' && l.level !== filter) return false;
+    if (search && !l.msg.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+  filtered.forEach(l => {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = `
+      <span class="log-time">${l.time}</span>
+      <span class="log-level ${l.level}">${l.level.toUpperCase()}</span>
+      <span class="log-msg">${l.msg}</span>
+    `;
+    list.appendChild(entry);
+  });
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">暂无日志记录</div>';
+  }
+}
+renderLogs();
+
+function addLog(level, msg) {
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 8);
+  logData.unshift({ time, level, msg });
+  const filter = document.getElementById('logLevelFilter').value;
+  const search = document.getElementById('logSearch').value;
+  renderLogs(filter, search);
+}
+
+document.getElementById('logLevelFilter').addEventListener('change', (e) => {
+  renderLogs(e.target.value, document.getElementById('logSearch').value);
+});
+
+document.getElementById('logSearch').addEventListener('input', (e) => {
+  renderLogs(document.getElementById('logLevelFilter').value, e.target.value);
+});
+
+function clearLogs() {
+  logData.length = 0;
+  renderLogs();
+  showToast('日志已清空', 'info');
+}
+
+function exportLogs() {
+  showToast('日志已导出至 CSV 文件', 'success');
+}
+
+// ===== AUTH =====
+function doAuth() {
+  const user = document.getElementById('authUser').value;
+  const pass = document.getElementById('authPass').value;
+  if (!user || !pass) { showToast('请输入用户名和密码', 'warning'); return; }
+  showToast('正在验证身份...', 'info');
+  setTimeout(() => {
+    if (pass === 'admin') {
+      showToast('登录成功，欢迎 ' + user, 'success');
+      addLog('success', '用户 ' + user + ' 登录成功');
+    } else {
+      showToast('密码错误', 'error');
+      addLog('error', '用户 ' + user + ' 登录失败');
+    }
+  }, 600);
+}
+
+// ===== LIVE DATA SIMULATION =====
+let simData = { x: 1250.0, y: 0.0, z: 860.0, speed: 30, temp: 42.3, current: 2.8 };
+
+function updateStatusValues() {
+  const status = document.getElementById('valStatus').textContent;
+  if (status === '运行中') {
+    simData.x = Math.max(0, Math.min(2000, simData.x + (Math.random() - 0.5) * 20));
+    simData.y = Math.max(0, Math.min(1500, simData.y + (Math.random() - 0.5) * 15));
+    simData.z = Math.max(0, Math.min(1000, simData.z + (Math.random() - 0.5) * 10));
+    simData.temp = Math.max(30, Math.min(80, simData.temp + (Math.random() - 0.5) * 2));
+    simData.current = Math.max(0.5, Math.min(10, simData.current + (Math.random() - 0.5) * 0.5));
+  }
+
+  document.getElementById('valX').textContent = simData.x.toFixed(1);
+  document.getElementById('valY').textContent = simData.y.toFixed(1);
+  document.getElementById('valZ').textContent = simData.z.toFixed(1);
+  document.getElementById('valSpeed').textContent = simData.speed + '%';
+  document.getElementById('valTemp').textContent = simData.temp.toFixed(1) + '°C';
+  document.getElementById('valCurrent').textContent = simData.current.toFixed(1) + 'A';
+}
+
+setInterval(updateStatusValues, 1000);
+
+// ===== CLOCK =====
+function updateClock() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const h = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const s = String(now.getSeconds()).padStart(2, '0');
+  document.getElementById('clockDisplay').textContent = y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== QUOTA SIMULATION =====
+let quota = 50;
+setInterval(() => {
+  if (Math.random() > 0.7 && quota < 100) {
+    quota++;
+    document.getElementById('quotaVal').textContent = quota;
+  }
+}, 5000);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Robot Web UI Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --page: #e7eaef;
+      --bg: #f7f9fd;
+      --surface: #ffffff;
+      --surface-2: #eef2f7;
+      --surface-3: #e5ebf3;
+      --surface-dark: #1d2633;
+      --text: #111827;
+      --muted: #667085;
+      --line: #d2d9e4;
+      --primary: #1f8fff;
+      --primary-soft: rgba(31, 143, 255, 0.12);
+      --green: #1f9d68;
+      --green-soft: rgba(31, 157, 104, 0.12);
+      --amber: #d48311;
+      --amber-soft: rgba(212, 131, 17, 0.12);
+      --red: #c62828;
+      --red-soft: rgba(198, 40, 40, 0.12);
+      --headline: "Space Grotesk", sans-serif;
+      --body: "Inter", sans-serif;
+      --mono: "Roboto Mono", monospace;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+      --card-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+      --radius: 14px;
+      --radius-sm: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--page);
+      color: var(--text);
+      font-family: var(--body);
+    }
+
+    body {
+      overflow-x: auto;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      width: 1440px;
+      min-height: 100vh;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      box-shadow: var(--shadow);
+    }
+
+    .topbar {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 22px 0 24px;
+      background: linear-gradient(180deg, #fbfcfe, #eef2f7);
+      border-bottom: 1px solid rgba(210, 217, 228, 0.75);
+    }
+
+    .brand-row,
+    .health-row,
+    .top-nav,
+    .side-item,
+    .inline-row,
+    .tab-row,
+    .info-row,
+    .flow-row,
+    .table-head,
+    .table-row,
+    .toolbar {
+      display: flex;
+      align-items: center;
+    }
+
+    .brand-row {
+      gap: 16px;
+    }
+
+    .brand {
+      color: var(--primary);
+      font: 700 25px/1 var(--headline);
+      letter-spacing: -0.04em;
+    }
+
+    .divider {
+      width: 1px;
+      height: 24px;
+      background: var(--line);
+    }
+
+    .health-row {
+      gap: 10px;
+      color: var(--muted);
+      font: 500 12px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 10px rgba(31, 157, 104, 0.7);
+    }
+
+    .top-nav {
+      gap: 8px;
+      height: 68px;
+    }
+
+    .top-link {
+      height: 68px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .top-link.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .shell {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    .sidebar {
+      width: 98px;
+      background: linear-gradient(180deg, #ffffff, #f5f7fb);
+      border-right: 1px solid rgba(210, 217, 228, 0.75);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      padding: 18px 0;
+    }
+
+    .side-item {
+      width: 100%;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px 0;
+      color: var(--muted);
+      border-left: 4px solid transparent;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .side-item.active {
+      color: var(--primary);
+      background: linear-gradient(90deg, var(--primary-soft), rgba(31, 143, 255, 0.03));
+      border-left-color: var(--primary);
+    }
+
+    .side-icon {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .side-label {
+      font: 500 10px/1 var(--mono);
+      letter-spacing: 0.04em;
+    }
+
+    .side-spacer {
+      flex: 1;
+    }
+
+    .page {
+      flex: 1;
+      display: none;
+      padding: 18px;
+      min-height: 0;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid rgba(210, 217, 228, 0.72);
+      border-radius: var(--radius);
+      box-shadow: var(--card-shadow);
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .soft {
+      background: var(--surface-2);
+    }
+
+    .title {
+      margin: 0 0 14px;
+      font: 700 13px/1 var(--headline);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .input,
+    .select,
+    .textarea {
+      width: 100%;
+      border: 1px solid rgba(210, 217, 228, 0.8);
+      border-radius: var(--radius-sm);
+      background: #fff;
+      color: var(--text);
+      outline: none;
+    }
+
+    .input,
+    .select {
+      height: 42px;
+      padding: 0 12px;
+    }
+
+    .textarea {
+      min-height: 116px;
+      padding: 12px;
+      resize: none;
+    }
+
+    .mono {
+      font-family: var(--mono);
+    }
+
+    .btn {
+      height: 42px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      font: 700 13px/1 var(--headline);
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: linear-gradient(180deg, #43a4ff, var(--primary));
+      color: #fff;
+    }
+
+    .btn.secondary {
+      background: var(--surface-3);
+      color: var(--text);
+    }
+
+    .btn.green {
+      background: linear-gradient(180deg, #3bb67c, var(--green));
+      color: #fff;
+    }
+
+    .btn.yellow {
+      background: linear-gradient(180deg, #efb74d, var(--amber));
+      color: #fff;
+    }
+
+    .btn.red {
+      background: linear-gradient(180deg, #d94b4b, var(--red));
+      color: #fff;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font: 500 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 60px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font: 600 10px/1 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .pill.ok {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .pill.warn {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .pill.blue {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .info-grid {
+      display: grid;
+      gap: 9px;
+    }
+
+    .info-row {
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(210, 217, 228, 0.55);
+      font-size: 12px;
+    }
+
+    .info-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .info-row span:first-child {
+      color: var(--muted);
+    }
+
+    .info-row span:last-child {
+      text-align: right;
+      font-family: var(--mono);
+    }
+
+    .run-layout {
+      display: grid;
+      grid-template-columns: 1fr 180px;
+      gap: 18px;
+      min-height: calc(100vh - 104px);
+    }
+
+    .run-main {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .run-side {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .connect-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(210, 217, 228, 0.6);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-line strong {
+      color: var(--primary);
+      font-family: var(--mono);
+      font-weight: 500;
+    }
+
+    .tab-row {
+      gap: 8px;
+      padding: 0 4px;
+    }
+
+    .tab-btn {
+      height: 38px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 10px 10px 0 0;
+      background: var(--surface-3);
+      color: var(--muted);
+      font: 700 12px/1 var(--headline);
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--primary);
+      box-shadow: inset 0 2px 0 var(--primary);
+    }
+
+    .tab-panel {
+      display: none;
+      min-height: 372px;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .command-toolbar,
+    .flow-toolbar,
+    .nlp-toolbar,
+    .manage-actions,
+    .logs-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .command-toolbar .left,
+    .flow-toolbar .left,
+    .nlp-toolbar .left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .command-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .command-card {
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      border: 1px solid rgba(210, 217, 228, 0.65);
+    }
+
+    .command-card h4 {
+      margin: 10px 0 8px;
+      font-size: 14px;
+    }
+
+    .command-card p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.9fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .tree {
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--surface-2);
+      border: 1px solid rgba(210, 217, 228, 0.65);
+    }
+
+    .tree-head,
+    .tree-row {
+      display: grid;
+      gap: 12px;
+      padding: 12px 14px;
+      font-size: 12px;
+    }
+
+    .tree-head {
+      background: var(--surface-3);
+      color: var(--muted);
+      font: 600 11px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .tree.two .tree-head,
+    .tree.two .tree-row {
+      grid-template-columns: 1fr 120px;
+    }
+
+    .tree.one .tree-head,
+    .tree.one .tree-row {
+      grid-template-columns: 1fr;
+    }
+
+    .tree.history .tree-head,
+    .tree.history .tree-row {
+      grid-template-columns: 90px 90px 1fr 130px 90px;
+    }
+
+    .tree-row {
+      border-top: 1px solid rgba(210, 217, 228, 0.45);
+      background: rgba(255,255,255,0.45);
+    }
+
+    .tree-row.active {
+      background: linear-gradient(90deg, var(--primary-soft), rgba(31, 143, 255, 0.04));
+      box-shadow: inset 3px 0 0 var(--primary);
+    }
+
+    .tree-scroll {
+      max-height: 290px;
+      overflow: auto;
+    }
+
+    .flow-status {
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      border: 1px solid rgba(210, 217, 228, 0.65);
+    }
+
+    .grid-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .nlp-grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .run-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.4fr;
+      gap: 14px;
+    }
+
+    .side-box {
+      padding: 14px;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid rgba(210, 217, 228, 0.7);
+      box-shadow: var(--card-shadow);
+    }
+
+    .state-box {
+      background: linear-gradient(180deg, #1e2a39, #263245);
+      color: #f8fbff;
+      border: 0;
+    }
+
+    .state-box .title {
+      color: rgba(255,255,255,0.75);
+    }
+
+    .state-big {
+      text-align: center;
+      padding: 8px 0 4px;
+      font: 700 24px/1 var(--headline);
+      color: #6db8ff;
+    }
+
+    .state-sub {
+      text-align: center;
+      color: rgba(255,255,255,0.72);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .manage-layout {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+      min-height: calc(100vh - 104px);
+    }
+
+    .manage-top {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+    }
+
+    .summary-card {
+      padding: 18px;
+    }
+
+    .summary-card h3 {
+      margin: 0 0 14px;
+      font: 700 13px/1 var(--headline);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .summary-card.soft {
+      background: var(--surface-2);
+    }
+
+    .manage-bottom {
+      display: grid;
+      grid-template-columns: 0.9fr 1.15fr 1.2fr;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .editor-grid,
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 14px;
+    }
+
+    .editor-grid .full,
+    .form-grid .full {
+      grid-column: 1 / -1;
+    }
+
+    .subtab-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .subtab-btn {
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: var(--radius-sm);
+      background: var(--surface-3);
+      color: var(--muted);
+      font: 700 11px/1 var(--headline);
+      cursor: pointer;
+    }
+
+    .subtab-btn.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .subtab-panel {
+      display: none;
+    }
+
+    .subtab-panel.active {
+      display: block;
+    }
+
+    .logs-layout {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+      min-height: calc(100vh - 104px);
+    }
+
+    .logs-top {
+      display: grid;
+      grid-template-columns: 1fr 1fr 220px;
+      gap: 14px;
+    }
+
+    .logs-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .table {
+      overflow: hidden;
+    }
+
+    .table-head,
+    .table-row {
+      gap: 12px;
+      padding: 14px 18px;
+    }
+
+    .table-head {
+      background: var(--surface-2);
+      color: var(--muted);
+      font: 600 11px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .table-row {
+      border-top: 1px solid rgba(210, 217, 228, 0.45);
+      font-size: 12px;
+    }
+
+    .table.logs .table-head,
+    .table.logs .table-row {
+      display: grid;
+      grid-template-columns: 110px 90px 150px 90px 1fr;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand">KINETIC MONOLITH</div>
+        <div class="divider"></div>
+        <div class="health-row">
+          <span class="dot"></span>
+          <span>系统状态: 正常</span>
+        </div>
+      </div>
+      <div class="top-nav">
+        <div class="top-link active">▦ 仪表板</div>
+        <div class="top-link">⋮ 远程遥测</div>
+      </div>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="side-item active" data-page="run">
+          <div class="side-icon">▶</div>
+          <div class="side-label">运行</div>
+        </div>
+        <div class="side-item" data-page="manage">
+          <div class="side-icon">⚙</div>
+          <div class="side-label">后台</div>
+        </div>
+        <div class="side-item" data-page="logs">
+          <div class="side-icon">⌘</div>
+          <div class="side-label">日志</div>
+        </div>
+        <div class="side-spacer"></div>
+        <div class="side-item">
+          <div class="side-icon">✦</div>
+          <div class="side-label">授权</div>
+        </div>
+      </aside>
+
+      <section id="run" class="page active">
+        <div class="run-layout">
+          <div class="run-main">
+            <div class="card panel">
+              <div class="title">连接与反馈</div>
+              <div class="connect-grid">
+                <div class="field">
+                  <label>控制器地址</label>
+                  <input class="input mono" value="192.168.1.11">
+                </div>
+                <div class="field">
+                  <label>控制器类型</label>
+                  <select class="select">
+                    <option>真实控制器</option>
+                    <option>模拟控制器</option>
+                  </select>
+                </div>
+                <button class="btn secondary">检测连接</button>
+                <button class="btn secondary">读取反馈</button>
+              </div>
+              <div class="status-line">
+                <span>连接状态 <strong>真实连接成功: 192.168.1.11</strong></span>
+                <span>实时监控 <strong>运行中</strong></span>
+              </div>
+            </div>
+
+            <div>
+              <div class="tab-row">
+                <button class="tab-btn active" data-run-tab="single">单次执行</button>
+                <button class="tab-btn" data-run-tab="flow">流程执行</button>
+                <button class="tab-btn" data-run-tab="nlp">自然语言执行</button>
+              </div>
+
+              <div id="run-tab-single" class="tab-panel active card panel">
+                <div class="command-toolbar">
+                  <div class="left">
+                    <div class="field" style="width:260px;">
+                      <label>筛选</label>
+                      <input class="input" placeholder="输入名称 / 关键词">
+                    </div>
+                    <div class="field" style="width:140px;">
+                      <label>类型</label>
+                      <select class="select">
+                        <option>全部</option>
+                        <option>参数型</option>
+                        <option>固定型</option>
+                      </select>
+                    </div>
+                  </div>
+                  <span class="mono" style="color:var(--muted);font-size:12px;">12 项</span>
+                </div>
+
+                <div class="command-grid">
+                  <div class="command-card">
+                    <span class="tag">参数型</span>
+                    <h4>车床A上料位</h4>
+                    <p>MOVE_ABS / 自动规避 / 常用工位模板</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                  <div class="command-card">
+                    <span class="tag">固定型</span>
+                    <h4>抓手闭合</h4>
+                    <p>GRIP_SET / 固定函数型无参数指令</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                  <div class="command-card">
+                    <span class="tag">参数型</span>
+                    <h4>等待位</h4>
+                    <p>MOVE_ABS / 安全回退位 / 默认速度</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                  <div class="command-card">
+                    <span class="tag">固定型</span>
+                    <h4>回零</h4>
+                    <p>HOME / 原点回归 / 工艺初始化</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                  <div class="command-card">
+                    <span class="tag">参数型</span>
+                    <h4>装夹准备位</h4>
+                    <p>MOVE_ABS / 工件装夹前准备姿态</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                  <div class="command-card">
+                    <span class="tag">固定型</span>
+                    <h4>打开机床门</h4>
+                    <p>DOOR_CTRL / 机床门动作控制</p>
+                    <button class="btn primary" style="width:100%;">执行模板</button>
+                  </div>
+                </div>
+              </div>
+
+              <div id="run-tab-flow" class="tab-panel card panel">
+                <div class="flow-toolbar">
+                  <div class="left">
+                    <div class="field" style="width:220px;">
+                      <label>流程</label>
+                      <select class="select">
+                        <option>上下料标准流程</option>
+                        <option>车床A单站流程</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flow-grid">
+                  <div class="tree two">
+                    <div class="tree-head">
+                      <div>步骤</div>
+                      <div>状态</div>
+                    </div>
+                    <div class="tree-scroll">
+                      <div class="tree-row"><div>等待位</div><div>已完成</div></div>
+                      <div class="tree-row active"><div>车床A上料位</div><div>执行中</div></div>
+                      <div class="tree-row"><div>抓手闭合</div><div>待执行</div></div>
+                      <div class="tree-row"><div>抬升离开工位</div><div>待执行</div></div>
+                    </div>
+                  </div>
+
+                  <div class="flow-status">
+                    <div class="title">流程状态</div>
+                    <div class="info-grid">
+                      <div class="info-row"><span>当前流程</span><span>上下料标准流程</span></div>
+                      <div class="info-row"><span>当前步骤</span><span>2 / 6</span></div>
+                      <div class="info-row"><span>流程状态</span><span>运行中</span></div>
+                      <div class="info-row"><span>执行模板</span><span>车床A上料位</span></div>
+                    </div>
+                    <div class="grid-actions">
+                      <button class="btn primary">开始流程</button>
+                      <button class="btn secondary">单步执行</button>
+                      <button class="btn secondary">停止流程</button>
+                      <button class="btn secondary">重置流程</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="run-tab-nlp" class="tab-panel card panel">
+                <div class="nlp-toolbar">
+                  <div class="left">
+                    <label style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;">
+                      <input type="checkbox" checked>
+                      使用DeepSeek
+                    </label>
+                    <div class="field" style="width:220px;">
+                      <label>麦克风</label>
+                      <select class="select">
+                        <option>系统默认麦克风</option>
+                      </select>
+                    </div>
+                    <button class="btn secondary">刷新设备</button>
+                  </div>
+                </div>
+
+                <div class="nlp-grid">
+                  <div>
+                    <div class="field">
+                      <label>输入文本</label>
+                      <textarea class="textarea">例如：执行流程11 / 回零 / 启动 / 把机械手移动到位置A</textarea>
+                    </div>
+                    <div class="toolbar" style="margin-top:12px;">
+                      <button class="btn secondary">解析文本</button>
+                      <button class="btn secondary" id="mic-toggle">开始录音</button>
+                      <button class="btn secondary">清空</button>
+                      <button class="btn green">执行</button>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>解析结果</label>
+                    <textarea class="textarea" style="min-height:250px;">{
+  "source": "deepseek",
+  "actions": [
+    {"type": "template", "target": "车床A上料位"},
+    {"type": "template", "target": "抓手闭合"}
+  ]
+}</textarea>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="run-bottom">
+              <div class="card panel soft">
+                <div class="title">机械手状态</div>
+                <div class="info-grid">
+                  <div class="info-row"><span>X</span><span>1250.0</span></div>
+                  <div class="info-row"><span>Y</span><span>0.0</span></div>
+                  <div class="info-row"><span>Z</span><span>860.0</span></div>
+                  <div class="info-row"><span>RX / RY / RZ</span><span>0.0 / 0.0 / 0.0</span></div>
+                  <div class="info-row"><span>速度 / 加速度</span><span>30% / 40%</span></div>
+                  <div class="info-row"><span>夹爪使能</span><span>0</span></div>
+                  <div class="info-row"><span>夹爪刹车</span><span>0</span></div>
+                  <div class="info-row"><span>伺服使能</span><span>0</span></div>
+                  <div class="info-row"><span>实时状态</span><span>空闲</span></div>
+                  <div class="info-row"><span>监控任务ID</span><span>-</span></div>
+                  <div class="info-row"><span>运动进度</span><span>0%</span></div>
+                  <div class="info-row"><span>命令回显</span><span>-</span></div>
+                  <div class="info-row"><span>执行触发</span><span>0</span></div>
+                </div>
+              </div>
+
+              <div class="card panel soft">
+                <div class="title">执行摘要</div>
+                <div class="info-grid">
+                  <div class="info-row"><span>当前模式</span><span>自动</span></div>
+                  <div class="info-row"><span>忙闲状态</span><span>空闲</span></div>
+                  <div class="info-row"><span>执行结果</span><span>0</span></div>
+                  <div class="info-row"><span>报警码</span><span>ERR_000</span></div>
+                  <div class="info-row"><span>系统说明</span><span>系统正常</span></div>
+                  <div class="info-row"><span>IO状态位</span><span>0</span></div>
+                  <div class="info-row"><span>当前任务ID</span><span>1001</span></div>
+                </div>
+              </div>
+
+              <div class="tree history">
+                <div class="tree-head">
+                  <div>任务ID</div>
+                  <div>指令码</div>
+                  <div>名称</div>
+                  <div>指令类型</div>
+                  <div>结果</div>
+                </div>
+                <div class="tree-scroll" style="max-height:292px;">
+                  <div class="tree-row"><div>1001</div><div>1001</div><div>车床A上料位</div><div>参数型指令</div><div>成功</div></div>
+                  <div class="tree-row"><div>1000</div><div>1004</div><div>抓手闭合</div><div>固定函数型无参数指令</div><div>成功</div></div>
+                  <div class="tree-row"><div>999</div><div>1003</div><div>回零</div><div>参数型指令</div><div>待执行</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="run-side">
+            <button class="btn secondary">上电</button>
+            <button class="btn green">启动</button>
+            <button class="btn secondary">停机</button>
+            <button class="btn yellow">暂停</button>
+            <button class="btn secondary">继续</button>
+            <button class="btn red" style="height:56px;">急停</button>
+
+            <div class="side-box state-box" style="margin-top:auto;">
+              <div class="title">总状态</div>
+              <div class="state-big">READY</div>
+              <div class="state-sub">实时监控运行中<br>下位机空闲待命</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="manage" class="page">
+        <div class="manage-layout">
+          <div class="manage-top">
+            <div class="summary-card card soft">
+              <h3>后台作用</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>用途</span><span>维护按钮与模板映射</span></div>
+                <div class="info-row"><span>支持</span><span>参数型指令</span></div>
+                <div class="info-row"><span>支持</span><span>固定函数型无参数</span></div>
+                <div class="info-row"><span>示例</span><span>5001 固定函数</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>当前选中模板</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>显示名称</span><span>线性插补_V2</span></div>
+                <div class="info-row"><span>指令码</span><span>1001</span></div>
+                <div class="info-row"><span>指令类型</span><span>MOVE_ABS</span></div>
+                <div class="info-row"><span>模板分类</span><span>parametric</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>后台操作</h3>
+              <div class="toolbar" style="flex-wrap:wrap;gap:10px;">
+                <button class="btn secondary">新增</button>
+                <button class="btn secondary">保存</button>
+                <button class="btn secondary">另存为</button>
+                <button class="btn secondary">删除</button>
+                <button class="btn secondary">导出指令</button>
+                <button class="btn secondary">导入指令</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="manage-bottom">
+            <div class="card panel">
+              <div class="title">指令模板列表</div>
+              <div class="tree two">
+                <div class="tree-head">
+                  <div>显示名称</div>
+                  <div>模板分类</div>
+                </div>
+                <div class="tree-scroll" style="max-height:650px;">
+                  <div class="tree-row active"><div>线性插补_V2</div><div>parametric</div></div>
+                  <div class="tree-row"><div>圆弧引导_入口</div><div>parametric</div></div>
+                  <div class="tree-row"><div>快速定位_安全</div><div>parametric</div></div>
+                  <div class="tree-row"><div>抓手闭合</div><div>fixed</div></div>
+                  <div class="tree-row"><div>打开机床门</div><div>fixed</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card panel">
+              <div class="title">工程师后台管理</div>
+              <div class="editor-grid">
+                <div class="field"><label>显示名称</label><input class="input" value="线性插补_V2"></div>
+                <div class="field"><label>指令码</label><input class="input mono" value="1001"></div>
+                <div class="field"><label>指令类型</label><select class="select"><option>MOVE_ABS</option><option>MOVE_REL</option></select></div>
+                <div class="field"><label>模板分类</label><select class="select"><option>parametric</option><option>fixed</option></select></div>
+                <div class="field full"><label>自然语言关键词</label><input class="input" value="插补, 平滑, 工位A, 线性移动"></div>
+                <div class="field"><label>工位ID</label><input class="input mono" value="0"></div>
+                <div class="field"><label>设备ID</label><input class="input mono" value="1"></div>
+                <div class="field"><label>X</label><input class="input mono" value="100"></div>
+                <div class="field"><label>Y</label><input class="input mono" value="200"></div>
+                <div class="field"><label>Z</label><input class="input mono" value="50"></div>
+                <div class="field"><label>RX</label><input class="input mono" value="0"></div>
+                <div class="field"><label>RY</label><input class="input mono" value="0"></div>
+                <div class="field"><label>RZ</label><input class="input mono" value="0"></div>
+                <div class="field"><label>速度%</label><input class="input mono" value="30"></div>
+                <div class="field"><label>加速度%</label><input class="input mono" value="40"></div>
+                <div class="field"><label>夹爪动作</label><input class="input mono" value="0"></div>
+                <div class="field"><label>机床门动作</label><input class="input mono" value="0"></div>
+                <div class="field"><label>扩展参数1</label><input class="input mono" value="0"></div>
+                <div class="field"><label>扩展参数2</label><input class="input mono" value="0"></div>
+                <div class="field"><label>安全等级</label><input class="input mono" value="5"></div>
+                <div class="field full"><label>说明</label><input class="input" value="模板编辑说明"></div>
+              </div>
+            </div>
+
+            <div class="card panel">
+              <div class="subtab-row">
+                <button class="subtab-btn active" data-manage-tab="preview">JSON预览</button>
+                <button class="subtab-btn" data-manage-tab="config">系统参数</button>
+                <button class="subtab-btn" data-manage-tab="avoidance">安全中间点</button>
+                <button class="subtab-btn" data-manage-tab="flow">流程管理</button>
+              </div>
+
+              <div id="manage-tab-preview" class="subtab-panel active">
+                <div class="title">结构化 JSON 预览</div>
+                <textarea class="textarea" style="min-height:620px;">{
+  "query_key": "线性插补_V2",
+  "function_id": 1001,
+  "function_name": "MOVE_ABS",
+  "template_type": "parametric",
+  "registers": [100, 200, 50, 0, 0, 0, 30],
+  "acc_percent": 40,
+  "safety_level": 5
+}</textarea>
+              </div>
+
+              <div id="manage-tab-config" class="subtab-panel">
+                <div class="title">系统参数</div>
+                <div class="form-grid">
+                  <div class="field"><label>X最小</label><input class="input mono" value="-742"></div>
+                  <div class="field"><label>X最大</label><input class="input mono" value="1200"></div>
+                  <div class="field"><label>Y最小</label><input class="input mono" value="-112"></div>
+                  <div class="field"><label>Y最大</label><input class="input mono" value="800"></div>
+                  <div class="field"><label>Z最小</label><input class="input mono" value="-45"></div>
+                  <div class="field"><label>Z最大</label><input class="input mono" value="300"></div>
+                </div>
+                <div class="toolbar" style="margin-top:12px;">
+                  <button class="btn secondary">保存范围</button>
+                  <button class="btn secondary">重载范围</button>
+                </div>
+              </div>
+
+              <div id="manage-tab-avoidance" class="subtab-panel">
+                <div class="title">安全中间点</div>
+                <div class="form-grid">
+                  <div class="field full"><label>规避模式</label><select class="select"><option>自动判断</option><option>关闭</option><option>每次都经过中间点</option></select></div>
+                  <div class="field"><label>RX变化</label><input class="input mono" value="30"></div>
+                  <div class="field"><label>RY变化</label><input class="input mono" value="30"></div>
+                  <div class="field"><label>RZ变化</label><input class="input mono" value="45"></div>
+                  <div class="field"><label>低位Z</label><input class="input mono" value="150"></div>
+                  <div class="field"><label>XY移动</label><input class="input mono" value="100"></div>
+                </div>
+                <div style="height:12px;"></div>
+                <div class="tree two">
+                  <div class="tree-head"><div>中间点</div><div>说明</div></div>
+                  <div class="tree-row active"><div>高位过渡 A</div><div>默认规避点</div></div>
+                  <div class="tree-row"><div>双车床中线位</div><div>流程共享</div></div>
+                </div>
+              </div>
+
+              <div id="manage-tab-flow" class="subtab-panel">
+                <div class="title">流程管理</div>
+                <div class="field full" style="margin-bottom:12px;">
+                  <label>流程名称</label>
+                  <input class="input" value="上下料标准流程">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                  <div class="tree one">
+                    <div class="tree-head"><div>已有流程</div></div>
+                    <div class="tree-row active"><div>上下料标准流程</div></div>
+                    <div class="tree-row"><div>车床A单站流程</div></div>
+                  </div>
+                  <div class="tree one">
+                    <div class="tree-head"><div>流程步骤</div></div>
+                    <div class="tree-row"><div>等待位</div></div>
+                    <div class="tree-row"><div>车床A上料位</div></div>
+                    <div class="tree-row"><div>抓手闭合</div></div>
+                  </div>
+                  <div class="tree two">
+                    <div class="tree-head"><div>可选模板</div><div>类型</div></div>
+                    <div class="tree-row"><div>等待位</div><div>参数</div></div>
+                    <div class="tree-row"><div>抓手闭合</div><div>固定</div></div>
+                    <div class="tree-row"><div>回零</div><div>参数</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="logs" class="page">
+        <div class="logs-layout">
+          <div class="logs-top">
+            <div class="summary-card card soft">
+              <h3>日志说明</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>记录范围</span><span>系统按钮 / 连接检测</span></div>
+                <div class="info-row"><span>记录范围</span><span>指令发送 / 反馈读取</span></div>
+                <div class="info-row"><span>记录范围</span><span>模板新增 / 保存 / 删除</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>日志摘要</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>日志条数</span><span>128</span></div>
+                <div class="info-row"><span>最近时间</span><span>14:22:01</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>日志操作</h3>
+              <div class="logs-actions">
+                <button class="btn secondary" id="refresh-log">刷新日志</button>
+                <button class="btn secondary">导出日志</button>
+                <button class="btn red" id="clear-log">清空日志</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="table logs card surface">
+            <div class="table-head">
+              <div>时间</div>
+              <div>分类</div>
+              <div>操作</div>
+              <div>结果</div>
+              <div>详情</div>
+            </div>
+            <div id="log-table-body">
+              <div class="table-row">
+                <div class="mono">14:22:01</div>
+                <div>执行</div>
+                <div>发送模板 车床A上料位</div>
+                <div><span class="pill ok">成功</span></div>
+                <div>任务1001 / 标准协议 / 镜像确认成功</div>
+              </div>
+              <div class="table-row">
+                <div class="mono">14:21:44</div>
+                <div>规则</div>
+                <div>规避判断命中安全中间点</div>
+                <div><span class="pill warn">命中</span></div>
+                <div>原因: 低位大范围移动</div>
+              </div>
+              <div class="table-row">
+                <div class="mono">14:21:03</div>
+                <div>语音</div>
+                <div>麦克风识别</div>
+                <div><span class="pill blue">完成</span></div>
+                <div>文本: 把机械手移动到车床 A 上料位</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const pageButtons = document.querySelectorAll(".side-item[data-page]");
+    const pages = document.querySelectorAll(".page");
+    const runTabButtons = document.querySelectorAll(".tab-btn[data-run-tab]");
+    const manageTabButtons = document.querySelectorAll(".subtab-btn[data-manage-tab]");
+    const micToggle = document.getElementById("mic-toggle");
+    const refreshLog = document.getElementById("refresh-log");
+    const clearLog = document.getElementById("clear-log");
+    const logTableBody = document.getElementById("log-table-body");
+
+    pageButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.page;
+        pageButtons.forEach((item) => item.classList.toggle("active", item === button));
+        pages.forEach((page) => page.classList.toggle("active", page.id === target));
+      });
+    });
+
+    runTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.runTab;
+        runTabButtons.forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[id^='run-tab-']").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === `run-tab-${target}`);
+        });
+      });
+    });
+
+    manageTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.manageTab;
+        manageTabButtons.forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[id^='manage-tab-']").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === `manage-tab-${target}`);
+        });
+      });
+    });
+
+    let recording = false;
+    micToggle.addEventListener("click", () => {
+      recording = !recording;
+      micToggle.textContent = recording ? "停止录音" : "开始录音";
+      micToggle.classList.toggle("yellow", recording);
+    });
+
+    refreshLog.addEventListener("click", () => {
+      const row = document.createElement("div");
+      row.className = "table-row";
+      row.innerHTML = `
+        <div class="mono">14:23:18</div>
+        <div>反馈</div>
+        <div>实时监控轮询</div>
+        <div><span class="pill ok">成功</span></div>
+        <div>首次轮询成功，定时轮询已运行</div>
+      `;
+      logTableBody.prepend(row);
+    });
+
+    clearLog.addEventListener("click", () => {
+      logTableBody.innerHTML = `
+        <div class="table-row">
+          <div class="mono">14:24:00</div>
+          <div>日志</div>
+          <div>清空日志</div>
+          <div><span class="pill warn">成功</span></div>
+          <div>已清空历史日志，当前为系统生成首条记录</div>
+        </div>
+      `;
+    });
+  </script>
+</body>
+</html>

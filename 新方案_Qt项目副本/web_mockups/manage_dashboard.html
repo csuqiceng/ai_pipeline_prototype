@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manage Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./dashboard_theme.css">
+  <style>
+    .manage-layout {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      height: calc(100vh - 102px);
+    }
+
+    .manage-top {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.05fr;
+      gap: 12px;
+    }
+
+    .manage-bottom {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1.04fr) minmax(0, 1.08fr);
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .editor-grid,
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 12px;
+    }
+
+    .editor-grid .full,
+    .form-grid .full {
+      grid-column: 1 / -1;
+    }
+
+    .template-card,
+    .editor-card,
+    .right-card {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .template-card .tree-scroll {
+      max-height: 620px;
+    }
+
+    .subtab-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .subtab-btn {
+      height: 34px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: var(--radius-md);
+      background: var(--surface-muted);
+      color: var(--muted);
+      font: 700 11px/1 var(--headline);
+    }
+
+    .subtab-btn.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .subtab-panel {
+      display: none;
+    }
+
+    .subtab-panel.active {
+      display: block;
+    }
+
+    .preview-text {
+      min-height: 560px;
+    }
+
+    .safe-layout {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .safe-split {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .flow-layout {
+      display: grid;
+      gap: 10px;
+    }
+
+    .flow-split {
+      display: grid;
+      grid-template-columns: 0.9fr 0.9fr 1fr;
+      gap: 10px;
+    }
+
+    .stack-actions {
+      display: grid;
+      gap: 10px;
+    }
+
+    .grid-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand">KINETIC MONOLITH</div>
+        <div class="divider"></div>
+        <div class="status-row">
+          <span class="status-dot"></span>
+          <span>系统状态: 正常</span>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a class="top-link" href="./run_dashboard.html">▦ 运行</a>
+        <a class="top-link active" href="./manage_dashboard.html">⚙ 后台</a>
+        <a class="top-link" href="./logs_dashboard.html">⌘ 日志</a>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="side-item" href="./run_dashboard.html">
+          <div class="side-icon">▶</div>
+          <div class="side-label">运行</div>
+        </a>
+        <a class="side-item active" href="./manage_dashboard.html">
+          <div class="side-icon">⚙</div>
+          <div class="side-label">后台</div>
+        </a>
+        <a class="side-item" href="./logs_dashboard.html">
+          <div class="side-icon">⌘</div>
+          <div class="side-label">日志</div>
+        </a>
+        <div class="side-spacer"></div>
+        <div class="side-item">
+          <div class="side-icon">✦</div>
+          <div class="side-label">授权</div>
+        </div>
+      </aside>
+
+      <main class="page">
+        <section class="page-intro">
+          <div>
+            <h1>后台管理台</h1>
+            <p>模板维护工作台。功能不变，减少说明占位和纵向长度。</p>
+          </div>
+          <div class="hero-chips">
+            <div class="hero-chip">
+              <strong>当前模板</strong>
+              <span>线性插补_V2</span>
+            </div>
+            <div class="hero-chip">
+              <strong>指令码</strong>
+              <span>1001</span>
+            </div>
+            <div class="hero-chip">
+              <strong>模板分类</strong>
+              <span>parametric</span>
+            </div>
+            <div class="hero-chip">
+              <strong>流程数</strong>
+              <span>6</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="manage-layout">
+          <section class="manage-top">
+            <div class="summary-card card soft">
+              <h3>后台作用</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>用途</span><span>维护按钮与模板映射</span></div>
+                <div class="info-row"><span>支持</span><span>参数型指令</span></div>
+                <div class="info-row"><span>支持</span><span>固定函数型无参数</span></div>
+                <div class="info-row"><span>示例</span><span>5001 固定函数</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>当前选中模板</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>显示名称</span><span>线性插补_V2</span></div>
+                <div class="info-row"><span>指令码</span><span>1001</span></div>
+                <div class="info-row"><span>指令类型</span><span>MOVE_ABS</span></div>
+                <div class="info-row"><span>模板分类</span><span>parametric</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>后台操作</h3>
+              <div class="grid-actions">
+                <button class="btn secondary">新增</button>
+                <button class="btn secondary">保存</button>
+                <button class="btn secondary">另存为</button>
+                <button class="btn secondary">删除</button>
+                <button class="btn secondary">导出指令</button>
+                <button class="btn secondary">导入指令</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="manage-bottom">
+            <div class="card panel template-card">
+              <div class="section-head">
+                <div>
+                  <h2 class="title">指令模板列表</h2>
+                  <div class="subcopy">模板列表。</div>
+                </div>
+              </div>
+
+              <div class="tree two">
+                <div class="tree-head">
+                  <div>显示名称</div>
+                  <div>模板分类</div>
+                </div>
+                <div class="tree-scroll">
+                  <div class="tree-row active"><div>线性插补_V2</div><div>parametric</div></div>
+                  <div class="tree-row"><div>圆弧引导_入口</div><div>parametric</div></div>
+                  <div class="tree-row"><div>快速定位_安全</div><div>parametric</div></div>
+                  <div class="tree-row"><div>抓手闭合</div><div>fixed</div></div>
+                  <div class="tree-row"><div>打开机床门</div><div>fixed</div></div>
+                  <div class="tree-row"><div>回零</div><div>parametric</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card panel editor-card">
+              <div class="section-head">
+                <div>
+                  <h2 class="title">工程师后台管理</h2>
+                  <div class="subcopy">模板编辑字段。</div>
+                </div>
+              </div>
+
+              <div class="editor-grid">
+                <div class="field"><label>显示名称</label><input class="input" value="线性插补_V2"></div>
+                <div class="field"><label>指令码</label><input class="input mono" value="1001"></div>
+                <div class="field"><label>指令类型</label><select class="select"><option>MOVE_ABS</option><option>MOVE_REL</option></select></div>
+                <div class="field"><label>模板分类</label><select class="select"><option>parametric</option><option>fixed</option></select></div>
+                <div class="field full"><label>自然语言关键词</label><input class="input" value="插补, 平滑, 工位A, 线性移动"></div>
+                <div class="field"><label>工位ID</label><input class="input mono" value="0"></div>
+                <div class="field"><label>设备ID</label><input class="input mono" value="1"></div>
+                <div class="field"><label>X</label><input class="input mono" value="100"></div>
+                <div class="field"><label>Y</label><input class="input mono" value="200"></div>
+                <div class="field"><label>Z</label><input class="input mono" value="50"></div>
+                <div class="field"><label>RX</label><input class="input mono" value="0"></div>
+                <div class="field"><label>RY</label><input class="input mono" value="0"></div>
+                <div class="field"><label>RZ</label><input class="input mono" value="0"></div>
+                <div class="field"><label>速度%</label><input class="input mono" value="30"></div>
+                <div class="field"><label>加速度%</label><input class="input mono" value="40"></div>
+                <div class="field"><label>夹爪动作</label><input class="input mono" value="0"></div>
+                <div class="field"><label>机床门动作</label><input class="input mono" value="0"></div>
+                <div class="field"><label>扩展参数1</label><input class="input mono" value="0"></div>
+                <div class="field"><label>扩展参数2</label><input class="input mono" value="0"></div>
+                <div class="field"><label>安全等级</label><input class="input mono" value="5"></div>
+                <div class="field full"><label>说明</label><input class="input" value="模板编辑说明"></div>
+              </div>
+            </div>
+
+            <div class="card panel right-card">
+              <div class="subtab-row">
+                <button class="subtab-btn active" data-manage-tab="preview">JSON预览</button>
+                <button class="subtab-btn" data-manage-tab="config">系统参数</button>
+                <button class="subtab-btn" data-manage-tab="avoidance">安全中间点</button>
+                <button class="subtab-btn" data-manage-tab="flow">流程管理</button>
+              </div>
+
+              <div id="manage-tab-preview" class="subtab-panel active">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">结构化 JSON 预览</h2>
+                    <div class="subcopy">JSON 预览。</div>
+                  </div>
+                </div>
+                <textarea class="textarea mono preview-text">{
+  "query_key": "线性插补_V2",
+  "function_id": 1001,
+  "function_name": "MOVE_ABS",
+  "template_type": "parametric",
+  "position_id": 0,
+  "device_id": 1,
+  "registers": [100, 200, 50, 0, 0, 0, 30],
+  "acc_percent": 40,
+  "io_grip": 0,
+  "io_door": 0,
+  "ext_params": [0, 0],
+  "safety_level": 5,
+  "description": "模板编辑说明"
+}</textarea>
+              </div>
+
+              <div id="manage-tab-config" class="subtab-panel">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">系统参数</h2>
+                    <div class="subcopy">系统范围参数。</div>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <div class="field"><label>X最小</label><input class="input mono" value="-742"></div>
+                  <div class="field"><label>X最大</label><input class="input mono" value="1200"></div>
+                  <div class="field"><label>Y最小</label><input class="input mono" value="-112"></div>
+                  <div class="field"><label>Y最大</label><input class="input mono" value="800"></div>
+                  <div class="field"><label>Z最小</label><input class="input mono" value="-45"></div>
+                  <div class="field"><label>Z最大</label><input class="input mono" value="300"></div>
+                </div>
+                <div class="toolbar" style="margin-top:14px;gap:10px;">
+                  <button class="btn secondary">保存范围</button>
+                  <button class="btn secondary">重载范围</button>
+                </div>
+              </div>
+
+              <div id="manage-tab-avoidance" class="subtab-panel">
+                <div class="safe-layout">
+                  <div>
+                    <div class="section-head">
+                      <div>
+                        <h2 class="title">安全中间点</h2>
+                        <div class="subcopy">规避规则与中间点。</div>
+                      </div>
+                    </div>
+                    <div class="form-grid">
+                      <div class="field full">
+                        <label>规避模式</label>
+                        <select class="select">
+                          <option>关闭</option>
+                          <option selected>自动判断</option>
+                          <option>每次都经过中间点</option>
+                        </select>
+                      </div>
+                      <div class="field"><label>RX变化&gt;=</label><input class="input mono" value="30"></div>
+                      <div class="field"><label>RY变化&gt;=</label><input class="input mono" value="30"></div>
+                      <div class="field"><label>RZ变化&gt;=</label><input class="input mono" value="45"></div>
+                      <div class="field"><label>低位Z&lt;</label><input class="input mono" value="150"></div>
+                      <div class="field full"><label>XY移动&gt;</label><input class="input mono" value="100"></div>
+                    </div>
+                  </div>
+
+                  <div class="safe-split">
+                    <div class="tree two">
+                      <div class="tree-head"><div>中间点</div><div>说明</div></div>
+                      <div class="tree-scroll" style="max-height:360px;">
+                        <div class="tree-row active"><div>高位过渡 A</div><div>默认规避点</div></div>
+                        <div class="tree-row"><div>双车床中线位</div><div>流程共享</div></div>
+                      </div>
+                    </div>
+
+                    <div class="card soft panel" style="padding:14px;">
+                      <div class="form-grid">
+                        <div class="field full"><label>名称</label><input class="input" value="高位过渡 A"></div>
+                        <div class="field"><label>X</label><input class="input mono" value="320"></div>
+                        <div class="field"><label>Y</label><input class="input mono" value="100"></div>
+                        <div class="field"><label>Z</label><input class="input mono" value="220"></div>
+                        <div class="field"><label>RX</label><input class="input mono" value="0"></div>
+                        <div class="field"><label>RY</label><input class="input mono" value="0"></div>
+                        <div class="field"><label>RZ</label><input class="input mono" value="0"></div>
+                        <div class="field"><label>速度%</label><input class="input mono" value="20"></div>
+                        <div class="field"><label>加速度%</label><input class="input mono" value="20"></div>
+                        <div class="field full"><label>说明</label><input class="input" value="默认规避点"></div>
+                      </div>
+                      <div class="grid-actions" style="margin-top:10px;">
+                        <button class="btn secondary">新增中间点</button>
+                        <button class="btn secondary">保存中间点</button>
+                        <button class="btn secondary">删除中间点</button>
+                        <button class="btn primary">保存规避配置</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="manage-tab-flow" class="subtab-panel">
+                <div class="flow-layout">
+                  <div class="section-head">
+                    <div>
+                      <h2 class="title">流程管理</h2>
+                      <div class="subcopy">流程编排与维护。</div>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label>流程名称</label>
+                    <input class="input" value="上下料标准流程">
+                  </div>
+
+                  <div class="flow-split">
+                    <div class="card soft panel" style="padding:14px;">
+                      <h2 class="title">已有流程</h2>
+                      <div class="tree two" style="margin-top:12px;">
+                        <div class="tree-head"><div>流程名称</div><div>步数</div></div>
+                        <div class="tree-row active"><div>上下料标准流程</div><div>6</div></div>
+                        <div class="tree-row"><div>车床A单站流程</div><div>4</div></div>
+                      </div>
+                    </div>
+
+                    <div class="card soft panel" style="padding:14px;">
+                      <h2 class="title">流程步骤</h2>
+                      <div class="tree one" style="margin-top:12px;">
+                        <div class="tree-head"><div>步骤模板</div></div>
+                        <div class="tree-row"><div>等待位</div></div>
+                        <div class="tree-row active"><div>车床A上料位</div></div>
+                        <div class="tree-row"><div>抓手闭合</div></div>
+                        <div class="tree-row"><div>回到等待位</div></div>
+                      </div>
+                      <div class="grid-actions" style="margin-top:14px;">
+                        <button class="btn secondary">添加步骤</button>
+                        <button class="btn secondary">移除步骤</button>
+                        <button class="btn secondary">上移</button>
+                        <button class="btn secondary">下移</button>
+                      </div>
+                    </div>
+
+                    <div class="card soft panel" style="padding:14px;">
+                      <h2 class="title">可选模板</h2>
+                      <div class="tree two" style="margin-top:12px;">
+                        <div class="tree-head"><div>模板名称</div><div>类型</div></div>
+                        <div class="tree-row"><div>等待位</div><div>参数</div></div>
+                        <div class="tree-row"><div>车床A上料位</div><div>参数</div></div>
+                        <div class="tree-row"><div>抓手闭合</div><div>固定</div></div>
+                      </div>
+                      <div class="stack-actions" style="margin-top:14px;">
+                        <button class="btn secondary">新增流程</button>
+                        <button class="btn primary">保存流程</button>
+                        <button class="btn secondary">删除流程</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const manageTabButtons = document.querySelectorAll("[data-manage-tab]");
+    manageTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.manageTab;
+        manageTabButtons.forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[id^='manage-tab-']").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === `manage-tab-${target}`);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

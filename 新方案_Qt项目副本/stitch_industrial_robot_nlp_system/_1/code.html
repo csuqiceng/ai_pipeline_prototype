@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kinetic Forge Light - 后台管理系统</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error-container": "#93000a",
+                        "secondary": "#565e74",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#e0e3e5",
+                        "on-secondary-fixed-variant": "#3f465c",
+                        "primary-container": "#2196f3",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-background": "#191c1e",
+                        "on-tertiary-fixed-variant": "#6d3900",
+                        "background": "#f7f9fb",
+                        "secondary-fixed": "#dae2fd",
+                        "surface": "#f7f9fb",
+                        "surface-tint": "#0061a4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-container": "#452200",
+                        "tertiary-container": "#db7900",
+                        "inverse-on-surface": "#eff1f3",
+                        "primary": "#0061a4",
+                        "primary-fixed-dim": "#9ecaff",
+                        "error-container": "#ffdad6",
+                        "outline-variant": "#bfc7d4",
+                        "on-primary-container": "#002c4f",
+                        "surface-container-highest": "#e0e3e5",
+                        "surface-container": "#eceef0",
+                        "tertiary-fixed-dim": "#ffb77b",
+                        "on-secondary-container": "#5c647a",
+                        "on-primary": "#ffffff",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "tertiary-fixed": "#ffdcc2",
+                        "inverse-primary": "#9ecaff",
+                        "surface-dim": "#d8dadc",
+                        "on-surface-variant": "#404752",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-low": "#f2f4f6",
+                        "surface-bright": "#f7f9fb",
+                        "primary-fixed": "#d1e4ff",
+                        "surface-container-high": "#e6e8ea",
+                        "on-primary-fixed": "#001d36",
+                        "inverse-surface": "#2d3133",
+                        "on-error": "#ffffff",
+                        "outline": "#707883",
+                        "secondary-container": "#dae2fd",
+                        "on-secondary-fixed": "#131b2e",
+                        "on-surface": "#191c1e",
+                        "tertiary": "#904d00",
+                        "on-tertiary-fixed": "#2e1500"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Space Grotesk"],
+                        "label": ["Space Grotesk"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Space Grotesk', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .technical-label {
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        /* Fixed width container style */
+        .fixed-canvas {
+            width: 1440px;
+            margin: 0 auto;
+            position: relative;
+        }
+    </style>
+</head>
+<body class="bg-surface-container-low text-on-background min-h-screen flex justify-center items-start overflow-x-auto">
+<div class="fixed-canvas bg-background min-h-screen flex overflow-hidden shadow-2xl">
+<!-- SideNavBar -->
+<aside class="w-64 bg-[#f2f4f6] flex flex-col py-8 px-4 transition-all duration-200 ease-in-out border-r border-outline-variant/20 shrink-0">
+<div class="mb-10 px-2">
+<h1 class="font-['Space_Grotesk'] tracking-tight text-xl font-bold text-[#001d36]">Kinetic Forge Light</h1>
+<p class="text-[10px] technical-label text-on-surface-variant mt-1">Forge-01 运行中</p>
+</div>
+<nav class="flex-1 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 text-[#404752] hover:text-[#001d36] transition-colors rounded font-['Space_Grotesk'] uppercase tracking-widest text-[10px]" href="#">
+<span class="material-symbols-outlined" data-icon="play_circle">play_circle</span>
+<span>运行</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 bg-[#ffffff] text-[#0061a4] font-bold shadow-sm rounded font-['Space_Grotesk'] uppercase tracking-widest text-[10px]" href="#">
+<span class="material-symbols-outlined" data-icon="settings_input_component">settings_input_component</span>
+<span>管理</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#404752] hover:text-[#001d36] transition-colors rounded font-['Space_Grotesk'] uppercase tracking-widest text-[10px]" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span>日志</span>
+</a>
+</nav>
+<div class="mt-auto pt-8 border-t border-outline-variant/20 space-y-2">
+<a class="flex items-center gap-3 px-4 py-2 text-[#404752] hover:text-[#001d36] transition-colors font-['Space_Grotesk'] uppercase tracking-widest text-[10px]" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>支持</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#404752] hover:text-[#001d36] transition-colors font-['Space_Grotesk'] uppercase tracking-widest text-[10px]" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span>文档</span>
+</a>
+<button class="w-full mt-4 bg-error text-on-error py-3 rounded font-bold text-[10px] technical-label hover:opacity-90 transition-opacity">
+                    紧急停止
+                </button>
+</div>
+</aside>
+<main class="flex-1 flex flex-col overflow-hidden">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 h-16 bg-[#ffffff] border-b border-[#bfc7d4]/20 shrink-0">
+<div class="flex items-center gap-4">
+<h2 class="text-on-primary-fixed font-bold tracking-tight text-lg">系统节点: 后台管理</h2>
+<span class="bg-secondary-container text-on-secondary-container text-[10px] px-2 py-0.5 rounded technical-label">STABLE_REL_04</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative">
+<span class="material-symbols-outlined text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2" data-icon="search">search</span>
+<input class="bg-surface-container-low border-none rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-primary w-64" placeholder="搜索参数..." type="text"/>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-[#f2f4f6] p-2 rounded-full transition-colors" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-[#f2f4f6] p-2 rounded-full transition-colors" data-icon="settings">settings</button>
+<div class="h-8 w-8 rounded-full bg-primary-fixed overflow-hidden border border-outline-variant/20">
+<img alt="Administrator Profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB04K0S1Zt6kwJCxVeX_gl7ArzFDCwozMpUyvTGfn9zJjKrn455kWJzySHLYHsf48KFow7aTykPMbenJq4O0PJPJuMcocyqDIgN8a8p_E0W1MIFg3ys6cAyDPgKmyQuH68RgbVfohxs2quWBMpGhJZ6jdKabOOZ59v9kQqdDog7sZZW2rxLq28lmTnnkG62d9XwT6hlmLtulFlltJlYEZHlpBP_BE7qpWIBxt43zCOOArh_V6F6_emNZXYPvDCB3srJAJZEdviNGbE"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Left Sidebar: Command Templates -->
+<aside class="w-72 bg-surface-container-low flex flex-col p-6 space-y-6 shrink-0">
+<div>
+<h3 class="text-xs font-bold technical-label text-on-surface mb-4">指令模板</h3>
+<div class="space-y-2">
+<div class="p-3 bg-surface-container-lowest rounded shadow-sm border-l-4 border-primary cursor-pointer">
+<p class="text-sm font-bold text-on-surface">线性插补_V2</p>
+<p class="text-[10px] text-on-surface-variant mt-1">2小时前修改</p>
+</div>
+<div class="p-3 hover:bg-surface-container-high rounded cursor-pointer transition-colors">
+<p class="text-sm font-medium text-on-surface">圆弧引导_入口</p>
+<p class="text-[10px] text-on-surface-variant mt-1">1天前修改</p>
+</div>
+<div class="p-3 hover:bg-surface-container-high rounded cursor-pointer transition-colors">
+<p class="text-sm font-medium text-on-surface">快速定位_安全</p>
+<p class="text-[10px] text-on-surface-variant mt-1">3天前修改</p>
+</div>
+</div>
+</div>
+<button class="flex items-center justify-center gap-2 border-2 border-dashed border-outline-variant py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+<span class="text-xs font-bold technical-label">新建模板</span>
+</button>
+</aside>
+<!-- Center: Template Editor -->
+<section class="flex-1 p-8 overflow-y-auto bg-surface space-y-8">
+<div class="bg-surface-container-lowest rounded-xl p-8 shadow-[0_12px_32px_-4px_rgba(25,28,30,0.06)] max-w-3xl mx-auto">
+<div class="flex justify-between items-start mb-8">
+<div>
+<h2 class="text-2xl font-bold tracking-tight text-on-primary-fixed">模板编辑器</h2>
+<p class="text-on-surface-variant text-sm mt-1">正在为 轴组 01 配置运动原语</p>
+</div>
+<div class="flex gap-3">
+<button class="px-4 py-2 text-primary font-bold text-xs technical-label hover:bg-surface-container-low transition-colors rounded">放弃</button>
+<button class="px-6 py-2 bg-primary text-on-primary font-bold text-xs technical-label rounded shadow-md hover:bg-primary/90">编译并保存</button>
+</div>
+</div>
+<form class="grid grid-cols-2 gap-x-8 gap-y-6">
+<div class="space-y-1">
+<label class="text-[10px] technical-label text-primary font-bold">名称</label>
+<input class="w-full bg-surface-container-low border-none border-b-2 border-transparent focus:border-primary rounded px-4 py-3 text-sm transition-all outline-none" type="text" value="线性插补_V2"/>
+</div>
+<div class="space-y-1">
+<label class="text-[10px] technical-label text-primary font-bold">执行类型</label>
+<select class="w-full bg-surface-container-low border-none border-b-2 border-transparent focus:border-primary rounded px-4 py-3 text-sm transition-all outline-none">
+<option>同步执行</option>
+<option>异步触发</option>
+<option>队列处理</option>
+</select>
+</div>
+<div class="space-y-1">
+<label class="text-[10px] technical-label text-primary font-bold">插补方式</label>
+<select class="w-full bg-surface-container-low border-none border-b-2 border-transparent focus:border-primary rounded px-4 py-3 text-sm transition-all outline-none">
+<option>S-曲线 (平滑)</option>
+<option>梯形</option>
+<option>加加速度限制</option>
+</select>
+</div>
+<div class="space-y-1">
+<label class="text-[10px] technical-label text-primary font-bold">速度 (mm/s)</label>
+<input class="w-full bg-surface-container-low border-none border-b-2 border-transparent focus:border-primary rounded px-4 py-3 text-sm transition-all outline-none" type="number" value="450.00"/>
+</div>
+<div class="col-span-2">
+<h4 class="text-[10px] technical-label text-primary font-bold mb-3">动力学参数</h4>
+<div class="grid grid-cols-6 gap-4">
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">X</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="100.0"/>
+</div>
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">Y</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="200.0"/>
+</div>
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">Z</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="50.0"/>
+</div>
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">RX</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="0.0"/>
+</div>
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">RY</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="0.0"/>
+</div>
+<div class="space-y-1">
+<label class="text-[9px] text-on-surface-variant font-bold">RZ</label>
+<input class="w-full bg-surface-container-low border-none border-b border-transparent focus:border-primary rounded px-2 py-1 text-xs outline-none" type="text" value="0.0"/>
+</div>
+</div>
+</div>
+<div class="col-span-2 space-y-1">
+<label class="text-[10px] technical-label text-primary font-bold">指令码</label>
+<textarea class="w-full bg-surface-container-low border-none border-b-2 border-transparent focus:border-primary rounded px-4 py-4 text-sm font-mono transition-all outline-none resize-none" rows="4">IF (AXIS_01_POS &gt; 500) { 
+  CALL STATUS_REPORT(WARN_LIMIT);
+  SET PIN_12 HIGH;
+}</textarea>
+</div>
+<div class="col-span-2 flex items-center gap-4 p-4 bg-secondary-container/20 rounded">
+<span class="material-symbols-outlined text-on-secondary-container" data-icon="info">info</span>
+<p class="text-xs text-on-secondary-container">模板在提交至核心运动控制器前将进行安全性校验。</p>
+</div>
+</form>
+</div>
+<!-- Bottom Panel: Axis Range Limits -->
+<div class="max-w-3xl mx-auto space-y-4">
+<h3 class="text-xs font-bold technical-label text-on-surface">轴范围限制 (mm)</h3>
+<div class="grid grid-cols-3 gap-6">
+<div class="bg-surface-container-lowest p-5 rounded shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<span class="text-xs font-bold">X-轴</span>
+<span class="text-[10px] technical-label text-on-surface-variant">742 / 1200</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[62%]"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<span class="text-xs font-bold">Y-轴</span>
+<span class="text-[10px] technical-label text-on-surface-variant">112 / 800</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[14%]"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<span class="text-xs font-bold">Z-轴</span>
+<span class="text-[10px] technical-label text-on-surface-variant">45 / 300</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-error w-[15%]"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Sidebar: Viewport & Status -->
+<aside class="w-80 bg-surface-container-low border-l border-outline-variant/10 flex flex-col shrink-0">
+<div class="p-6 border-b border-outline-variant/10">
+<h3 class="text-xs font-bold technical-label text-on-surface mb-4">视口追踪</h3>
+<div class="aspect-square bg-on-background rounded relative overflow-hidden flex items-center justify-center">
+<div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 2px 2px, #fff 1px, transparent 0); background-size: 20px 20px;"></div>
+<svg class="w-48 h-48 text-primary opacity-80" fill="none" stroke="currentColor" stroke-width="0.5" viewbox="0 0 100 100">
+<circle cx="50" cy="50" r="40" stroke-dasharray="2 4"></circle>
+<path d="M10 50 L90 50 M50 10 L50 90" stroke-opacity="0.3"></path>
+<rect height="40" stroke-width="1" width="40" x="30" y="30"></rect>
+<path d="M30 30 L70 70 M70 30 L30 70" stroke-opacity="0.2"></path>
+</svg>
+<div class="absolute bottom-3 left-3 flex flex-col gap-1">
+<span class="text-[8px] technical-label text-white/60">X: 142.04</span>
+<span class="text-[8px] technical-label text-white/60">Y: -22.18</span>
+</div>
+</div>
+</div>
+<div class="p-6 flex-1 space-y-6">
+<div>
+<h3 class="text-xs font-bold technical-label text-on-surface mb-4">安全状态</h3>
+<div class="space-y-3">
+<div class="flex items-center gap-3">
+<div class="h-2 w-2 rounded-full bg-green-500"></div>
+<span class="text-xs text-on-surface-variant">联锁已闭合</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]"></div>
+<span class="text-xs text-on-surface-variant font-medium">运动学有效</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="h-2 w-2 rounded-full bg-amber-500"></div>
+<span class="text-xs text-on-surface-variant">温度警告 (42°C)</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-highest p-4 rounded">
+<h4 class="text-[10px] font-bold technical-label text-on-surface mb-2">最近日志</h4>
+<div class="text-[10px] font-mono text-on-surface-variant space-y-1">
+<div class="flex justify-between items-center">
+<span>[14:22:01]</span>
+<span class="text-green-600">认证通过</span>
+</div>
+<div class="flex justify-between items-center">
+<span>[14:22:04]</span>
+<span class="text-blue-600">轴同步</span>
+</div>
+<div class="flex justify-between items-center">
+<span>[14:25:56]</span>
+<span class="text-on-surface">等待闲置</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</body></html>

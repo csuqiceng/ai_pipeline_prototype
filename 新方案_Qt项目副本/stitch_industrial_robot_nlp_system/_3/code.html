@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kinetic Forge - 系统参数设置</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed-dim": "#9ecaff",
+                        "on-primary-fixed": "#001d36",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f2f4f6",
+                        "tertiary-container": "#db7900",
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-variant": "#e0e3e5",
+                        "on-secondary-fixed-variant": "#3f465c",
+                        "on-secondary-container": "#5c647a",
+                        "surface": "#f7f9fb",
+                        "on-surface-variant": "#404752",
+                        "on-surface": "#191c1e",
+                        "surface-dim": "#d8dadc",
+                        "on-secondary": "#ffffff",
+                        "surface-container-high": "#e6e8ea",
+                        "primary-container": "#2196f3",
+                        "outline-variant": "#bfc7d4",
+                        "on-error": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "inverse-surface": "#2d3133",
+                        "on-error-container": "#93000a",
+                        "surface-tint": "#0061a4",
+                        "on-primary-container": "#002c4f",
+                        "on-primary-fixed-variant": "#00497d",
+                        "on-tertiary-fixed": "#2e1500",
+                        "on-secondary-fixed": "#131b2e",
+                        "background": "#f7f9fb",
+                        "on-tertiary-fixed-variant": "#6d3900",
+                        "on-tertiary": "#ffffff",
+                        "on-background": "#191c1e",
+                        "tertiary": "#904d00",
+                        "primary-fixed": "#d1e4ff",
+                        "secondary": "#565e74",
+                        "primary": "#0061a4",
+                        "error-container": "#ffdad6",
+                        "tertiary-fixed-dim": "#ffb77b",
+                        "surface-bright": "#f7f9fb",
+                        "surface-container": "#eceef0",
+                        "tertiary-fixed": "#ffdcc2",
+                        "secondary-container": "#dae2fd",
+                        "error": "#ba1a1a",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "surface-container-highest": "#e0e3e5",
+                        "secondary-fixed": "#dae2fd",
+                        "outline": "#707883",
+                        "on-tertiary-container": "#452200",
+                        "inverse-primary": "#9ecaff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Space Grotesk"],
+                        "label": ["Space Grotesk"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        body {
+            width: 1440px;
+            margin: 0 auto;
+            position: relative;
+            background-color: #f7f9fb;
+        }
+    </style>
+</head>
+<body class="bg-background font-body text-on-background antialiased selection:bg-primary-fixed selection:text-on-primary-fixed min-h-screen">
+<!-- Sidebar Navigation (Fixed within 1440px context) -->
+<aside class="w-64 fixed top-0 bottom-0 bg-[#f2f4f6] dark:bg-slate-950 flex flex-col py-4 z-50 border-r border-outline-variant/10">
+<div class="px-6 mb-10">
+<h1 class="text-lg font-black text-[#001d36] font-headline tracking-tighter uppercase">Control Center</h1>
+<p class="text-[10px] font-label tracking-widest text-on-surface-variant/60 uppercase">System Active</p>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="px-3">
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="precision_manufacturing">precision_manufacturing</span>
+                    仪表盘
+                </a>
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="robot_2">robot_2</span>
+                    机械臂
+                </a>
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="analytics">analytics</span>
+                    故障诊断
+                </a>
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="history_edu">history_edu</span>
+                    系统日志
+                </a>
+<a class="flex items-center px-4 py-3 bg-[#ffffff] dark:bg-slate-900 text-[#0061a4] rounded-l-lg shadow-sm border-r-4 border-[#0061a4] font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="settings">settings</span>
+                    参数设置
+                </a>
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="shield_lock">shield_lock</span>
+                    安全中心
+                </a>
+</div>
+</nav>
+<div class="mt-auto px-3 border-t border-outline-variant/10 pt-4">
+<a class="flex items-center px-4 py-3 text-[#404752] dark:text-slate-500 font-['Space_Grotesk'] text-sm tracking-wide uppercase font-medium hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all duration-200" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="contact_support">contact_support</span>
+                技术支持
+            </a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="pl-64 min-h-screen">
+<!-- Top App Bar (Sticky within Main) -->
+<header class="h-16 flex items-center bg-[#ffffff] dark:bg-slate-900 border-b border-[#bfc7d4]/20 sticky top-0 z-40">
+<div class="flex justify-between items-center px-8 w-full">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#001d36] dark:text-white font-['Space_Grotesk']">Kinetic Forge</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-[#404752] dark:text-slate-400 text-sm font-medium hover:bg-[#f2f4f6] dark:hover:bg-slate-800 px-3 py-1 transition-colors" href="#">实时状态</a>
+<a class="text-[#0061a4] font-bold border-b-2 border-[#0061a4] text-sm px-3 py-1" href="#">参数设置</a>
+<a class="text-[#404752] dark:text-slate-400 text-sm font-medium hover:bg-[#f2f4f6] dark:hover:bg-slate-800 px-3 py-1 transition-colors" href="#">高级工具</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-outline hover:bg-[#f2f4f6] rounded-full transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-outline hover:bg-[#f2f4f6] rounded-full transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-primary-fixed-dim border border-outline-variant flex items-center justify-center overflow-hidden">
+<img alt="Engineer Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtDJtzzYMgHvWq-7fXvuZBSe2RaZ6vnDOwlUyKS9veBxI6S3JzWGHPlMW2B_Syd4zPgRzwHolCgDEPpgKzMWm5zQu-khoo1BiNEdIZdLvlVraKixTSzgzFA9ViGizZoE_mPh_HDK0V_aBpFniS7yHoF3RTSx16hmra6rohhcV7EEHb8QuNqC06FURbApxXQfE7bBRM-AAwJn3JwqSrbG2Qc6sTg38NWtJEjOVdjc0l0TNHs6mmsA6QFVSaF6P2vBV9NCMSlaadVbc"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="p-8 max-w-full">
+<div class="grid grid-cols-12 gap-8">
+<!-- Page Header Section -->
+<div class="col-span-12 mb-2">
+<h2 class="text-3xl font-headline font-bold text-on-primary-fixed tracking-tight">系统参数设置</h2>
+<p class="text-on-surface-variant mt-1">配置机器人运动范围限制及安全边界，确保工业操作的精密与安全。</p>
+</div>
+<!-- Left Column: Parameter Form & Visualization -->
+<div class="col-span-12 lg:col-span-8 space-y-8">
+<!-- Axis Range Limit Bento Grid Section -->
+<div class="bg-surface-container-lowest rounded-xl p-8 shadow-[0_4px_20px_rgba(25,28,30,0.04)]">
+<div class="flex justify-between items-center mb-8">
+<h3 class="text-lg font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined">straighten</span>
+                                轴范围限制设置 (Axis Limits)
+                            </h3>
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-label rounded-sm tracking-wider uppercase">单位: MM</span>
+</div>
+<div class="space-y-10">
+<!-- X-Axis -->
+<div class="group">
+<div class="flex items-center justify-between mb-4">
+<label class="text-sm font-bold text-on-surface flex items-center gap-2">
+<span class="w-2 h-6 bg-primary-container rounded-full"></span>
+                                        X-轴 范围限制
+                                    </label>
+<span class="text-xs font-label text-on-surface-variant/60">当前值: 142.50mm</span>
+</div>
+<div class="grid grid-cols-2 gap-6">
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最小值 (Min)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="-500.00"/>
+</div>
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最大值 (Max)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="500.00"/>
+</div>
+</div>
+</div>
+<!-- Y-Axis -->
+<div class="group">
+<div class="flex items-center justify-between mb-4">
+<label class="text-sm font-bold text-on-surface flex items-center gap-2">
+<span class="w-2 h-6 bg-tertiary-container rounded-full"></span>
+                                        Y-轴 范围限制
+                                    </label>
+<span class="text-xs font-label text-on-surface-variant/60">当前值: -12.44mm</span>
+</div>
+<div class="grid grid-cols-2 gap-6">
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最小值 (Min)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="-350.00"/>
+</div>
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最大值 (Max)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="350.00"/>
+</div>
+</div>
+</div>
+<!-- Z-Axis -->
+<div class="group">
+<div class="flex items-center justify-between mb-4">
+<label class="text-sm font-bold text-on-surface flex items-center gap-2">
+<span class="w-2 h-6 bg-outline rounded-full"></span>
+                                        Z-轴 范围限制
+                                    </label>
+<span class="text-xs font-label text-on-surface-variant/60">当前值: 89.12mm</span>
+</div>
+<div class="grid grid-cols-2 gap-6">
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最小值 (Min)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="0.00"/>
+</div>
+<div class="bg-surface-container-low rounded-lg p-4 border-b-2 border-transparent focus-within:border-primary transition-all">
+<span class="text-[10px] font-label text-on-surface-variant uppercase block mb-1">最大值 (Max)</span>
+<input class="w-full bg-transparent border-none p-0 text-xl font-headline font-semibold focus:ring-0 text-on-surface" type="number" value="800.00"/>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-10 pt-8 border-t border-outline-variant/20 flex justify-end gap-4">
+<button class="px-6 py-2.5 text-sm font-medium text-outline hover:bg-surface-container-high rounded transition-colors">重置默认</button>
+<button class="px-8 py-2.5 bg-primary text-white text-sm font-bold rounded shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95">
+                                应用更改
+                            </button>
+</div>
+</div>
+<!-- Visualization Status -->
+<div class="bg-surface-container-low rounded-xl p-6 border border-outline-variant/10">
+<h3 class="text-xs font-label text-on-surface-variant uppercase tracking-widest mb-6">当前限制状态图示</h3>
+<div class="grid grid-cols-3 gap-6">
+<div class="aspect-square bg-surface-container-lowest rounded-lg border border-outline-variant/30 relative overflow-hidden group">
+<div class="absolute inset-4 border border-dashed border-outline-variant/50 rounded flex items-center justify-center">
+<div class="w-1/2 h-1/2 bg-primary/10 rounded border border-primary/30 flex items-center justify-center">
+<span class="text-[8px] font-bold text-primary">XY 平面</span>
+</div>
+</div>
+<div class="absolute top-2 left-2 text-[10px] font-label text-on-surface-variant opacity-40">视图: 顶视</div>
+</div>
+<div class="aspect-square bg-surface-container-lowest rounded-lg border border-outline-variant/30 relative overflow-hidden group">
+<div class="absolute inset-4 border border-dashed border-outline-variant/50 rounded flex items-center justify-center">
+<div class="w-1/3 h-3/4 bg-tertiary-container/10 rounded border border-tertiary/30 flex items-center justify-center">
+<span class="text-[8px] font-bold text-tertiary rotate-90">YZ 平面</span>
+</div>
+</div>
+<div class="absolute top-2 left-2 text-[10px] font-label text-on-surface-variant opacity-40">视图: 侧视</div>
+</div>
+<div class="col-span-1 p-4 bg-on-primary-fixed rounded-lg text-white flex flex-col justify-center">
+<div class="text-[10px] font-label opacity-60 uppercase mb-2">安全预警状态</div>
+<div class="flex items-center gap-2 mb-1">
+<div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+<span class="text-sm font-bold">运行范围内</span>
+</div>
+<p class="text-[9px] opacity-50 font-label leading-tight mt-2">系统实时监测末端执行器坐标，当前所有轴均在设定的安全阈值内。</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Auth Info & Quick Actions -->
+<div class="col-span-12 lg:col-span-4 space-y-8">
+<!-- Authorization Summary Card -->
+<div class="bg-on-primary-fixed text-white rounded-xl overflow-hidden shadow-xl">
+<div class="p-6 relative">
+<!-- Decorative Machined Background Pattern -->
+<div class="absolute top-0 right-0 p-4 opacity-10">
+<span class="material-symbols-outlined text-6xl" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<div class="relative z-10">
+<h3 class="text-sm font-label uppercase tracking-widest opacity-60 mb-8">授权信息摘要</h3>
+<div class="space-y-6">
+<div>
+<span class="text-[10px] font-label opacity-40 block">当前版本类型</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-2xl font-headline font-bold">永久授权版</span>
+<span class="px-2 py-0.5 bg-primary-container text-white text-[9px] font-bold rounded-sm uppercase tracking-tighter">企业版</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<span class="text-[10px] font-label opacity-40 block">到期时间</span>
+<span class="text-sm font-medium mt-1 block">2029-12-31</span>
+</div>
+<div>
+<span class="text-[10px] font-label opacity-40 block">剩余天数</span>
+<span class="text-sm font-medium mt-1 block">2045 天</span>
+</div>
+</div>
+<div class="pt-4 border-t border-white/10">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[10px] font-label opacity-40">授权席位使用率</span>
+<span class="text-[10px] font-label">85%</span>
+</div>
+<div class="h-1 bg-white/10 rounded-full overflow-hidden">
+<div class="h-full bg-primary-container w-[85%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<button class="w-full bg-white/5 hover:bg-white/10 py-4 text-xs font-label uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+                            管理许可证密钥 <span class="material-symbols-outlined text-sm">arrow_right_alt</span>
+</button>
+</div>
+<!-- Help & Documentation Bento -->
+<div class="bg-surface-container-high/50 rounded-xl p-6">
+<h4 class="text-xs font-label text-on-surface-variant uppercase tracking-widest mb-4">配置建议</h4>
+<ul class="space-y-4">
+<li class="flex gap-4">
+<span class="material-symbols-outlined text-primary text-lg">info</span>
+<p class="text-xs text-on-surface-variant leading-relaxed">
+<strong>软限制 vs 硬限制:</strong> 此处设置的是软件碰撞保护边界，应始终小于物理机械限位。
+                                </p>
+</li>
+<li class="flex gap-4">
+<span class="material-symbols-outlined text-tertiary text-lg">warning</span>
+<p class="text-xs text-on-surface-variant leading-relaxed">
+                                    修改Z轴最大值后，请务必进行低速“示教”模式校验，以防止工具头触底。
+                                </p>
+</li>
+</ul>
+</div>
+<!-- Quick Status Stats -->
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-white p-4 rounded-xl border border-outline-variant/10">
+<span class="text-[9px] font-label text-on-surface-variant uppercase block">系统负载</span>
+<span class="text-lg font-headline font-bold text-on-surface">12.4%</span>
+</div>
+<div class="bg-white p-4 rounded-xl border border-outline-variant/10">
+<span class="text-[9px] font-label text-on-surface-variant uppercase block">响应时间</span>
+<span class="text-lg font-headline font-bold text-on-surface">2ms</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

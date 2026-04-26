@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./dashboard_theme.css">
+  <style>
+    .run-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 18px;
+      height: calc(100vh - 102px);
+    }
+
+    .run-main {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .run-side {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .connect-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.95fr);
+      gap: 12px;
+    }
+
+    .connect-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 180px 144px 144px;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .metric-strip {
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .metric-chip {
+      min-width: 136px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(209, 219, 231, 0.9);
+    }
+
+    .metric-chip strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font: 600 10px/1 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .metric-chip span {
+      font: 700 16px/1 var(--headline);
+      letter-spacing: -0.03em;
+    }
+
+    .status-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .status-card {
+      padding: 12px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(238, 243, 248, 0.92));
+      border: 1px solid rgba(209, 219, 231, 0.9);
+    }
+
+    .status-card .info-row:last-child {
+      border-bottom: 0;
+    }
+
+    .tab-shell {
+      display: grid;
+      gap: 0;
+    }
+
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      padding: 0 6px;
+    }
+
+    .tab-btn {
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 14px 14px 0 0;
+      background: var(--surface-muted);
+      color: var(--muted);
+      font: 700 12px/1 var(--headline);
+    }
+
+    .tab-btn.active {
+      background: var(--surface);
+      color: var(--primary);
+      box-shadow: inset 0 3px 0 var(--primary);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .command-toolbar,
+    .flow-toolbar,
+    .nlp-toolbar {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .command-toolbar .left,
+    .flow-toolbar .left,
+    .nlp-toolbar .left {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .command-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .command-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 152px;
+      padding: 12px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, #f9fbff, #edf3fa);
+      border: 1px solid rgba(209, 219, 231, 0.84);
+    }
+
+    .command-card h4 {
+      margin: 8px 0 6px;
+      font-size: 14px;
+    }
+
+    .command-card p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) 320px;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .flow-state {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 10px;
+      padding: 12px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(180deg, #ffffff, #eef3f8);
+      border: 1px solid rgba(209, 219, 231, 0.88);
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .nlp-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.92fr);
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .run-bottom {
+      display: grid;
+      grid-template-columns: 0.95fr 0.9fr 1.35fr;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .history-card {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .history-card .tree-scroll {
+      max-height: 260px;
+    }
+
+    .side-box {
+      padding: 12px;
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+      border: 1px solid rgba(209, 219, 231, 0.88);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .control-stack {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .control-stack .btn {
+      height: 42px;
+      width: 100%;
+    }
+
+    .state-box {
+      margin-top: auto;
+      background: linear-gradient(180deg, #202b3a, #2a3648);
+      color: #f8fbff;
+      border: 0;
+    }
+
+    .state-box .title {
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .state-big {
+      margin: 12px 0 6px;
+      text-align: center;
+      font: 700 28px/1 var(--headline);
+      color: #7cc0ff;
+      letter-spacing: -0.05em;
+    }
+
+    .state-sub {
+      text-align: center;
+      color: rgba(255, 255, 255, 0.74);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand">KINETIC MONOLITH</div>
+        <div class="divider"></div>
+        <div class="status-row">
+          <span class="status-dot"></span>
+          <span>系统状态: 正常</span>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a class="top-link active" href="./run_dashboard.html">▦ 运行</a>
+        <a class="top-link" href="./manage_dashboard.html">⚙ 后台</a>
+        <a class="top-link" href="./logs_dashboard.html">⌘ 日志</a>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="side-item active" href="./run_dashboard.html">
+          <div class="side-icon">▶</div>
+          <div class="side-label">运行</div>
+        </a>
+        <a class="side-item" href="./manage_dashboard.html">
+          <div class="side-icon">⚙</div>
+          <div class="side-label">后台</div>
+        </a>
+        <a class="side-item" href="./logs_dashboard.html">
+          <div class="side-icon">⌘</div>
+          <div class="side-label">日志</div>
+        </a>
+        <div class="side-spacer"></div>
+        <div class="side-item">
+          <div class="side-icon">✦</div>
+          <div class="side-label">授权</div>
+        </div>
+      </aside>
+
+      <main class="page">
+        <section class="page-intro">
+          <div>
+            <h1>运行工作台</h1>
+            <p>保留现有运行功能，改成固定尺寸软件里更紧凑的操作台。</p>
+          </div>
+          <div class="hero-chips">
+            <div class="hero-chip">
+              <strong>连接状态</strong>
+              <span>在线</span>
+            </div>
+            <div class="hero-chip">
+              <strong>监控状态</strong>
+              <span>运行中</span>
+            </div>
+            <div class="hero-chip">
+              <strong>当前任务</strong>
+              <span>1001</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="run-layout">
+          <div class="run-main">
+            <section class="card panel">
+              <div class="section-head">
+                <div>
+                  <h2 class="title">连接与反馈</h2>
+                  <div class="subcopy">连接、反馈和监控状态。</div>
+                </div>
+              </div>
+
+              <div class="connect-card">
+                <div>
+                  <div class="connect-grid">
+                    <div class="field">
+                      <label>控制器地址</label>
+                      <input class="input mono" value="192.168.1.11">
+                    </div>
+                    <div class="field">
+                      <label>控制器类型</label>
+                      <select class="select">
+                        <option>真实控制器</option>
+                        <option>模拟控制器</option>
+                      </select>
+                    </div>
+                    <button class="btn secondary">检测连接</button>
+                    <button class="btn secondary">读取反馈</button>
+                  </div>
+
+                  <div class="metric-strip">
+                    <div class="metric-chip">
+                      <strong>连接状态</strong>
+                      <span>真实连接成功</span>
+                    </div>
+                    <div class="metric-chip">
+                      <strong>地址</strong>
+                      <span class="mono">192.168.1.11</span>
+                    </div>
+                    <div class="metric-chip">
+                      <strong>实时监控</strong>
+                      <span>运行中</span>
+                    </div>
+                    <div class="metric-chip">
+                      <strong>当前任务</strong>
+                      <span>1001</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="status-stack">
+                  <div class="status-card">
+                    <h2 class="title">执行侧状态</h2>
+                    <div class="info-grid" style="margin-top:12px;">
+                        <div class="info-row"><span>当前步骤</span><span>2 / 6</span></div>
+                        <div class="info-row"><span>执行模板</span><span>车床A上料位</span></div>
+                    </div>
+                  </div>
+                  <div class="status-card">
+                    <h2 class="title">反馈侧状态</h2>
+                    <div class="info-grid" style="margin-top:12px;">
+                        <div class="info-row"><span>忙闲状态</span><span>空闲</span></div>
+                        <div class="info-row"><span>报警码</span><span>ERR_000</span></div>
+                        <div class="info-row"><span>系统说明</span><span>系统正常</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="tab-shell">
+              <div class="tab-row">
+                <button class="tab-btn active" data-run-tab="single">单次执行</button>
+                <button class="tab-btn" data-run-tab="flow">流程执行</button>
+                <button class="tab-btn" data-run-tab="nlp">自然语言执行</button>
+              </div>
+
+              <div id="run-tab-single" class="tab-panel active card panel">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">固定指令执行页</h2>
+                    <div class="subcopy">筛选、模板卡片和执行。</div>
+                  </div>
+                  <div class="mini-stat-row">
+                    <div class="mini-stat">
+                      <strong>模板总数</strong>
+                      <span>12</span>
+                    </div>
+                    <div class="mini-stat">
+                      <strong>固定型</strong>
+                      <span>4</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="command-toolbar">
+                  <div class="left">
+                    <div class="field" style="width:280px;">
+                      <label>筛选</label>
+                      <input class="input" placeholder="输入名称 / 关键词">
+                    </div>
+                    <div class="field" style="width:160px;">
+                      <label>类型</label>
+                      <select class="select">
+                        <option>全部</option>
+                        <option>参数型</option>
+                        <option>固定型</option>
+                      </select>
+                    </div>
+                  </div>
+                  <span class="mono" style="color:var(--muted);font-size:12px;">当前显示 6 项</span>
+                </div>
+
+                <div class="command-grid">
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">参数型</span>
+                      <h4>车床A上料位</h4>
+                      <p>MOVE_ABS / 自动规避</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">固定型</span>
+                      <h4>抓手闭合</h4>
+                      <p>GRIP_SET / 固定函数</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">参数型</span>
+                      <h4>等待位</h4>
+                      <p>MOVE_ABS / 安全回退位</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">固定型</span>
+                      <h4>回零</h4>
+                      <p>HOME / 原点回归</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">参数型</span>
+                      <h4>装夹准备位</h4>
+                      <p>MOVE_ABS / 装夹准备姿态</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                  <article class="command-card">
+                    <div>
+                      <span class="tag">固定型</span>
+                      <h4>打开机床门</h4>
+                      <p>DOOR_CTRL / 机床门控制</p>
+                    </div>
+                    <button class="btn primary block">执行</button>
+                  </article>
+                </div>
+              </div>
+
+              <div id="run-tab-flow" class="tab-panel card panel">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">流程执行</h2>
+                    <div class="subcopy">流程选择、步骤树和控制动作。</div>
+                  </div>
+                </div>
+
+                <div class="flow-toolbar">
+                  <div class="left">
+                    <div class="field" style="width:260px;">
+                      <label>流程</label>
+                      <select class="select">
+                        <option>上下料标准流程</option>
+                        <option>车床A单站流程</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flow-grid">
+                  <div class="tree two">
+                    <div class="tree-head">
+                      <div>步骤</div>
+                      <div>状态</div>
+                    </div>
+                    <div class="tree-scroll">
+                      <div class="tree-row"><div>等待位</div><div>已完成</div></div>
+                      <div class="tree-row active"><div>车床A上料位</div><div>执行中</div></div>
+                      <div class="tree-row"><div>抓手闭合</div><div>待执行</div></div>
+                      <div class="tree-row"><div>抬升离开工位</div><div>待执行</div></div>
+                      <div class="tree-row"><div>回到等待位</div><div>待执行</div></div>
+                    </div>
+                  </div>
+
+                  <div class="flow-state">
+                    <div>
+                      <h2 class="title">流程状态</h2>
+                      <div class="info-grid" style="margin-top:12px;">
+                        <div class="info-row"><span>当前步骤</span><span>2 / 6</span></div>
+                        <div class="info-row"><span>流程状态</span><span>运行中</span></div>
+                        <div class="info-row"><span>执行模板</span><span>车床A上料位</span></div>
+                      </div>
+                    </div>
+
+                    <div class="mini-stat-row">
+                      <div class="mini-stat">
+                        <strong>剩余步数</strong>
+                        <span>4</span>
+                      </div>
+                    </div>
+
+                    <div class="action-grid">
+                      <button class="btn primary">开始流程</button>
+                      <button class="btn secondary">单步执行</button>
+                      <button class="btn secondary">停止流程</button>
+                      <button class="btn secondary">重置流程</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div id="run-tab-nlp" class="tab-panel card panel">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">自然语言执行</h2>
+                    <div class="subcopy">文本、语音、解析和执行。</div>
+                  </div>
+                </div>
+
+                <div class="nlp-toolbar">
+                  <div class="left">
+                    <label style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;">
+                      <input type="checkbox" checked>
+                      使用DeepSeek
+                    </label>
+                    <div class="field" style="width:240px;">
+                      <label>麦克风</label>
+                      <select class="select">
+                        <option>系统默认麦克风</option>
+                      </select>
+                    </div>
+                    <button class="btn secondary">刷新设备</button>
+                  </div>
+                </div>
+
+                <div class="nlp-grid">
+                  <div>
+                    <div class="field">
+                      <label>输入文本</label>
+                      <textarea class="textarea">例如：执行流程11 / 回零 / 启动 / 把机械手移动到位置A</textarea>
+                    </div>
+                    <div class="toolbar" style="margin-top:14px;gap:10px;flex-wrap:wrap;">
+                      <button class="btn secondary">解析文本</button>
+                      <button class="btn secondary" id="mic-toggle">开始录音</button>
+                      <button class="btn secondary">清空</button>
+                      <button class="btn green">执行</button>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label>解析结果</label>
+                    <textarea class="textarea" style="min-height:220px;">{
+  "source": "deepseek",
+  "actions": [
+    {"type": "template", "target": "车床A上料位"},
+    {"type": "template", "target": "抓手闭合"}
+  ]
+}</textarea>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="run-bottom">
+              <div class="card panel soft">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">机械手状态</h2>
+                    <div class="subcopy">机械手反馈。</div>
+                  </div>
+                </div>
+                <div class="info-grid">
+                  <div class="info-row"><span>X</span><span>1250.0</span></div>
+                  <div class="info-row"><span>Y</span><span>0.0</span></div>
+                  <div class="info-row"><span>Z</span><span>860.0</span></div>
+                  <div class="info-row"><span>RX / RY / RZ</span><span>0.0 / 0.0 / 0.0</span></div>
+                  <div class="info-row"><span>速度 / 加速度</span><span>30% / 40%</span></div>
+                  <div class="info-row"><span>实时状态</span><span>空闲</span></div>
+                  <div class="info-row"><span>监控任务ID</span><span>-</span></div>
+                  <div class="info-row"><span>运动进度</span><span>0%</span></div>
+                  <div class="info-row"><span>命令回显</span><span>-</span></div>
+                  <div class="info-row"><span>执行触发</span><span>0</span></div>
+                </div>
+              </div>
+
+              <div class="card panel soft">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">执行摘要</h2>
+                    <div class="subcopy">执行摘要。</div>
+                  </div>
+                </div>
+                <div class="info-grid">
+                  <div class="info-row"><span>当前模式</span><span>自动</span></div>
+                  <div class="info-row"><span>忙闲状态</span><span>空闲</span></div>
+                  <div class="info-row"><span>执行结果</span><span>0</span></div>
+                  <div class="info-row"><span>报警码</span><span>ERR_000</span></div>
+                  <div class="info-row"><span>系统说明</span><span>系统正常</span></div>
+                  <div class="info-row"><span>IO状态位</span><span>0</span></div>
+                  <div class="info-row"><span>当前任务ID</span><span>1001</span></div>
+                </div>
+              </div>
+
+              <div class="card panel history-card">
+                <div class="section-head">
+                  <div>
+                    <h2 class="title">最近执行记录</h2>
+                    <div class="subcopy">最近执行记录。</div>
+                  </div>
+                </div>
+                <div class="tree history">
+                  <div class="tree-head">
+                    <div>任务ID</div>
+                    <div>指令码</div>
+                    <div>名称</div>
+                    <div>指令类型</div>
+                    <div>结果</div>
+                  </div>
+                  <div class="tree-scroll">
+                    <div class="tree-row"><div>1001</div><div>1001</div><div>车床A上料位</div><div>参数型指令</div><div>成功</div></div>
+                    <div class="tree-row"><div>1000</div><div>1004</div><div>抓手闭合</div><div>固定函数型无参数指令</div><div>成功</div></div>
+                    <div class="tree-row"><div>999</div><div>1003</div><div>回零</div><div>参数型指令</div><div>待执行</div></div>
+                    <div class="tree-row"><div>998</div><div>1008</div><div>打开机床门</div><div>固定函数型无参数指令</div><div>成功</div></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="run-side">
+            <div class="side-box">
+              <h2 class="title">系统控制</h2>
+              <div class="subcopy" style="margin-top:6px;">系统控制。</div>
+              <div class="control-stack">
+                <button class="btn secondary">上电</button>
+                <button class="btn green">启动</button>
+                <button class="btn secondary">停机</button>
+                <button class="btn yellow">暂停</button>
+                <button class="btn secondary">继续</button>
+                <button class="btn red" style="height:48px;">急停</button>
+              </div>
+            </div>
+
+            <div class="side-box state-box">
+              <h2 class="title">总状态</h2>
+              <div class="state-big">READY</div>
+              <div class="state-sub">实时监控运行中<br>下位机空闲待命</div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const runTabButtons = document.querySelectorAll("[data-run-tab]");
+    runTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.runTab;
+        runTabButtons.forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[id^='run-tab-']").forEach((panel) => {
+          panel.classList.toggle("active", panel.id === `run-tab-${target}`);
+        });
+      });
+    });
+
+    const micToggle = document.getElementById("mic-toggle");
+    if (micToggle) {
+      let recording = false;
+      micToggle.addEventListener("click", () => {
+        recording = !recording;
+        micToggle.textContent = recording ? "停止录音" : "开始录音";
+      });
+    }
+  </script>
+</body>
+</html>

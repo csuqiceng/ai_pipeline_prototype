@@ -259,6 +259,113 @@ class FlowDefinition:
         return asdict(self)
 
 
+# ── V3.0 Modbus TCP 数据模型 ──────────────────────────────────────
+
+@dataclass(frozen=True)
+class V30Command:
+    """V3.0 IEEE/Modbus TCP 协议命令"""
+    func_num: int
+    desc: str = ""
+    # Func 102 直线插补参数
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    rx: float = 0.0
+    ry: float = 0.0
+    rz: float = 0.0
+    speed: float = 0.0      # mm/s
+    accel: float = 0.0      # mm/s²
+    decel: float = 0.0      # mm/s²
+    fuzzy: int = 0           # 0=精确 1=模糊
+    fuzzy_step: float = 0.0  # 模糊最大步长 mm
+    # Func -1/-2/-3 特殊命令参数
+    io_grip: int = 0         # GRIP: 1=合 0=开
+    io_door: int = 0         # DOOR: 1=开 0=关
+    ext_p1: float = 0.0      # WAIT: 延时ms
+
+    def to_func_writes(self) -> list[VrWriteRequest]:
+        """返回V3.0协议需要的写入操作列表（函数号+参数）"""
+        _IEEE_FUNC = 0
+        _IEEE_P_X, _IEEE_P_Y, _IEEE_P_Z = 2, 4, 6
+        _IEEE_P_RX, _IEEE_P_RY, _IEEE_P_RZ = 8, 10, 12
+        _IEEE_P_SPEED, _IEEE_P_ACCEL, _IEEE_P_DECEL = 14, 16, 18
+        _IEEE_P_FUZZY, _IEEE_P_FUZZY_STEP = 20, 22
+        param_map = {
+            _IEEE_P_X: self.x, _IEEE_P_Y: self.y, _IEEE_P_Z: self.z,
+            _IEEE_P_RX: self.rx, _IEEE_P_RY: self.ry, _IEEE_P_RZ: self.rz,
+            _IEEE_P_SPEED: self.speed, _IEEE_P_ACCEL: self.accel, _IEEE_P_DECEL: self.decel,
+            _IEEE_P_FUZZY: float(self.fuzzy), _IEEE_P_FUZZY_STEP: self.fuzzy_step,
+        }
+        writes = [
+            VrWriteRequest(start_vr=_IEEE_FUNC, values=(float(self.func_num),)),
+        ]
+        for addr, val in sorted(param_map.items()):
+            writes.append(VrWriteRequest(start_vr=addr, values=(val,)))
+        return writes
+
+    def to_trigger_write(self) -> VrWriteRequest:
+        return VrWriteRequest(start_vr=32, values=(1.0,))
+
+    def to_json_dict(self) -> dict:
+        return {
+            "funcNum": self.func_num,
+            "x": self.x, "y": self.y, "z": self.z,
+            "rx": self.rx, "ry": self.ry, "rz": self.rz,
+            "speed": self.speed, "accel": self.accel, "decel": self.decel,
+            "fuzzy": self.fuzzy, "fuzzyStep": self.fuzzy_step,
+            "desc": self.desc,
+        }
+
+
+@dataclass(frozen=True)
+class V30Status:
+    """V3.0 IEEE(34) 函数状态解析"""
+    raw: int
+
+    @property
+    def is_idle(self) -> bool:
+        return self.raw == 0
+
+    @property
+    def is_complete(self) -> bool:
+        return (self.raw & 4) != 0
+
+    @property
+    def has_alarm(self) -> bool:
+        return (self.raw & 8) != 0
+
+    @property
+    def is_executing(self) -> bool:
+        return self.raw == 2
+
+    @property
+    def can_send(self) -> bool:
+        return self.raw in (0, 1, 4)
+
+    @classmethod
+    def from_value(cls, val: float) -> "V30Status":
+        return cls(raw=int(val))
+
+
+@dataclass(frozen=True)
+class V30RealtimeData:
+    """V3.0 IEEE(1512~1522) 实时坐标"""
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    rx: float = 0.0
+    ry: float = 0.0
+    rz: float = 0.0
+
+    @classmethod
+    def from_values(cls, values: list[float]) -> "V30RealtimeData":
+        padded = list(values[:6]) + [0.0] * max(0, 6 - len(values))
+        return cls(
+            x=float(padded[0]), y=float(padded[1]), z=float(padded[2]),
+            rx=float(padded[3]), ry=float(padded[4]), rz=float(padded[5]),
+        )
+
+
 @runtime_checkable
 class ControllerClient(Protocol):
     connected: bool
@@ -267,3 +374,7 @@ class ControllerClient(Protocol):
     def disconnect(self) -> None: ...
     def write_vr(self, request: VrWriteRequest) -> None: ...
     def read_vr(self, request: VrReadRequest) -> list[float]: ...
+    def write_modbus_float(self, request: VrWriteRequest) -> None: ...
+    def read_modbus_float(self, request: VrReadRequest) -> list[float]: ...
+    def write_modbus_bit(self, start: int, values: list[int]) -> None: ...
+    def read_modbus_bit(self, start: int, count: int) -> list[int]: ...

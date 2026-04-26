@@ -1,0 +1,2709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>机器人控制系统 - Touch Panel HMI</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #2C3E50;
+  --bg-panel: #34495E;
+  --bg-panel-light: #3D566E;
+  --bg-input: #283848;
+  --text-primary: #ECF0F1;
+  --text-secondary: #BDC3C7;
+  --text-muted: #95A5A6;
+  --accent-green: #2ECC71;
+  --accent-red: #E74C3C;
+  --accent-yellow: #F1C40F;
+  --accent-blue: #3498DB;
+  --accent-orange: #E67E22;
+  --border-color: #4A6278;
+  --shadow: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-lg: 0 2px 8px rgba(0,0,0,0.3);
+  --radius: 6px;
+  --radius-lg: 8px;
+  --touch-min: 44px;
+  --header-h: 48px;
+  --statusbar-h: 36px;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* ===== LAYOUT SHELL ===== */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* ===== HEADER ===== */
+.app-header {
+  height: var(--header-h);
+  min-height: var(--header-h);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.header-brand svg {
+  width: 28px;
+  height: 28px;
+  fill: var(--accent-blue);
+}
+
+.header-brand span {
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.header-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+}
+
+.tab-btn {
+  min-height: var(--touch-min);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab-btn:active {
+  background: var(--bg-panel-light);
+}
+
+.tab-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+  font-weight: 700;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.conn-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conn-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  box-shadow: 0 0 6px rgba(46,204,113,0.5);
+}
+
+.conn-dot.disconnected {
+  background: var(--accent-red);
+  box-shadow: 0 0 6px rgba(231,76,60,0.5);
+}
+
+.conn-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.estop-btn {
+  min-height: var(--touch-min);
+  padding: 0 20px;
+  border: 2px solid var(--accent-red);
+  border-radius: var(--radius);
+  background: var(--accent-red);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.15);
+  white-space: nowrap;
+}
+
+.estop-btn:active {
+  background: #C0392B;
+  border-color: #C0392B;
+  transform: scale(0.97);
+}
+
+/* ===== MAIN CONTENT ===== */
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+}
+
+.page { display: none; }
+.page.active { display: block; }
+
+/* ===== CONNECTION STRIP ===== */
+.strip {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+
+.strip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.strip-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+/* ===== FORM CONTROLS ===== */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+select,
+textarea {
+  min-height: var(--touch-min);
+  padding: 0 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2395A5A6' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.ip-input {
+  width: 180px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.protocol-select {
+  min-width: 120px;
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  min-height: var(--touch-min);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--accent-blue);
+  color: #fff;
+}
+.btn-primary:active { background: #2980B9; }
+
+.btn-success {
+  background: var(--accent-green);
+  color: #fff;
+}
+.btn-success:active { background: #27AE60; }
+
+.btn-danger {
+  background: var(--accent-red);
+  color: #fff;
+}
+.btn-danger:active { background: #C0392B; }
+
+.btn-warning {
+  background: var(--accent-yellow);
+  color: #2C3E50;
+}
+.btn-warning:active { background: #D4AC0D; }
+
+.btn-secondary {
+  background: var(--bg-panel-light);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+.btn-secondary:active { background: #2C3E50; }
+
+.btn-orange {
+  background: var(--accent-orange);
+  color: #fff;
+}
+.btn-orange:active { background: #D35400; }
+
+.btn-sm {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ===== CONTROL STRIP BUTTONS ===== */
+.ctrl-btn {
+  min-height: var(--touch-min);
+  min-width: 72px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.ctrl-btn:active { transform: scale(0.97); }
+
+.ctrl-btn.power { background: var(--accent-green); color: #fff; }
+.ctrl-btn.power:active { background: #27AE60; }
+.ctrl-btn.start { background: var(--accent-blue); color: #fff; }
+.ctrl-btn.start:active { background: #2980B9; }
+.ctrl-btn.stop { background: var(--accent-red); color: #fff; }
+.ctrl-btn.stop:active { background: #C0392B; }
+.ctrl-btn.pause { background: var(--accent-yellow); color: #2C3E50; }
+.ctrl-btn.pause:active { background: #D4AC0D; }
+.ctrl-btn.resume { background: var(--accent-orange); color: #fff; }
+.ctrl-btn.resume:active { background: #D35400; }
+
+/* ===== STATUS DISPLAY ===== */
+.status-display {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  min-height: 44px;
+}
+
+.status-item .label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.status-item .value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-item .value.running { color: var(--accent-green); }
+.status-item .value.stopped { color: var(--accent-red); }
+.status-item .value.paused { color: var(--accent-yellow); }
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.green { background: var(--accent-green); box-shadow: 0 0 4px rgba(46,204,113,0.4); }
+.status-dot.red { background: var(--accent-red); box-shadow: 0 0 4px rgba(231,76,60,0.4); }
+.status-dot.yellow { background: var(--accent-yellow); box-shadow: 0 0 4px rgba(241,196,15,0.4); }
+.status-dot.blue { background: var(--accent-blue); box-shadow: 0 0 4px rgba(52,152,219,0.4); }
+.status-dot.gray { background: var(--text-muted); box-shadow: 0 0 4px rgba(149,165,166,0.4); }
+
+/* ===== OVERALL STATE INDICATOR ===== */
+.overall-state {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.overall-state-light {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.overall-state-light.state-offline { background: rgba(149,165,166,0.2); color: var(--text-muted); }
+.overall-state-light.state-error { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+.overall-state-light.state-paused { background: rgba(241,196,15,0.2); color: var(--accent-yellow); }
+.overall-state-light.state-running { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.overall-state-light.state-idle { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+
+.overall-state-info {
+  flex: 1;
+}
+
+.overall-state-text {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.overall-state-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ===== ROBOT STATUS GRID (13 items) ===== */
+.robot-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.robot-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 10px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.robot-status-row .rs-label {
+  color: var(--text-muted);
+}
+
+.robot-status-row .rs-value {
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-blue);
+}
+
+/* ===== EXECUTION SUMMARY ===== */
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(74,98,120,0.3);
+  font-size: 13px;
+}
+
+.summary-row:last-child { border-bottom: none; }
+
+.summary-row .s-label {
+  color: var(--text-muted);
+}
+
+.summary-row .s-value {
+  font-weight: 700;
+}
+
+/* ===== EXECUTION RECORDS TABLE ===== */
+.exec-table {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.exec-table-header {
+  display: grid;
+  grid-template-columns: 50px 50px 1fr 60px;
+  padding: 8px 14px;
+  background: var(--bg-panel-light);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.exec-table-body {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.exec-table-row {
+  display: grid;
+  grid-template-columns: 50px 50px 1fr 60px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  font-size: 13px;
+}
+
+.exec-table-row:last-child { border-bottom: none; }
+
+/* ===== SUB-TABS ===== */
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.sub-tab-btn {
+  min-height: var(--touch-min);
+  padding: 0 20px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sub-tab-btn:active { background: var(--bg-panel-light); }
+.sub-tab-btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+  font-weight: 700;
+}
+
+.sub-page { display: none; }
+.sub-page.active { display: block; }
+
+/* ===== COMMAND CARDS ===== */
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.cmd-card {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100px;
+  cursor: pointer;
+}
+
+.cmd-card:active {
+  background: var(--bg-panel-light);
+}
+
+.cmd-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cmd-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.cmd-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.cmd-tag.param { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.cmd-tag.fixed { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+
+.cmd-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.cmd-coords {
+  font-size: 12px;
+  color: var(--accent-yellow);
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+}
+
+.cmd-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cmd-params {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cmd-exec-btn {
+  min-height: 40px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent-blue);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.cmd-exec-btn:active { background: #2980B9; transform: scale(0.97); }
+
+/* ===== SELECTED TEMPLATE INFO ===== */
+.selected-tpl-info {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+
+.selected-tpl-info .stl-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--accent-blue);
+}
+
+/* ===== NL INPUT ===== */
+.nl-input-area {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.nl-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  resize: vertical;
+  outline: none;
+}
+.nl-textarea:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
+}
+
+.nl-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.nl-result {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--text-secondary);
+  display: none;
+  white-space: pre-wrap;
+  font-family: 'Noto Sans SC', monospace;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.nl-result.show { display: block; }
+
+/* ===== FLOW EXECUTION ===== */
+.flow-list {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.flow-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(74,98,120,0.3);
+}
+.flow-item:last-child { border-bottom: none; }
+
+.flow-step-num {
+  min-width: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-blue);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.flow-step-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-step-status {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.flow-step-status.pending { background: rgba(149,165,166,0.2); color: var(--text-muted); }
+.flow-step-status.running { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.flow-step-status.done { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+.flow-step-status.error { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+
+.flow-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ===== MANAGEMENT PAGE ===== */
+.mgmt-section {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+}
+
+.mgmt-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Template list */
+.tpl-list-container {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.tpl-list-header {
+  display: grid;
+  grid-template-columns: 1fr 80px;
+  padding: 8px 14px;
+  background: var(--bg-panel-light);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tpl-list-body {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tpl-list-row {
+  display: grid;
+  grid-template-columns: 1fr 80px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tpl-list-row:active {
+  background: var(--bg-panel-light);
+}
+
+.tpl-list-row.active {
+  background: rgba(52,152,219,0.15);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.tpl-list-row:last-child { border-bottom: none; }
+
+.tpl-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.tpl-tag.param { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+.tpl-tag.fixed { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+
+/* Template editor form */
+.tpl-editor {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.form-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+}
+
+.form-field textarea {
+  min-height: 60px;
+  padding: 8px 12px;
+  resize: vertical;
+}
+
+.form-field input:disabled,
+.form-field select:disabled {
+  opacity: 0.4;
+}
+
+/* JSON preview */
+.json-preview {
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 14px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+/* Flow management */
+.flow-mgmt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.flow-mgmt-panel {
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.flow-mgmt-title {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-panel-light);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.flow-mgmt-body {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.flow-mgmt-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.flow-mgmt-row:active {
+  background: var(--bg-panel-light);
+}
+
+.flow-mgmt-row.active {
+  background: rgba(52,152,219,0.15);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.flow-mgmt-row:last-child { border-bottom: none; }
+
+/* ===== CONFIG PAGE ===== */
+.config-group {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+}
+
+.config-group-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--accent-blue);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.config-row:last-child { margin-bottom: 0; }
+
+.config-label {
+  min-width: 100px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.config-value {
+  flex: 1;
+  min-width: 120px;
+}
+
+.config-value input,
+.config-value select {
+  width: 100%;
+}
+
+/* Safety waypoint list */
+.waypoint-list {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.waypoint-header {
+  display: grid;
+  grid-template-columns: 1fr 100px;
+  padding: 8px 14px;
+  background: var(--bg-panel-light);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.waypoint-body {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.waypoint-row {
+  display: grid;
+  grid-template-columns: 1fr 100px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.waypoint-row:active { background: var(--bg-panel-light); }
+
+.waypoint-row.active {
+  background: rgba(52,152,219,0.15);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.waypoint-row:last-child { border-bottom: none; }
+
+/* Large checkbox */
+.checkbox-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: var(--touch-min);
+  padding: 0 4px;
+}
+
+.checkbox-wrap input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+}
+
+.checkbox-wrap span {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* ===== LOG PAGE ===== */
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.log-info-panel {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.log-info-block {
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.log-info-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  margin-bottom: 6px;
+}
+
+.log-info-row {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.log-table {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.log-table-header {
+  display: grid;
+  grid-template-columns: 80px 60px 1fr 60px 1fr;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-panel-light);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.log-table-body {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+.log-table-row {
+  display: grid;
+  grid-template-columns: 80px 60px 1fr 60px 1fr;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(74,98,120,0.2);
+  font-size: 13px;
+}
+
+.log-table-row:last-child { border-bottom: none; }
+
+.log-table-row .mono {
+  font-family: 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pill-ok { background: rgba(46,204,113,0.2); color: var(--accent-green); }
+.pill-warn { background: rgba(241,196,15,0.2); color: var(--accent-yellow); }
+.pill-err { background: rgba(231,76,60,0.2); color: var(--accent-red); }
+.pill-blue { background: rgba(52,152,219,0.2); color: var(--accent-blue); }
+
+/* ===== LICENSE PAGE ===== */
+.license-card {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.license-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.license-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.license-info-block {
+  background: var(--bg-input);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.license-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.license-info-row .lbl {
+  color: var(--text-muted);
+}
+
+.license-info-row .val {
+  font-weight: 700;
+  color: var(--accent-blue);
+  font-size: 14px;
+}
+
+.license-activate {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  max-width: 600px;
+  margin: 10px auto 0;
+}
+
+.license-activate h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.license-field {
+  margin-bottom: 12px;
+}
+
+.license-field label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.license-field input {
+  width: 100%;
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  letter-spacing: 0.05em;
+}
+
+/* ===== BOTTOM STATUS BAR ===== */
+.app-statusbar {
+  height: var(--statusbar-h);
+  min-height: var(--statusbar-h);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  z-index: 100;
+}
+
+.statusbar-left, .statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ===== TOAST ===== */
+.toast-container {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  width: 90%;
+  max-width: 500px;
+}
+
+.toast {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  border-left: 4px solid var(--accent-blue);
+}
+
+.toast.success { border-left-color: var(--accent-green); }
+.toast.error { border-left-color: var(--accent-red); }
+.toast.warning { border-left-color: var(--accent-yellow); }
+
+.toast-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.toast-msg { flex: 1; }
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .header-brand span { display: none; }
+  .tab-btn { padding: 0 12px; font-size: 13px; }
+  .conn-text { display: none; }
+  .estop-btn { padding: 0 14px; font-size: 14px; }
+  .cmd-grid { grid-template-columns: 1fr; }
+  .ip-input { width: 140px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .config-row { flex-direction: column; align-items: stretch; }
+  .config-label { min-width: auto; }
+  .status-display { flex-direction: column; align-items: stretch; }
+  .status-item { justify-content: space-between; }
+  .log-table-header, .log-table-row { grid-template-columns: 70px 50px 1fr 50px 1fr; font-size: 11px; }
+  .license-status-grid { grid-template-columns: 1fr; }
+  .flow-mgmt-grid { grid-template-columns: 1fr; }
+  .robot-status-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .overall-state { flex-direction: column; text-align: center; }
+  .log-info-panel { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .header-tabs { gap: 2px; }
+  .tab-btn { padding: 0 8px; font-size: 12px; }
+  .estop-btn { padding: 0 10px; font-size: 13px; }
+  .strip-row { flex-direction: column; align-items: stretch; }
+  .strip-label { min-width: auto; }
+  .log-table-header, .log-table-row { grid-template-columns: 60px 1fr 60px; }
+  .log-table-header > :nth-child(4),
+  .log-table-header > :nth-child(5),
+  .log-table-row > :nth-child(4),
+  .log-table-row > :nth-child(5) { display: none; }
+  .exec-table-header, .exec-table-row { grid-template-columns: 40px 1fr 50px; }
+  .exec-table-header > :nth-child(2),
+  .exec-table-row > :nth-child(2) { display: none; }
+}
+
+/* Scrollbar styling */
+.app-main::-webkit-scrollbar { width: 6px; }
+.app-main::-webkit-scrollbar-track { background: transparent; }
+.app-main::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1.07A7 7 0 0113 22h-2a7 7 0 01-6.93-3H3a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73A2 2 0 0112 2zm-3 12a1 1 0 100 2 1 1 0 000-2zm6 0a1 1 0 100 2 1 1 0 000-2z"/></svg>
+      <span>机器人控制系统</span>
+    </div>
+
+    <nav class="header-tabs">
+      <button class="tab-btn active" data-tab="run">运行</button>
+      <button class="tab-btn" data-tab="mgmt">管理</button>
+      <button class="tab-btn" data-tab="config">配置</button>
+      <button class="tab-btn" data-tab="logs">日志</button>
+      <button class="tab-btn" data-tab="auth">授权</button>
+    </nav>
+
+    <div class="header-right">
+      <div class="conn-indicator">
+        <div class="conn-dot" id="connDot"></div>
+        <span class="conn-text" id="connText">已连接</span>
+      </div>
+      <button class="estop-btn" id="estopBtn">急停</button>
+    </div>
+  </header>
+
+  <!-- ===== MAIN ===== -->
+  <main class="app-main" id="appMain">
+
+    <!-- ===== RUN PAGE ===== -->
+    <div class="page active" id="page-run">
+
+      <!-- Connection Strip -->
+      <div class="strip">
+        <div class="strip-row">
+          <span class="strip-label">控制器地址</span>
+          <input type="text" class="ip-input" id="ipInput" value="192.168.1.11" placeholder="192.168.1.11">
+          <span class="strip-label">协议</span>
+          <select class="protocol-select" id="protocolSelect">
+            <option>V3.0 Modbus TCP</option>
+            <option>最终标准协议</option>
+            <option>简化协议</option>
+          </select>
+          <span class="strip-label">控制器类型</span>
+          <select class="protocol-select" id="ctrlTypeSelect">
+            <option>真实控制器</option>
+            <option>模拟控制器</option>
+          </select>
+          <button class="btn btn-primary" onclick="doConnect()">检测连接</button>
+          <button class="btn btn-success" onclick="doReadFeedback()">读取反馈</button>
+        </div>
+        <div style="margin-top:6px;font-size:13px;color:var(--accent-green)" id="connDetail">真实连接成功</div>
+      </div>
+
+      <!-- System Control Strip -->
+      <div class="strip">
+        <div class="strip-row">
+          <span class="strip-label">系统控制</span>
+          <button class="ctrl-btn power" onclick="doCtrl('上电')">上电</button>
+          <button class="ctrl-btn start" onclick="doCtrl('启动')">启动</button>
+          <button class="ctrl-btn stop" onclick="doCtrl('停机')">停机</button>
+          <button class="ctrl-btn pause" onclick="doCtrl('暂停')">暂停</button>
+          <button class="ctrl-btn resume" onclick="doCtrl('继续')">继续</button>
+        </div>
+      </div>
+
+      <!-- Overall State Indicator -->
+      <div class="overall-state" id="overallState">
+        <div class="overall-state-light state-idle" id="overallLight">&#9679;</div>
+        <div class="overall-state-info">
+          <div class="overall-state-text" id="overallText">空闲</div>
+          <div class="overall-state-detail" id="overallDetail">系统已连接，当前空闲</div>
+        </div>
+      </div>
+
+      <!-- Robot Status Display (13 items) -->
+      <div class="strip">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent-blue);">机械手状态</div>
+        <div class="robot-status-grid">
+          <div class="robot-status-row"><span class="rs-label">X</span><span class="rs-value" id="rsX">1250.0</span></div>
+          <div class="robot-status-row"><span class="rs-label">Y</span><span class="rs-value" id="rsY">0.0</span></div>
+          <div class="robot-status-row"><span class="rs-label">Z</span><span class="rs-value" id="rsZ">860.0</span></div>
+          <div class="robot-status-row"><span class="rs-label">RX / RY / RZ</span><span class="rs-value" id="rsR">0.0 / 0.0 / 0.0</span></div>
+          <div class="robot-status-row"><span class="rs-label">速度 / 加速度</span><span class="rs-value" id="rsSpeed">30% / 40%</span></div>
+          <div class="robot-status-row"><span class="rs-label">夹爪使能</span><span class="rs-value" id="rsClawEn">0</span></div>
+          <div class="robot-status-row"><span class="rs-label">夹爪刹车</span><span class="rs-value" id="rsClawBrk">0</span></div>
+          <div class="robot-status-row"><span class="rs-label">伺服使能</span><span class="rs-value" id="rsServoEn">0</span></div>
+          <div class="robot-status-row"><span class="rs-label">实时状态</span><span class="rs-value" id="rsRunState">空闲</span></div>
+          <div class="robot-status-row"><span class="rs-label">监控任务ID</span><span class="rs-value" id="rsMonitorTask">-</span></div>
+          <div class="robot-status-row"><span class="rs-label">运动进度</span><span class="rs-value" id="rsMotionPct">0%</span></div>
+          <div class="robot-status-row"><span class="rs-label">命令回显</span><span class="rs-value" id="rsEchoCmd">-</span></div>
+          <div class="robot-status-row"><span class="rs-label">执行触发</span><span class="rs-value" id="rsExecState">0</span></div>
+        </div>
+      </div>
+
+      <!-- Execution Summary -->
+      <div class="strip">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent-blue);">执行摘要</div>
+        <div class="summary-grid">
+          <div class="summary-row"><span class="s-label">当前模式</span><span class="s-value" id="sumMode">自动</span></div>
+          <div class="summary-row"><span class="s-label">忙闲状态</span><span class="s-value" id="sumBusy">空闲</span></div>
+          <div class="summary-row"><span class="s-label">执行结果</span><span class="s-value" id="sumResult">0</span></div>
+          <div class="summary-row"><span class="s-label">报警码</span><span class="s-value" id="sumAlarm" style="color:var(--accent-green)">ERR_000</span></div>
+          <div class="summary-row"><span class="s-label">系统说明</span><span class="s-value" id="sumAlarmText" style="color:var(--accent-green)">系统正常</span></div>
+          <div class="summary-row"><span class="s-label">IO状态位</span><span class="s-value" id="sumIO">0</span></div>
+          <div class="summary-row"><span class="s-label">当前任务ID</span><span class="s-value" id="sumTaskId">1001</span></div>
+        </div>
+      </div>
+
+      <!-- Recent Execution Records -->
+      <div class="exec-table">
+        <div class="exec-table-header">
+          <div>ID</div><div>码</div><div>名称</div><div>结果</div>
+        </div>
+        <div class="exec-table-body" id="execRecordBody">
+          <div class="exec-table-row"><div class="mono">1001</div><div class="mono">1001</div><div>车床A上料位</div><div><span class="pill pill-ok">成功</span></div></div>
+          <div class="exec-table-row"><div class="mono">1000</div><div class="mono">1004</div><div>抓手闭合</div><div><span class="pill pill-ok">成功</span></div></div>
+          <div class="exec-table-row"><div class="mono">999</div><div class="mono">1003</div><div>回零</div><div><span class="pill pill-blue">待执行</span></div></div>
+          <div class="exec-table-row"><div class="mono">998</div><div class="mono">5001</div><div>打开机床门</div><div><span class="pill pill-ok">成功</span></div></div>
+          <div class="exec-table-row"><div class="mono">997</div><div class="mono">1001</div><div>等待位</div><div><span class="pill pill-ok">成功</span></div></div>
+          <div class="exec-table-row"><div class="mono">996</div><div class="mono">1002</div><div>装夹准备位</div><div><span class="pill pill-ok">成功</span></div></div>
+        </div>
+      </div>
+
+      <!-- Sub-tabs -->
+      <div class="sub-tabs">
+        <button class="sub-tab-btn active" data-subtab="single">单次执行</button>
+        <button class="sub-tab-btn" data-subtab="flow">流程执行</button>
+        <button class="sub-tab-btn" data-subtab="nl">自然语言</button>
+      </div>
+
+      <!-- Current Selected Template Info -->
+      <div class="selected-tpl-info" id="selectedTplInfo">
+        <div class="stl-title">当前选中模板</div>
+        <div class="summary-grid">
+          <div class="summary-row"><span class="s-label">显示名称</span><span class="s-value" id="selTplName">-</span></div>
+          <div class="summary-row"><span class="s-label">指令码</span><span class="s-value" id="selTplCode">-</span></div>
+          <div class="summary-row"><span class="s-label">指令类型</span><span class="s-value" id="selTplCmd">-</span></div>
+          <div class="summary-row"><span class="s-label">模板分类</span><span class="s-value" id="selTplType">-</span></div>
+        </div>
+      </div>
+
+      <!-- Single Execution -->
+      <div class="sub-page active" id="subtab-single">
+        <div class="strip" style="margin-bottom:10px">
+          <div class="strip-row">
+            <input type="text" placeholder="筛选名称 / 关键词" style="flex:1;min-width:150px;" id="cmdFilter">
+            <select style="min-width:100px;" id="cmdTypeFilter">
+              <option value="all">全部</option>
+              <option value="param">参数型</option>
+              <option value="fixed">固定型</option>
+            </select>
+            <span style="color:var(--text-muted);font-size:13px;" id="cmdCount">8 项</span>
+          </div>
+        </div>
+        <div class="cmd-grid" id="cmdGrid">
+          <!-- Cards generated by JS -->
+        </div>
+      </div>
+
+      <!-- Flow Execution -->
+      <div class="sub-page" id="subtab-flow">
+        <div class="strip" style="margin-bottom:10px">
+          <div class="strip-row">
+            <span class="strip-label">流程</span>
+            <select style="min-width:200px;" id="flowSelect">
+              <option>上下料标准流程</option>
+              <option>车床A单站流程</option>
+            </select>
+            <button class="btn btn-success" onclick="doFlowAction('start')">开始</button>
+            <button class="btn btn-secondary" onclick="doFlowAction('step')">单步</button>
+            <button class="btn btn-danger" onclick="doFlowAction('stop')">停止</button>
+            <button class="btn btn-secondary" onclick="doFlowAction('reset')">重置</button>
+          </div>
+        </div>
+        <div class="flow-list" id="flowList">
+          <!-- Generated by JS -->
+        </div>
+        <div class="strip" style="margin-top:10px">
+          <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent-blue);">流程状态</div>
+          <div class="summary-grid">
+            <div class="summary-row"><span class="s-label">当前流程</span><span class="s-value" id="flowNameInfo" style="color:var(--accent-blue)">上下料标准流程</span></div>
+            <div class="summary-row"><span class="s-label">当前步骤</span><span class="s-value" id="flowStepInfo" style="color:var(--accent-blue)">2 / 6</span></div>
+            <div class="summary-row"><span class="s-label">流程状态</span><span class="s-value" id="flowStatusInfo" style="color:var(--accent-blue)">运行中</span></div>
+            <div class="summary-row"><span class="s-label">执行模板</span><span class="s-value" id="flowTplInfo" style="color:var(--accent-blue)">车床A上料位</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Natural Language -->
+      <div class="sub-page" id="subtab-nl">
+        <div class="strip" style="margin-bottom:10px">
+          <div class="strip-row">
+            <label class="checkbox-wrap">
+              <input type="checkbox" checked id="deepseekCheck">
+              <span>使用DeepSeek</span>
+            </label>
+            <span class="strip-label">麦克风</span>
+            <select style="min-width:160px;" id="micSelect">
+              <option>系统默认麦克风</option>
+            </select>
+            <button class="btn btn-secondary" onclick="showToast('设备已刷新','info')">刷新设备</button>
+            <button class="btn btn-secondary" onclick="showToast('请选择音频文件','info')">导入音频</button>
+          </div>
+        </div>
+        <div class="nl-input-area">
+          <textarea class="nl-textarea" id="nlInput" placeholder="例如：执行流程11 / 回零 / 启动 / 把机械手移动到位置A"></textarea>
+          <div class="nl-actions">
+            <button class="btn btn-primary" id="nlpParseBtn" onclick="doNLParse()" style="flex:1;">解析文本</button>
+            <button class="btn btn-warning" id="micBtn" onclick="toggleMic()">开始录音</button>
+            <button class="btn btn-secondary" id="nlpClearBtn" onclick="doNLClear()">清空</button>
+            <button class="btn btn-success" id="nlpExecBtn" onclick="doNLExecute()">执行</button>
+          </div>
+          <div class="nl-result" id="nlResult"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== MANAGEMENT PAGE ===== -->
+    <div class="page" id="page-mgmt">
+
+      <!-- Management sub-tabs -->
+      <div class="sub-tabs">
+        <button class="sub-tab-btn active" data-mgrtab="tpl">模板管理</button>
+        <button class="sub-tab-btn" data-mgrtab="flow">流程管理</button>
+      </div>
+
+      <!-- Template Management -->
+      <div class="sub-page active" id="mgrtab-tpl">
+        <div class="strip" style="margin-bottom:10px">
+          <div class="strip-row">
+            <input type="text" placeholder="搜索模板..." style="flex:1;min-width:150px;" id="tplSearch">
+          </div>
+        </div>
+        <div class="tpl-list-container">
+          <div class="tpl-list-header">
+            <div>名称</div>
+            <div>类型</div>
+          </div>
+          <div class="tpl-list-body" id="tplListBody">
+            <!-- Generated by JS -->
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="showToast('新增模板','info')">新增</button>
+          <button class="btn btn-secondary btn-sm" onclick="showToast('已另存','info')">另存</button>
+          <button class="btn btn-danger btn-sm" onclick="showToast('已删除','error')">删除</button>
+        </div>
+
+        <div class="tpl-editor">
+          <div class="mgmt-section-title">模板编辑器</div>
+          <div class="form-grid">
+            <div class="form-field"><label>显示名称</label><input type="text" value="线性插补_V2" id="tplName"></div>
+            <div class="form-field"><label>指令码</label><input type="text" value="1001" style="font-family:'Courier New',monospace;" id="tplCode"></div>
+            <div class="form-field"><label>指令类型</label>
+              <select id="tplCmdType">
+                <option>MOVE_ABS</option><option>MOVE_REL</option><option>HOME</option><option>GRIP_SET</option><option>DOOR_CTRL</option><option>WAIT_MS</option><option>CHECK_IN</option><option>EMG_RESET</option><option>FIXED_FUNC</option>
+              </select>
+            </div>
+            <div class="form-field"><label>模板分类</label>
+              <select id="tplCategory" onchange="syncTemplateTypeMode()">
+                <option value="parametric">parametric</option><option value="fixed">fixed</option>
+              </select>
+            </div>
+            <div class="form-field full"><label>自然语言关键词</label><input type="text" value="插补, 平滑, 工位A, 线性移动" id="tplKeywords"></div>
+            <div class="form-field"><label>工位ID</label><input type="text" value="0" style="font-family:'Courier New',monospace;" id="tplPosId"></div>
+            <div class="form-field"><label>设备ID</label><input type="text" value="1" style="font-family:'Courier New',monospace;" id="tplDeviceId"></div>
+            <div class="form-field"><label>X</label><input type="text" value="100" style="font-family:'Courier New',monospace;" class="param-field" id="tplX"></div>
+            <div class="form-field"><label>Y</label><input type="text" value="200" style="font-family:'Courier New',monospace;" class="param-field" id="tplY"></div>
+            <div class="form-field"><label>Z</label><input type="text" value="50" style="font-family:'Courier New',monospace;" class="param-field" id="tplZ"></div>
+            <div class="form-field"><label>RX</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplRX"></div>
+            <div class="form-field"><label>RY</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplRY"></div>
+            <div class="form-field"><label>RZ</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplRZ"></div>
+            <div class="form-field"><label>速度%</label><input type="text" value="30" style="font-family:'Courier New',monospace;" class="param-field" id="tplSpeed"></div>
+            <div class="form-field"><label>加速度%</label><input type="text" value="40" style="font-family:'Courier New',monospace;" class="param-field" id="tplAcc"></div>
+            <div class="form-field"><label>夹爪动作</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplGrip"></div>
+            <div class="form-field"><label>机床门动作</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplDoor"></div>
+            <div class="form-field"><label>扩展参数1</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplExt1"></div>
+            <div class="form-field"><label>扩展参数2</label><input type="text" value="0" style="font-family:'Courier New',monospace;" class="param-field" id="tplExt2"></div>
+            <div class="form-field"><label>安全等级</label><input type="text" value="5" style="font-family:'Courier New',monospace;" id="tplSafety"></div>
+            <div class="form-field full"><label>说明</label><input type="text" value="模板编辑说明" id="tplDesc"></div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="showToast('模板已保存','success')">保存</button>
+            <button class="btn btn-secondary" onclick="showToast('已导出','info')">导出指令</button>
+            <button class="btn btn-secondary" onclick="showToast('已导入','info')">导入指令</button>
+          </div>
+        </div>
+
+        <div class="tpl-editor">
+          <div class="mgmt-section-title">JSON 预览</div>
+          <div class="json-preview" id="jsonPreview"></div>
+        </div>
+      </div>
+
+      <!-- Flow Management -->
+      <div class="sub-page" id="mgrtab-flow">
+        <div class="tpl-editor">
+          <div class="mgmt-section-title">流程管理</div>
+          <div class="form-field" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px;font-weight:500;">流程名称</label>
+            <input type="text" value="上下料标准流程" style="width:100%;" id="flowMgmtName">
+          </div>
+          <div class="flow-mgmt-grid">
+            <div class="flow-mgmt-panel">
+              <div class="flow-mgmt-title">已有流程</div>
+              <div class="flow-mgmt-body" id="flowMgmtList">
+                <div class="flow-mgmt-row active" onclick="selectFlowMgmt(this,'上下料标准流程')">上下料标准流程</div>
+                <div class="flow-mgmt-row" onclick="selectFlowMgmt(this,'车床A单站流程')">车床A单站流程</div>
+              </div>
+            </div>
+            <div class="flow-mgmt-panel">
+              <div class="flow-mgmt-title">流程步骤</div>
+              <div class="flow-mgmt-body" id="flowStepList">
+                <div class="flow-mgmt-row" data-step="0">1. 等待位</div>
+                <div class="flow-mgmt-row" data-step="1">2. 车床A上料位</div>
+                <div class="flow-mgmt-row" data-step="2">3. 抓手闭合</div>
+                <div class="flow-mgmt-row" data-step="3">4. 抬升离开</div>
+              </div>
+            </div>
+          </div>
+          <div class="tpl-editor" style="margin-top:10px;">
+            <div class="mgmt-section-title">可选模板</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;" id="availTplList">
+              <!-- Generated by JS -->
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-top:12px;">
+            <button class="btn btn-primary btn-sm" onclick="showToast('步骤已添加','success')">添加</button>
+            <button class="btn btn-secondary btn-sm" onclick="showToast('步骤已移除','info')">移除</button>
+            <button class="btn btn-sm" onclick="moveFlowStepUp()">上移</button>
+            <button class="btn btn-sm" onclick="moveFlowStepDown()">下移</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px;">
+            <button class="btn btn-success btn-sm" onclick="showToast('流程已保存','success')">保存</button>
+            <button class="btn btn-danger btn-sm" onclick="showToast('流程已删除','error')">删除</button>
+            <button class="btn btn-warning btn-sm" onclick="newFlow()">新增流程</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== CONFIG PAGE ===== -->
+    <div class="page" id="page-config">
+
+      <div class="config-group">
+        <div class="config-group-title">轴范围配置</div>
+        <div class="form-grid">
+          <div class="form-field"><label>X 最小</label><input type="text" value="-742" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>X 最大</label><input type="text" value="1200" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Y 最小</label><input type="text" value="-112" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Y 最大</label><input type="text" value="800" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Z 最小</label><input type="text" value="-45" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Z 最大</label><input type="text" value="300" style="font-family:'Courier New',monospace;"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showToast('轴范围已保存','success')">保存范围</button>
+          <button class="btn btn-secondary" onclick="showToast('已重载','info')">重载范围</button>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">规避规则配置</div>
+        <div class="form-grid">
+          <div class="form-field full"><label>规避模式</label>
+            <select style="width:100%;">
+              <option>自动判断</option><option>关闭</option><option>每次都经过中间点</option>
+            </select>
+          </div>
+          <div class="form-field"><label>RX 变化 &ge;</label><input type="text" value="30" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>RY 变化 &ge;</label><input type="text" value="30" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>RZ 变化 &ge;</label><input type="text" value="45" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>低位 Z &lt;</label><input type="text" value="150" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field full"><label>XY 移动 &gt;</label><input type="text" value="100" style="font-family:'Courier New',monospace;"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showToast('规避配置已保存','success')">保存规避配置</button>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">安全中间点管理</div>
+        <div class="waypoint-list" style="margin-bottom:10px;">
+          <div class="waypoint-header">
+            <div>中间点</div>
+            <div>说明</div>
+          </div>
+          <div class="waypoint-body" id="waypointList">
+            <div class="waypoint-row active" onclick="selectWaypoint(this,'高位过渡 A')">
+              <div>高位过渡 A</div>
+              <div style="color:var(--text-muted)">默认规避点</div>
+            </div>
+            <div class="waypoint-row" onclick="selectWaypoint(this,'双车床中线位')">
+              <div>双车床中线位</div>
+              <div style="color:var(--text-muted)">流程共享</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="showToast('新增中间点','info')">新增</button>
+          <button class="btn btn-danger btn-sm" onclick="showToast('已删除','error')">删除</button>
+        </div>
+        <div class="form-grid">
+          <div class="form-field full"><label>名称</label><input type="text" value="高位过渡 A" id="wpName"></div>
+          <div class="form-field"><label>X</label><input type="text" value="0" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Y</label><input type="text" value="0" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>Z</label><input type="text" value="200" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>RX</label><input type="text" value="0" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>RY</label><input type="text" value="0" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>RZ</label><input type="text" value="0" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>速度%</label><input type="text" value="20" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field"><label>加速度%</label><input type="text" value="20" style="font-family:'Courier New',monospace;"></div>
+          <div class="form-field full"><label>说明</label><input type="text" value="默认规避点" id="wpDesc"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showToast('中间点已保存','success')">保存中间点</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== LOG PAGE ===== -->
+    <div class="page" id="page-logs">
+
+      <!-- Log description panel -->
+      <div class="log-info-panel">
+        <div class="log-info-block">
+          <div class="log-info-title">日志说明</div>
+          <div class="log-info-row">记录范围: 系统按钮 / 连接检测</div>
+          <div class="log-info-row">记录范围: 指令发送 / 反馈读取</div>
+          <div class="log-info-row">记录范围: 模板新增 / 保存 / 删除</div>
+        </div>
+        <div class="log-info-block">
+          <div class="log-info-title">日志摘要</div>
+          <div class="log-info-row">日志条数: <span id="logSummaryCount" style="color:var(--accent-blue);font-weight:700;">5</span></div>
+          <div class="log-info-row">最近时间: <span id="logSummaryTime" style="color:var(--accent-blue);font-weight:700;">14:22:01</span></div>
+        </div>
+      </div>
+
+      <div class="log-toolbar">
+        <button class="btn btn-primary" onclick="addLog()">刷新日志</button>
+        <button class="btn btn-secondary" onclick="showToast('日志已导出','info')">导出日志</button>
+        <button class="btn btn-danger" onclick="clearLogs()">清空日志</button>
+        <div style="flex:1"></div>
+        <span style="color:var(--text-muted);font-size:13px;">共 <span id="logCount" style="font-family:'Courier New',monospace;font-weight:700;">5</span> 条</span>
+      </div>
+
+      <div class="log-table">
+        <div class="log-table-header">
+          <div>时间</div>
+          <div>分类</div>
+          <div>操作</div>
+          <div>结果</div>
+          <div>详情</div>
+        </div>
+        <div class="log-table-body" id="logTableBody">
+          <!-- Generated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== LICENSE PAGE ===== -->
+    <div class="page" id="page-auth">
+
+      <div class="license-card">
+        <h3>授权状态</h3>
+        <div class="license-status-grid">
+          <div class="license-info-block">
+            <div class="license-info-row">
+              <span class="lbl">授权类型</span>
+              <span class="val">月度订阅</span>
+            </div>
+            <div class="license-info-row">
+              <span class="lbl">到期时间</span>
+              <span class="val">2026-05-20</span>
+            </div>
+            <div class="license-info-row">
+              <span class="lbl">机器码</span>
+              <span class="val" style="font-size:12px;">A3F2...8B1C</span>
+            </div>
+          </div>
+          <div class="license-info-block">
+            <div class="license-info-row">
+              <span class="lbl">语音日配额</span>
+              <span class="val">50 / 100</span>
+            </div>
+            <div class="license-info-row">
+              <span class="lbl">DeepSeek月配额</span>
+              <span class="val">1000 / 5000</span>
+            </div>
+            <div class="license-info-row">
+              <span class="lbl">上次心跳</span>
+              <span class="val" id="heartbeatTime">14:20:30</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="license-activate">
+        <h3>激活授权</h3>
+        <div class="license-field">
+          <label>授权码 (RMLT-XXXX-XXXX-XXXX-XXXX-SSSS)</label>
+          <input type="text" placeholder="RMLT-XXXX-XXXX-XXXX-XXXX-SSSS">
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showToast('授权码已激活','success')">激活</button>
+          <button class="btn btn-secondary" onclick="showToast('设备已解绑','info')">解绑设备</button>
+          <button class="btn btn-secondary" onclick="showToast('状态已刷新','success')">刷新状态</button>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ===== STATUS BAR ===== -->
+  <footer class="app-statusbar">
+    <div class="statusbar-left">
+      <span>数据源: query_table.json</span>
+      <span>配额: <span id="quotaVal">50</span>/100</span>
+    </div>
+    <div class="statusbar-right">
+      <span id="clockDisplay">2026-04-26 14:22:01</span>
+    </div>
+  </footer>
+</div>
+
+<!-- ===== TOAST CONTAINER ===== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ===== TOAST SYSTEM =====
+function showToast(msg, type) {
+  type = type || 'info';
+  var container = document.getElementById('toastContainer');
+  var toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  var icons = { info: '\u2139\uFE0F', success: '\u2705', error: '\u274C', warning: '\u26A0\uFE0F' };
+  toast.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span><span class="toast-msg">' + msg + '</span>';
+  container.appendChild(toast);
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-10px)';
+    toast.style.transition = 'all 0.2s ease-in';
+    setTimeout(function() { toast.remove(); }, 200);
+  }, 2500);
+}
+
+// ===== TAB NAVIGATION =====
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('page-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ===== SUB-TAB NAVIGATION (Run page) =====
+document.querySelectorAll('.sub-tab-btn[data-subtab]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.sub-tab-btn[data-subtab]').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.sub-page[id^="subtab-"]').forEach(function(p) { p.style.display = 'none'; p.classList.remove('active'); });
+    btn.classList.add('active');
+    var target = document.getElementById('subtab-' + btn.dataset.subtab);
+    target.style.display = 'block';
+    target.classList.add('active');
+  });
+});
+
+// ===== MGR SUB-TAB NAVIGATION =====
+document.querySelectorAll('.sub-tab-btn[data-mgrtab]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.sub-tab-btn[data-mgrtab]').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.sub-page[id^="mgrtab-"]').forEach(function(p) { p.style.display = 'none'; p.classList.remove('active'); });
+    btn.classList.add('active');
+    var target = document.getElementById('mgrtab-' + btn.dataset.mgrtab);
+    target.style.display = 'block';
+    target.classList.add('active');
+  });
+});
+
+// ===== GLOBAL STATE =====
+var connected = true;
+var systemState = 'idle'; // idle, running, paused, stopped, estop
+var runState = '空闲';
+var busyState = '空闲';
+var alarmCode = 'ERR_000';
+var alarmText = '系统正常';
+var taskId = 1001;
+
+// ===== CONNECTION =====
+function doConnect() {
+  var ip = document.getElementById('ipInput').value;
+  var protocol = document.getElementById('protocolSelect').value;
+  var ctrlType = document.getElementById('ctrlTypeSelect').value;
+  showToast('正在检测 ' + ip + ' (' + protocol + ') ...', 'info');
+  setTimeout(function() {
+    connected = true;
+    systemState = 'idle';
+    document.getElementById('connDot').classList.remove('disconnected');
+    document.getElementById('connText').textContent = '已连接';
+    document.getElementById('connDetail').textContent = ctrlType + '连接成功 (' + protocol + ')';
+    document.getElementById('connDetail').style.color = 'var(--accent-green)';
+    showToast('连接成功', 'success');
+    addLogEntry('连接', '检测连接', '成功', ctrlType + ' ' + ip + ' 已连接');
+    updateOverallState();
+  }, 800);
+}
+
+function doReadFeedback() {
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  showToast('正在读取反馈数据...', 'info');
+  setTimeout(function() {
+    updateAllRobotStatus();
+    showToast('反馈数据已更新', 'success');
+    addLogEntry('反馈', '读取反馈', '成功', '状态区+监控区已更新');
+  }, 600);
+}
+
+// ===== SYSTEM CONTROL =====
+function doCtrl(action) {
+  if (!connected) { showToast('设备未连接，无法执行 ' + action, 'error'); return; }
+
+  switch(action) {
+    case '上电':
+      showToast('系统上电中...', 'info');
+      addLogEntry('系统', '系统上电', '成功', '系统已上电，进入待机状态');
+      setTimeout(function() { showToast('系统已上电', 'success'); }, 1000);
+      break;
+    case '启动':
+      systemState = 'running';
+      runState = '运行中';
+      busyState = '运行中';
+      showToast('系统已启动', 'success');
+      addLogEntry('系统', '系统启动', '成功', 'auto_start 命令已发送');
+      break;
+    case '停机':
+      systemState = 'stopped';
+      runState = '空闲';
+      busyState = '空闲';
+      showToast('系统已停机', 'warning');
+      addLogEntry('系统', '系统停机', '成功', 'auto_stop 命令已发送');
+      break;
+    case '暂停':
+      systemState = 'paused';
+      runState = '暂停';
+      busyState = '暂停';
+      showToast('系统已暂停', 'warning');
+      addLogEntry('系统', '系统暂停', '成功', 'sys_pause 命令已发送');
+      break;
+    case '继续':
+      systemState = 'running';
+      runState = '运行中';
+      busyState = '运行中';
+      showToast('系统继续运行', 'success');
+      addLogEntry('系统', '系统继续', '成功', 'sys_resume 命令已发送');
+      break;
+  }
+  updateSummaryPanel();
+  updateOverallState();
+}
+
+// ===== EMERGENCY STOP =====
+document.getElementById('estopBtn').addEventListener('click', function() {
+  connected = false;
+  systemState = 'estop';
+  runState = '急停';
+  busyState = '急停';
+  alarmCode = 'ERR_ESTOP';
+  alarmText = '急停触发，系统锁定';
+  document.getElementById('connDot').classList.add('disconnected');
+  document.getElementById('connText').textContent = '急停';
+  document.getElementById('connDetail').textContent = '连接断开';
+  document.getElementById('connDetail').style.color = 'var(--accent-red)';
+  showToast('!!! 紧急停机已触发 !!!', 'error');
+  addLogEntry('系统', '急停触发', '失败', '紧急停机按钮被触发');
+  updateSummaryPanel();
+  updateOverallState();
+});
+
+// ===== OVERALL STATE INDICATOR =====
+function computeOverallState() {
+  if (!connected) return { text: '离线', cls: 'state-offline', detail: '未连接或无实时反馈' };
+  if (alarmCode !== 'ERR_000' && alarmCode !== '0') return { text: '异常', cls: 'state-error', detail: alarmText || '报警或通讯故障' };
+  if (busyState === '暂停' || runState === '暂停') return { text: '暂停', cls: 'state-paused', detail: '系统处于暂停状态' };
+  if (busyState === '运行中' || runState === '运行中') return { text: '运行中', cls: 'state-running', detail: '下位机正在执行任务' };
+  return { text: '空闲', cls: 'state-idle', detail: '系统已连接，当前空闲' };
+}
+
+function updateOverallState() {
+  var s = computeOverallState();
+  var light = document.getElementById('overallLight');
+  light.className = 'overall-state-light ' + s.cls;
+  document.getElementById('overallText').textContent = s.text;
+  document.getElementById('overallDetail').textContent = s.detail;
+}
+
+// ===== ROBOT STATUS (13 items) =====
+var robotData = {
+  x: 1250.0, y: 0.0, z: 860.0,
+  rx: 0.0, ry: 0.0, rz: 0.0,
+  speed: 30, acc: 40,
+  clawEnable: 0, clawBrake: 0, servoEnable: 0,
+  runState: '空闲', monitorTask: '-', motionPct: '0%',
+  echoCmd: '-', execState: '0'
+};
+
+function updateAllRobotStatus() {
+  robotData.x += (Math.random() - 0.5) * 2;
+  robotData.y += (Math.random() - 0.5) * 1;
+  robotData.z += (Math.random() - 0.5) * 1.5;
+  robotData.rx += (Math.random() - 0.5) * 0.3;
+  robotData.ry += (Math.random() - 0.5) * 0.3;
+  robotData.rz += (Math.random() - 0.5) * 0.3;
+
+  if (systemState === 'running') {
+    robotData.clawEnable = Math.random() > 0.5 ? 1 : 0;
+    robotData.servoEnable = 1;
+    robotData.motionPct = Math.floor(Math.random() * 100) + '%';
+    robotData.echoCmd = 'MOVE_ABS';
+    robotData.execState = '1';
+    robotData.monitorTask = String(taskId);
+  } else if (systemState === 'idle') {
+    robotData.clawEnable = 0;
+    robotData.clawBrake = 0;
+    robotData.servoEnable = 0;
+    robotData.motionPct = '0%';
+    robotData.echoCmd = '-';
+    robotData.execState = '0';
+    robotData.monitorTask = '-';
+  }
+
+  document.getElementById('rsX').textContent = robotData.x.toFixed(1);
+  document.getElementById('rsY').textContent = robotData.y.toFixed(1);
+  document.getElementById('rsZ').textContent = robotData.z.toFixed(1);
+  document.getElementById('rsR').textContent = robotData.rx.toFixed(1) + ' / ' + robotData.ry.toFixed(1) + ' / ' + robotData.rz.toFixed(1);
+  document.getElementById('rsSpeed').textContent = robotData.speed + '% / ' + robotData.acc + '%';
+  document.getElementById('rsClawEn').textContent = robotData.clawEnable;
+  document.getElementById('rsClawBrk').textContent = robotData.clawBrake;
+  document.getElementById('rsServoEn').textContent = robotData.servoEnable;
+  document.getElementById('rsRunState').textContent = runState;
+  document.getElementById('rsMonitorTask').textContent = robotData.monitorTask;
+  document.getElementById('rsMotionPct').textContent = robotData.motionPct;
+  document.getElementById('rsEchoCmd').textContent = robotData.echoCmd;
+  document.getElementById('rsExecState').textContent = robotData.execState;
+}
+
+// Enhanced realtime polling simulation
+setInterval(function() {
+  if (connected) {
+    updateAllRobotStatus();
+    updateOverallState();
+  }
+}, 2000);
+
+// ===== EXECUTION SUMMARY =====
+function updateSummaryPanel() {
+  document.getElementById('sumMode').textContent = '自动';
+  document.getElementById('sumBusy').textContent = busyState;
+  document.getElementById('sumResult').textContent = systemState === 'running' ? '1' : '0';
+  document.getElementById('sumAlarm').textContent = alarmCode;
+  document.getElementById('sumAlarm').style.color = alarmCode === 'ERR_000' ? 'var(--accent-green)' : 'var(--accent-red)';
+  document.getElementById('sumAlarmText').textContent = alarmText;
+  document.getElementById('sumAlarmText').style.color = alarmCode === 'ERR_000' ? 'var(--accent-green)' : 'var(--accent-red)';
+  document.getElementById('sumIO').textContent = robotData.clawEnable;
+  document.getElementById('sumTaskId').textContent = taskId;
+}
+
+// ===== COMMAND CARDS (with coordinates for parametric type) =====
+var commands = [
+  { name: '车床A上料位', type: 'param', desc: 'MOVE_ABS / 自动规避', code: 1001, x: 100, y: 200, z: 50, rx: 0, ry: 0, rz: 0, speed: 30, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '上料, 车床A', posId: 1, deviceId: 1, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '车床A上料位模板' },
+  { name: '抓手闭合', type: 'fixed', desc: 'GRIP_SET / 固定函数', code: 1004, cmdType: 'GRIP_SET', category: 'fixed', keywords: '闭合, 抓取', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, grip: 1, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '抓手闭合固定函数' },
+  { name: '等待位', type: 'param', desc: 'MOVE_ABS / 安全回退', code: 1005, x: 0, y: 0, z: 200, rx: 0, ry: 0, rz: 0, speed: 50, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '等待, 安全', posId: 2, deviceId: 1, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '等待位安全回退' },
+  { name: '回零', type: 'fixed', desc: 'HOME / 原点回归', code: 1003, cmdType: 'HOME', category: 'fixed', keywords: '回零, 原点', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '回零原点回归' },
+  { name: '装夹准备位', type: 'param', desc: 'MOVE_ABS / 准备姿态', code: 1002, x: 300, y: 150, z: 80, rx: 0, ry: 0, rz: 0, speed: 25, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '装夹, 准备', posId: 3, deviceId: 1, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '装夹准备位模板' },
+  { name: '打开机床门', type: 'fixed', desc: 'DOOR_CTRL / 门控制', code: 5001, cmdType: 'DOOR_CTRL', category: 'fixed', keywords: '开门, 机床门', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, grip: 0, door: 1, ext1: 0, ext2: 0, safety: 5, descText: '打开机床门固定函数' },
+  { name: '车床B下料位', type: 'param', desc: 'MOVE_ABS / 自动规避', code: 1006, x: -200, y: 300, z: 60, rx: 0, ry: 0, rz: 0, speed: 30, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '下料, 车床B', posId: 4, deviceId: 1, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '车床B下料位模板' },
+  { name: '抓手张开', type: 'fixed', desc: 'GRIP_SET / 固定函数', code: 1007, cmdType: 'GRIP_SET', category: 'fixed', keywords: '张开, 释放', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, descText: '抓手张开固定函数' }
+];
+
+function renderCommands() {
+  var grid = document.getElementById('cmdGrid');
+  grid.innerHTML = '';
+  var filter = document.getElementById('cmdFilter').value.toLowerCase();
+  var typeFilter = document.getElementById('cmdTypeFilter').value;
+  var count = 0;
+
+  commands.forEach(function(cmd, idx) {
+    if (filter && cmd.name.toLowerCase().indexOf(filter) === -1 && cmd.desc.toLowerCase().indexOf(filter) === -1) return;
+    if (typeFilter !== 'all' && cmd.type !== typeFilter) return;
+    count++;
+
+    var card = document.createElement('div');
+    card.className = 'cmd-card';
+    var coordsHtml = '';
+    if (cmd.type === 'param') {
+      coordsHtml = '<div class="cmd-coords">X' + cmd.x + ' Y' + cmd.y + ' Z' + cmd.z + '</div>';
+    }
+    card.innerHTML =
+      '<div class="cmd-card-header">' +
+        '<span class="cmd-name">' + cmd.name + '</span>' +
+        '<span class="cmd-tag ' + cmd.type + '">' + (cmd.type === 'param' ? '参数型' : '固定型') + '</span>' +
+      '</div>' +
+      '<div class="cmd-desc">' + cmd.desc + '</div>' +
+      coordsHtml +
+      '<div class="cmd-card-footer">' +
+        '<span class="cmd-params">' + (cmd.type === 'param' ? '参数型' : '固定型') + '</span>' +
+        '<button class="cmd-exec-btn" onclick="event.stopPropagation();execCmd(' + idx + ')">执行</button>' +
+      '</div>';
+    card.addEventListener('click', function() { selectCommandCard(idx); });
+    grid.appendChild(card);
+  });
+
+  document.getElementById('cmdCount').textContent = count + ' 项';
+}
+
+function selectCommandCard(idx) {
+  var cmd = commands[idx];
+  document.getElementById('selTplName').textContent = cmd.name;
+  document.getElementById('selTplCode').textContent = cmd.code;
+  document.getElementById('selTplCmd').textContent = cmd.cmdType;
+  document.getElementById('selTplType').textContent = cmd.category === 'fixed' ? '固定函数型无参数指令' : '参数型指令';
+  showToast('选中: ' + cmd.name, 'info');
+}
+
+renderCommands();
+
+document.getElementById('cmdFilter').addEventListener('input', renderCommands);
+document.getElementById('cmdTypeFilter').addEventListener('change', renderCommands);
+
+function execCmd(idx) {
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  var cmd = commands[idx];
+  showToast('执行: ' + cmd.name, 'info');
+  addLogEntry('执行', '发送模板 ' + cmd.name, '成功', '任务' + taskId + ' / ' + document.getElementById('protocolSelect').value);
+  // Avoidance judgment simulation
+  if (cmd.type === 'param') {
+    var dist = Math.sqrt(cmd.x * cmd.x + cmd.y * cmd.y);
+    if (cmd.z < 150 && dist > 100) {
+      addLogEntry('规则', '规避判断命中安全中间点', '命中', '原因: 低位大范围移动');
+    }
+  }
+  taskId++;
+  setTimeout(function() {
+    showToast(cmd.name + ' 执行完成', 'success');
+    addLogEntry('执行', '模板执行完成 ' + cmd.name, '成功', '任务' + (taskId - 1) + ' / 镜像确认成功');
+    updateAllRobotStatus();
+  }, 800 + Math.random() * 600);
+}
+
+// ===== FLOW EXECUTION =====
+var flowSteps = [
+  { name: '等待位', status: 'done' },
+  { name: '车床A上料位', status: 'running' },
+  { name: '抓手闭合', status: 'pending' },
+  { name: '抬升离开工位', status: 'pending' },
+  { name: '车床B下料位', status: 'pending' },
+  { name: '抓手张开', status: 'pending' }
+];
+
+function renderFlow() {
+  var list = document.getElementById('flowList');
+  list.innerHTML = '';
+  var runningIdx = -1;
+  flowSteps.forEach(function(step, i) {
+    if (step.status === 'running') runningIdx = i;
+    var item = document.createElement('div');
+    item.className = 'flow-item';
+    item.innerHTML =
+      '<span class="flow-step-num">' + (i + 1) + '</span>' +
+      '<span class="flow-step-name">' + step.name + '</span>' +
+      '<span class="flow-step-status ' + step.status + '">' + statusText(step.status) + '</span>';
+    list.appendChild(item);
+  });
+
+  if (runningIdx >= 0) {
+    document.getElementById('flowStepInfo').textContent = (runningIdx + 1) + ' / ' + flowSteps.length;
+    document.getElementById('flowTplInfo').textContent = flowSteps[runningIdx].name;
+  }
+}
+
+function statusText(s) {
+  return { pending: '待执行', running: '执行中', done: '已完成', error: '错误' }[s] || s;
+}
+
+renderFlow();
+
+function doFlowAction(action) {
+  if (!connected && action !== 'reset') { showToast('设备未连接', 'error'); return; }
+  switch(action) {
+    case 'start':
+      showToast('流程已启动', 'success');
+      addLogEntry('流程', '流程启动', '成功', document.getElementById('flowSelect').value);
+      document.getElementById('flowStatusInfo').textContent = '运行中';
+      simulateFlow();
+      break;
+    case 'step':
+      showToast('单步执行', 'info');
+      stepFlow();
+      break;
+    case 'stop':
+      flowSteps.forEach(function(s) { if (s.status === 'running') s.status = 'pending'; });
+      renderFlow();
+      showToast('流程已停止', 'error');
+      document.getElementById('flowStatusInfo').textContent = '已停止';
+      break;
+    case 'reset':
+      flowSteps.forEach(function(s, i) { s.status = 'pending'; });
+      flowSteps[0].status = 'running';
+      renderFlow();
+      showToast('流程已重置', 'info');
+      document.getElementById('flowStatusInfo').textContent = '已重置';
+      break;
+  }
+}
+
+function stepFlow() {
+  var idx = flowSteps.findIndex(function(s) { return s.status === 'running'; });
+  if (idx === -1) return;
+  flowSteps[idx].status = 'done';
+  if (idx + 1 < flowSteps.length) {
+    flowSteps[idx + 1].status = 'running';
+  }
+  renderFlow();
+}
+
+function simulateFlow() {
+  var idx = flowSteps.findIndex(function(s) { return s.status === 'running'; });
+  if (idx === -1) return;
+  flowSteps[idx].status = 'done';
+  if (idx + 1 < flowSteps.length) {
+    flowSteps[idx + 1].status = 'running';
+    renderFlow();
+    setTimeout(simulateFlow, 1200);
+  } else {
+    renderFlow();
+    showToast('流程全部执行完成', 'success');
+    document.getElementById('flowStatusInfo').textContent = '已完成';
+  }
+}
+
+// ===== NATURAL LANGUAGE =====
+var micOn = false;
+var nlpParseRunning = false;
+var nlpExecRunning = false;
+
+function toggleMic() {
+  micOn = !micOn;
+  var btn = document.getElementById('micBtn');
+  btn.textContent = micOn ? '停止录音' : '开始录音';
+  btn.className = micOn ? 'btn btn-orange' : 'btn btn-warning';
+  showToast(micOn ? '录音中...' : '录音停止', micOn ? 'warning' : 'success');
+}
+
+function setNlpParseBusy(busy) {
+  nlpParseRunning = busy;
+  var parseBtn = document.getElementById('nlpParseBtn');
+  var execBtn = document.getElementById('nlpExecBtn');
+  var clearBtn = document.getElementById('nlpClearBtn');
+  var deepseekChk = document.getElementById('deepseekCheck');
+  var micSel = document.getElementById('micSelect');
+
+  parseBtn.disabled = busy;
+  parseBtn.textContent = busy ? '解析中' : '解析文本';
+  execBtn.disabled = busy;
+  clearBtn.disabled = busy;
+  deepseekChk.disabled = busy;
+  micSel.disabled = busy;
+}
+
+function setNlpExecBusy(busy) {
+  nlpExecRunning = busy;
+  var parseBtn = document.getElementById('nlpParseBtn');
+  var execBtn = document.getElementById('nlpExecBtn');
+  var clearBtn = document.getElementById('nlpClearBtn');
+  var deepseekChk = document.getElementById('deepseekCheck');
+  var micSel = document.getElementById('micSelect');
+
+  execBtn.disabled = busy;
+  execBtn.textContent = busy ? '执行中' : '执行';
+  parseBtn.disabled = busy || nlpParseRunning;
+  clearBtn.disabled = busy;
+  deepseekChk.disabled = busy || nlpParseRunning;
+  micSel.disabled = busy || nlpParseRunning;
+}
+
+function doNLParse() {
+  var input = document.getElementById('nlInput').value.trim();
+  if (!input) { showToast('请输入指令', 'warning'); return; }
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  if (nlpParseRunning || nlpExecRunning) return;
+
+  setNlpParseBusy(true);
+  showToast('正在解析自然语言指令...', 'info');
+
+  setTimeout(function() {
+    var parsed = JSON.stringify({
+      source: "deepseek",
+      reason: "用户请求执行车床A上料和抓手闭合操作",
+      actions: [
+        { action_type: "template", target: "车床A上料位", source: "deepseek" },
+        { action_type: "template", target: "抓手闭合", source: "deepseek" }
+      ]
+    }, null, 2);
+    var resultEl = document.getElementById('nlResult');
+    resultEl.textContent = parsed;
+    resultEl.classList.add('show');
+    setNlpParseBusy(false);
+    showToast('解析完成: 2 步 / template / 车床A上料位', 'success');
+    addLogEntry('自然语言', '解析文本', '成功', 'deepseek | 2步 | 用户请求执行车床A上料和抓手闭合操作');
+  }, 1500);
+}
+
+function doNLExecute() {
+  var input = document.getElementById('nlInput').value.trim();
+  if (!input) { showToast('请输入指令', 'warning'); return; }
+  if (!connected) { showToast('设备未连接', 'error'); return; }
+  if (nlpParseRunning) { showToast('当前正在进行解析，请等待', 'warning'); return; }
+  if (nlpExecRunning) { showToast('当前正在执行中', 'warning'); return; }
+
+  setNlpExecBusy(true);
+  showToast('自然语言执行准备中...', 'info');
+
+  // First parse, then execute step by step
+  setTimeout(function() {
+    var parsed = JSON.stringify({
+      source: "deepseek",
+      reason: "用户请求执行车床A上料和抓手闭合操作",
+      actions: [
+        { action_type: "template", target: "车床A上料位", source: "deepseek" },
+        { action_type: "template", target: "抓手闭合", source: "deepseek" }
+      ]
+    }, null, 2);
+    var resultEl = document.getElementById('nlResult');
+    resultEl.textContent = parsed;
+    resultEl.classList.add('show');
+
+    addLogEntry('自然语言', '执行解析', '成功', 'deepseek | 2步 | 用户请求执行车床A上料和抓手闭合操作');
+
+    // Execute step by step
+    var nlpActions = [
+      { action_type: "template", target: "车床A上料位", source: "deepseek" },
+      { action_type: "template", target: "抓手闭合", source: "deepseek" }
+    ];
+    var nlpIdx = 0;
+
+    function runNextNlpStep() {
+      if (nlpIdx >= nlpActions.length) {
+        setNlpExecBusy(false);
+        showToast('自然语言执行完成，共 2 步', 'success');
+        addLogEntry('自然语言', '动作序列完成', '成功', '共执行 2 步');
+        return;
+      }
+
+      var stepNo = nlpIdx + 1;
+      var action = nlpActions[nlpIdx];
+      showToast('执行第 ' + stepNo + ' 步: ' + action.action_type + ' / ' + action.target, 'info');
+      addLogEntry('自然语言', '动作序列第' + stepNo + '步开始', '成功', action.action_type + ' | ' + action.target + ' | ' + action.source);
+
+      // Avoidance judgment for parametric steps
+      if (action.target === '车床A上料位') {
+        addLogEntry('规则', '规避判断命中安全中间点', '命中', '原因: 低位大范围移动');
+      }
+
+      setTimeout(function() {
+        addLogEntry('自然语言', '动作序列第' + stepNo + '步成功', '成功', action.action_type + ' | ' + action.target + ' | ' + action.source);
+        nlpIdx++;
+        runNextNlpStep();
+      }, 1000);
+    }
+
+    runNextNlpStep();
+  }, 800);
+}
+
+function doNLClear() {
+  document.getElementById('nlInput').value = '';
+  document.getElementById('nlResult').classList.remove('show');
+  document.getElementById('nlResult').textContent = '';
+}
+
+// ===== TEMPLATE LIST (Management page) =====
+var templates = [
+  { name: '线性插补_V2', type: 'param', code: 1001, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '插补, 平滑, 工位A, 线性移动', posId: 0, deviceId: 1, x: 100, y: 200, z: 50, rx: 0, ry: 0, rz: 0, speed: 30, acc: 40, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '线性插补V2模板' },
+  { name: '圆弧引导_入口', type: 'param', code: 1008, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '圆弧, 引导', posId: 5, deviceId: 1, x: 400, y: 100, z: 70, rx: 10, ry: 0, rz: 0, speed: 20, acc: 30, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '圆弧引导入口' },
+  { name: '快速定位_安全', type: 'param', code: 1009, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '快速, 定位, 安全', posId: 6, deviceId: 1, x: 0, y: 0, z: 300, rx: 0, ry: 0, rz: 0, speed: 80, acc: 60, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 3, desc: '快速定位安全点' },
+  { name: '抓手闭合', type: 'fixed', code: 1004, cmdType: 'GRIP_SET', category: 'fixed', keywords: '闭合, 抓取', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, acc: 0, grip: 1, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '抓手闭合' },
+  { name: '抓手张开', type: 'fixed', code: 1007, cmdType: 'GRIP_SET', category: 'fixed', keywords: '张开, 释放', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, acc: 0, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '抓手张开' },
+  { name: '打开机床门', type: 'fixed', code: 5001, cmdType: 'DOOR_CTRL', category: 'fixed', keywords: '开门, 机床门', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 0, acc: 0, grip: 0, door: 1, ext1: 0, ext2: 0, safety: 5, desc: '打开机床门' },
+  { name: '车床A上料位', type: 'param', code: 1001, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '上料, 车床A', posId: 1, deviceId: 1, x: 100, y: 200, z: 50, rx: 0, ry: 0, rz: 0, speed: 30, acc: 40, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '车床A上料位' },
+  { name: '车床B下料位', type: 'param', code: 1006, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '下料, 车床B', posId: 4, deviceId: 1, x: -200, y: 300, z: 60, rx: 0, ry: 0, rz: 0, speed: 30, acc: 40, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '车床B下料位' },
+  { name: '回零', type: 'param', code: 1003, cmdType: 'HOME', category: 'parametric', keywords: '回零, 原点', posId: 0, deviceId: 1, x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0, speed: 50, acc: 40, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '回零' },
+  { name: '等待位', type: 'param', code: 1005, cmdType: 'MOVE_ABS', category: 'parametric', keywords: '等待, 安全', posId: 2, deviceId: 1, x: 0, y: 0, z: 200, rx: 0, ry: 0, rz: 0, speed: 50, acc: 40, grip: 0, door: 0, ext1: 0, ext2: 0, safety: 5, desc: '等待位' }
+];
+
+function renderTemplateList() {
+  var body = document.getElementById('tplListBody');
+  body.innerHTML = '';
+  var search = document.getElementById('tplSearch').value.toLowerCase();
+  templates.forEach(function(tpl, i) {
+    if (search && tpl.name.toLowerCase().indexOf(search) === -1) return;
+    var row = document.createElement('div');
+    row.className = 'tpl-list-row' + (i === 0 ? ' active' : '');
+    row.onclick = function() {
+      body.querySelectorAll('.tpl-list-row').forEach(function(r) { r.classList.remove('active'); });
+      row.classList.add('active');
+      fillEditorFromTemplate(tpl);
+      showToast('选中: ' + tpl.name, 'info');
+    };
+    row.innerHTML =
+      '<div>' + tpl.name + '</div>' +
+      '<div><span class="tpl-tag ' + tpl.type + '">' + (tpl.type === 'param' ? '参数' : '固定') + '</span></div>';
+    body.appendChild(row);
+  });
+}
+
+function fillEditorFromTemplate(tpl) {
+  document.getElementById('tplName').value = tpl.name;
+  document.getElementById('tplCode').value = tpl.code;
+  document.getElementById('tplCmdType').value = tpl.cmdType;
+  document.getElementById('tplCategory').value = tpl.category;
+  document.getElementById('tplKeywords').value = tpl.keywords;
+  document.getElementById('tplPosId').value = tpl.posId;
+  document.getElementById('tplDeviceId').value = tpl.deviceId;
+  document.getElementById('tplX').value = tpl.x;
+  document.getElementById('tplY').value = tpl.y;
+  document.getElementById('tplZ').value = tpl.z;
+  document.getElementById('tplRX').value = tpl.rx;
+  document.getElementById('tplRY').value = tpl.ry;
+  document.getElementById('tplRZ').value = tpl.rz;
+  document.getElementById('tplSpeed').value = tpl.speed;
+  document.getElementById('tplAcc').value = tpl.acc;
+  document.getElementById('tplGrip').value = tpl.grip;
+  document.getElementById('tplDoor').value = tpl.door;
+  document.getElementById('tplExt1').value = tpl.ext1;
+  document.getElementById('tplExt2').value = tpl.ext2;
+  document.getElementById('tplSafety').value = tpl.safety;
+  document.getElementById('tplDesc').value = tpl.desc;
+  syncTemplateTypeMode();
+  updateJsonPreview();
+}
+
+renderTemplateList();
+
+document.getElementById('tplSearch').addEventListener('input', renderTemplateList);
+
+// ===== TEMPLATE TYPE -> FIELD ENABLE/DISABLE =====
+function syncTemplateTypeMode() {
+  var cat = document.getElementById('tplCategory').value;
+  var isFixed = cat === 'fixed';
+  var paramFields = document.querySelectorAll('.param-field');
+  paramFields.forEach(function(f) {
+    f.disabled = isFixed;
+  });
+  updateJsonPreview();
+}
+
+// ===== JSON PREVIEW REAL-TIME SYNC =====
+function updateJsonPreview() {
+  var obj = {
+    query_key: document.getElementById('tplName').value,
+    function_id: parseInt(document.getElementById('tplCode').value) || 0,
+    function_name: document.getElementById('tplCmdType').value,
+    template_type: document.getElementById('tplCategory').value,
+    registers: [
+      parseFloat(document.getElementById('tplX').value) || 0,
+      parseFloat(document.getElementById('tplY').value) || 0,
+      parseFloat(document.getElementById('tplZ').value) || 0,
+      parseFloat(document.getElementById('tplRX').value) || 0,
+      parseFloat(document.getElementById('tplRY').value) || 0,
+      parseFloat(document.getElementById('tplRZ').value) || 0,
+      parseFloat(document.getElementById('tplSpeed').value) || 0
+    ],
+    acc_percent: parseFloat(document.getElementById('tplAcc').value) || 0,
+    safety_level: parseInt(document.getElementById('tplSafety').value) || 5,
+    keywords: (document.getElementById('tplKeywords').value || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean),
+    pos_id: parseInt(document.getElementById('tplPosId').value) || 0,
+    device_id: parseInt(document.getElementById('tplDeviceId').value) || 1,
+    io_grip: parseInt(document.getElementById('tplGrip').value) || 0,
+    io_door: parseInt(document.getElementById('tplDoor').value) || 0,
+    ext_p1: parseFloat(document.getElementById('tplExt1').value) || 0,
+    ext_p2: parseFloat(document.getElementById('tplExt2').value) || 0,
+    description: document.getElementById('tplDesc').value
+  };
+  document.getElementById('jsonPreview').textContent = JSON.stringify(obj, null, 2);
+}
+
+// Bind all editor fields to update JSON preview in real-time
+var editorIds = ['tplName','tplCode','tplCmdType','tplCategory','tplKeywords','tplPosId','tplDeviceId',
+  'tplX','tplY','tplZ','tplRX','tplRY','tplRZ','tplSpeed','tplAcc','tplGrip','tplDoor','tplExt1','tplExt2','tplSafety','tplDesc'];
+editorIds.forEach(function(id) {
+  var el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', updateJsonPreview);
+    el.addEventListener('change', updateJsonPreview);
+  }
+});
+
+// Initial JSON preview
+updateJsonPreview();
+
+// ===== AVAILABLE TEMPLATES FOR FLOW MANAGEMENT =====
+function renderAvailTemplates() {
+  var list = document.getElementById('availTplList');
+  list.innerHTML = '';
+  templates.forEach(function(tpl) {
+    var tag = document.createElement('button');
+    tag.className = 'btn btn-sm ' + (tpl.type === 'param' ? 'btn-primary' : 'btn-success');
+    tag.textContent = tpl.name;
+    tag.onclick = function() { showToast('已选择: ' + tpl.name, 'info'); };
+    list.appendChild(tag);
+  });
+}
+renderAvailTemplates();
+
+// ===== FLOW STEP REORDER =====
+function moveFlowStepUp() {
+  var body = document.getElementById('flowStepList');
+  var rows = body.querySelectorAll('.flow-mgmt-row');
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].classList.contains('active') && i > 0) {
+      body.insertBefore(rows[i], rows[i - 1]);
+      renumberFlowSteps();
+      showToast('步骤已上移', 'info');
+      return;
+    }
+  }
+  showToast('请先选择一个步骤', 'warning');
+}
+
+function moveFlowStepDown() {
+  var body = document.getElementById('flowStepList');
+  var rows = body.querySelectorAll('.flow-mgmt-row');
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].classList.contains('active') && i < rows.length - 1) {
+      body.insertBefore(rows[i + 1], rows[i]);
+      renumberFlowSteps();
+      showToast('步骤已下移', 'info');
+      return;
+    }
+  }
+  showToast('请先选择一个步骤', 'warning');
+}
+
+function renumberFlowSteps() {
+  var rows = document.getElementById('flowStepList').querySelectorAll('.flow-mgmt-row');
+  rows.forEach(function(row, i) {
+    var text = row.textContent.replace(/^\d+\.\s*/, '');
+    row.textContent = (i + 1) + '. ' + text;
+  });
+}
+
+// Flow step selection
+document.getElementById('flowStepList').addEventListener('click', function(e) {
+  var row = e.target.closest('.flow-mgmt-row');
+  if (row) {
+    this.querySelectorAll('.flow-mgmt-row').forEach(function(r) { r.classList.remove('active'); });
+    row.classList.add('active');
+  }
+});
+
+function selectFlowMgmt(el, name) {
+  document.querySelectorAll('#flowMgmtList .flow-mgmt-row').forEach(function(r) { r.classList.remove('active'); });
+  el.classList.add('active');
+  document.getElementById('flowMgmtName').value = name;
+}
+
+function newFlow() {
+  document.getElementById('flowMgmtName').value = '';
+  document.getElementById('flowStepList').innerHTML = '';
+  document.querySelectorAll('#flowMgmtList .flow-mgmt-row').forEach(function(r) { r.classList.remove('active'); });
+  showToast('已创建空白流程', 'info');
+  addLogEntry('后台', '新增流程', '成功', '已创建空白流程');
+}
+
+// ===== WAYPOINT SELECTION =====
+function selectWaypoint(el, name) {
+  document.querySelectorAll('#waypointList .waypoint-row').forEach(function(r) { r.classList.remove('active'); });
+  el.classList.add('active');
+  document.getElementById('wpName').value = name;
+}
+
+// ===== LOG SYSTEM =====
+var logData = [
+  { time: '14:22:01', cat: '执行', action: '发送模板 车床A上料位', result: '成功', resultClass: 'pill-ok', detail: '任务1001 / 标准协议 / 镜像确认成功' },
+  { time: '14:21:44', cat: '规则', action: '规避判断命中安全中间点', result: '命中', resultClass: 'pill-warn', detail: '原因: 低位大范围移动' },
+  { time: '14:21:03', cat: '语音', action: '麦克风识别', result: '完成', resultClass: 'pill-blue', detail: '文本: 把机械手移动到车床A上料位' },
+  { time: '14:20:55', cat: '连接', action: '检测连接', result: '成功', resultClass: 'pill-ok', detail: '真实控制器 192.168.1.11 已连接' },
+  { time: '14:20:30', cat: '系统', action: '系统上电', result: '成功', resultClass: 'pill-ok', detail: '系统已上电，进入待机状态' }
+];
+
+function renderLogs() {
+  var body = document.getElementById('logTableBody');
+  body.innerHTML = '';
+  logData.forEach(function(l) {
+    var row = document.createElement('div');
+    row.className = 'log-table-row';
+    row.innerHTML =
+      '<div class="mono">' + l.time + '</div>' +
+      '<div>' + l.cat + '</div>' +
+      '<div>' + l.action + '</div>' +
+      '<div><span class="pill ' + l.resultClass + '">' + l.result + '</span></div>' +
+      '<div>' + l.detail + '</div>';
+    body.appendChild(row);
+  });
+  document.getElementById('logCount').textContent = logData.length;
+  document.getElementById('logSummaryCount').textContent = logData.length;
+  document.getElementById('logSummaryTime').textContent = logData.length > 0 ? logData[0].time : '-';
+}
+renderLogs();
+
+function addLogEntry(cat, action, result, detail) {
+  var now = new Date();
+  var time = now.toTimeString().slice(0, 8);
+  var resultClass = result === '成功' || result === '完成' ? 'pill-ok' : (result === '失败' ? 'pill-err' : 'pill-warn');
+  logData.unshift({ time: time, cat: cat, action: action, result: result, resultClass: resultClass, detail: detail });
+  renderLogs();
+}
+
+function addLog() {
+  var cats = ['执行', '系统', '连接', '语音', '规则', '流程', '反馈', '后台', '自然语言'];
+  var acts = ['发送模板 车床A上料位', '规避判断', '心跳签到', '麦克风识别', '系统上电', '流程启动', '轮询状态区', '模板保存', '解析文本'];
+  var cat = cats[Math.floor(Math.random() * cats.length)];
+  var act = acts[Math.floor(Math.random() * acts.length)];
+  var ok = Math.random() > 0.2;
+  addLogEntry(cat, act, ok ? '成功' : '失败', '任务' + (1000 + Math.floor(Math.random() * 10)));
+}
+
+function clearLogs() {
+  logData.length = 0;
+  renderLogs();
+  showToast('日志已清空', 'warning');
+}
+
+// ===== CLOCK =====
+function updateClock() {
+  var now = new Date();
+  var y = now.getFullYear();
+  var m = String(now.getMonth() + 1).padStart(2, '0');
+  var d = String(now.getDate()).padStart(2, '0');
+  var h = String(now.getHours()).padStart(2, '0');
+  var min = String(now.getMinutes()).padStart(2, '0');
+  var s = String(now.getSeconds()).padStart(2, '0');
+  document.getElementById('clockDisplay').textContent = y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== QUOTA SIMULATION =====
+var quota = 50;
+setInterval(function() {
+  if (Math.random() > 0.7 && quota < 100) {
+    quota++;
+    document.getElementById('quotaVal').textContent = quota;
+  }
+}, 5000);
+
+// ===== HEARTBEAT SIMULATION =====
+function updateHeartbeat() {
+  var now = new Date();
+  var time = now.toTimeString().slice(0, 8);
+  document.getElementById('heartbeatTime').textContent = time;
+}
+setInterval(updateHeartbeat, 30000);
+updateHeartbeat();
+
+// ===== INITIAL STATE =====
+updateOverallState();
+updateSummaryPanel();
+</script>
+
+</body>
+</html>

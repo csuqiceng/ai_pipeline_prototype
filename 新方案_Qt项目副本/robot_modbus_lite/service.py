@@ -14,6 +14,9 @@ from .models import (
     StandardMirrorAck,
     StandardRealtimeStatus,
     StandardProtocolStatus,
+    V30Command,
+    V30Status,
+    V30RealtimeData,
     VrReadRequest,
     VrWriteRequest,
 )
@@ -305,3 +308,102 @@ class RobotModbusService:
         if standard_code == 1006:
             return float(record.registers[0])
         return float(params["extP1"])
+
+    # ── V3.0 Modbus TCP 协议方法 ──────────────────────────────────
+
+    # VR命令码 → V3.0函数号映射
+    VR_TO_V30_MAP = {
+        1001: 102,   # MOVE_ABS → 直线插补
+        1002: 102,   # MOVE_REL → 直线插补(先读当前位置+偏移)
+        1003: 102,   # HOME → 直线插补到原点
+        1004: -1,    # GRIP_SET → 上位机写BIT口
+        1005: -3,    # DOOR_CTRL → 上位机写BIT口
+        1006: -2,    # WAIT_MS → 上位机本地延时
+        1007: -4,    # CHECK_IN → 上位机本地无操作
+        1008: 103,   # EMG_RESET → 报警清除
+        4001: 103,   # SYS_RESET → 报警清除
+        4002: 104,   # SYS_ESTOP → 停止(急停)
+        4003: 104,   # SYS_PAUSE → 停止(慢停)
+        4004: -5,    # SYS_RESUME → 上位机本地恢复状态
+        5001: -6,    # FIXED_FUNC → 上位机本地无操作
+        6001: -5,    # AUTO_START → 上位机本地状态切换
+        6002: -5,    # AUTO_STOP → 上位机本地状态切换
+    }
+
+    def build_v30_command_from_record(
+        self,
+        record: QueryRecord,
+        base_speed_mm: float = 3000.0,
+    ) -> V30Command:
+        """将查询表记录转为V3.0命令"""
+        standard_code = self._resolve_standard_code(record)
+        params = record.to_standard_params()
+        func_num = self.VR_TO_V30_MAP.get(standard_code)
+        if func_num is None:
+            raise ValueError(f"命令码 {standard_code} 无V3.0映射，查询键={record.query_key}")
+
+        if func_num == -1:
+            return V30Command(func_num=-1, desc="GRIP_SET",
+                              io_grip=int(params["ioGrip"]))
+        if func_num == -2:
+            return V30Command(func_num=-2, desc="WAIT_MS",
+                              ext_p1=float(params["extP1"]))
+        if func_num == -3:
+            return V30Command(func_num=-3, desc="DOOR_CTRL",
+                              io_door=int(params["ioDoor"]))
+        if func_num < 0:
+            return V30Command(func_num=func_num, desc="LOCAL")
+
+        if func_num == 102:
+            speed_pct = float(params["speedPercent"])
+            speed = base_speed_mm * speed_pct / 100.0
+            acc_pct = float(params["accPercent"])
+            return V30Command(
+                func_num=102,
+                desc=record.description or record.query_key,
+                x=float(params["x"]),
+                y=float(params["y"]),
+                z=float(params["z"]),
+                rx=float(params["rx"]),
+                ry=float(params["ry"]),
+                rz=float(params["rz"]),
+                speed=speed,
+                accel=1000.0 * acc_pct / 100.0,
+                decel=1000.0 * acc_pct / 100.0,
+            )
+        elif func_num == 103:
+            return V30Command(func_num=103, desc="ALARM_CLEAR")
+        elif func_num == 104:
+            stop_mode = 0 if standard_code == 4002 else 1  # 4002=急停 4003=慢停
+            return V30Command(func_num=104, desc="STOP", x=float(stop_mode))
+        return V30Command(func_num=func_num, desc=record.query_key)
+
+    def build_v30_system_command(self, code: int) -> V30Command:
+        """构建V3.0系统命令"""
+        func_num = self.VR_TO_V30_MAP.get(code)
+        if func_num is None:
+            raise ValueError(f"系统命令码 {code} 无V3.0映射")
+        if func_num == 104:
+            stop_mode = 0 if code == 4002 else 1  # 4002=急停 4003=慢停
+            return V30Command(func_num=104, desc=self.STANDARD_CMD_NAMES.get(code, ""), x=float(stop_mode))
+        return V30Command(func_num=func_num, desc=self.STANDARD_CMD_NAMES.get(code, ""))
+
+    def build_v30_precheck_reads(self) -> tuple[VrReadRequest, int]:
+        """返回前置检查需要的读取请求: (IEEE(34)状态读取, BIT(243)地址)"""
+        return VrReadRequest(start_vr=34, count=1), 243
+
+    def build_v30_status_read(self) -> VrReadRequest:
+        """读 IEEE(34) 函数状态"""
+        return VrReadRequest(start_vr=34, count=1)
+
+    def parse_v30_status(self, values: list[float]) -> V30Status:
+        """解析 IEEE(34) 状态"""
+        return V30Status.from_value(values[0] if values else 0.0)
+
+    def build_v30_realtime_read(self) -> VrReadRequest:
+        """读 IEEE(1512~1517) 实时坐标 X/Y/Z/RX/RY/RZ"""
+        return VrReadRequest(start_vr=1512, count=6)
+
+    def parse_v30_realtime(self, values: list[float]) -> V30RealtimeData:
+        """解析V3.0实时坐标"""
+        return V30RealtimeData.from_values(values)

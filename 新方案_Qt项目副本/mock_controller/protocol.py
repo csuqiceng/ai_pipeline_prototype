@@ -119,3 +119,97 @@ Z_RANGE = (0.0, 300.0)
 SPEED_MAX_AUTO = 100
 SPEED_MAX_DEBUG = 30
 SPEED_MAX_DANGER = 20
+
+
+# ── V3.0 Modbus TCP 协议常量 ──────────────────────────────────────
+
+# IEEE 寄存器地址 (4x float)
+MODBUS_FUNC_ADDR = 0           # IEEE(0)  函数号
+MODBUS_PARAM_ADDR = 2          # IEEE(2)  参数区起始
+MODBUS_PARAM_MAX = 30          # IEEE(30) 参数区结束
+MODBUS_TRIGGER_ADDR = 32       # IEEE(32) 执行触发 (写1触发)
+MODBUS_STATUS_ADDR = 34        # IEEE(34) 函数状态
+
+# BIT 寄存器地址 (0x)
+MODBUS_ALARM_BIT = 243         # BIT(243) 总报警 0=正常 1=有报警
+MODBUS_READY_BIT = 253         # BIT(253) 启动就绪
+MODBUS_ESTOP_BIT = 150         # BIT(150) 急停触发
+
+# 实时数据 IEEE 地址
+MODBUS_RT_J1_START = 1500      # IEEE(1500~1510) J1~J6角度
+MODBUS_RT_XYZ_START = 1512     # IEEE(1512~1522) X/Y/Z/RX/RY/RZ
+MODBUS_RT_XYZ_COUNT = 6
+MODBUS_RT_SAFE_START = 1700    # IEEE(1700~1706) 安全参数
+MODBUS_RT_R3D = 1740           # IEEE(1740) R3d距离
+MODBUS_RT_ZHEIGHT = 1742       # IEEE(1742) Z高度
+
+# Func 102 参数偏移 (IEEE地址)
+V30_P_X = 2
+V30_P_Y = 4
+V30_P_Z = 6
+V30_P_RX = 8
+V30_P_RY = 10
+V30_P_RZ = 12
+V30_P_SPEED = 14               # mm/s
+V30_P_ACCEL = 16               # mm/s²
+V30_P_DECEL = 18               # mm/s²
+V30_P_FUZZY = 20               # 0=精确 1=模糊
+V30_P_FUZZY_STEP = 22          # 模糊最大步长 mm
+
+# Func 101 参数偏移
+V30_P_AXIS = 2                 # 轴号 0~5
+V30_P_DIR = 4                  # 方向 1=正 -1=反
+V30_P_AXIS_SPEED = 6           # 速度 度/s
+V30_P_ANGLE = 8                # 角度 度
+V30_P_AXIS_FUZZY = 10          # 模糊标志
+
+# Func 104 参数偏移
+V30_P_STOP_MODE = 2            # 0=急停 1=慢停
+
+# IEEE(34) 函数状态值
+V30_STATUS_IDLE = 0
+V30_STATUS_READY = 1
+V30_STATUS_EXECUTING = 2
+V30_STATUS_COMPLETE = 4
+# 组合码
+V30_STATUS_COMPLETE_ALARM = 12     # 4+8 完成+报警
+V30_STATUS_COMPLETE_RADIUS = 28    # 4+8+16 完成+半径超限
+V30_STATUS_COMPLETE_HEIGHT = 44    # 4+8+32 完成+高度超限
+V30_STATUS_ALARM_ILLEGAL = 72      # 8+64 报警+指令非法
+
+# 默认速度 mm/s
+V30_DEFAULT_SPEED = 3000.0
+V30_DEFAULT_ACCEL = 1000.0
+V30_DEFAULT_DECEL = 1000.0
+
+
+class FuncV3:
+    """V3.0 函数号定义"""
+    JOINT_MOVE = 101              # 关节移动
+    LINE_MOVE = 102               # 直线插补运动
+    ALARM_CLEAR = 103             # 报警清除
+    STOP = 104                    # 停止
+    STATUS_QUERY = 105            # 状态查询
+    WELD_TRACK = 106              # 焊缝巡迹(预留)
+
+    _NAMES = {
+        101: "JOINT_MOVE",
+        102: "LINE_MOVE",
+        103: "ALARM_CLEAR",
+        104: "STOP",
+        105: "STATUS_QUERY",
+        106: "WELD_TRACK",
+    }
+
+    @classmethod
+    def name(cls, code: int) -> str:
+        return cls._NAMES.get(code, f"UNKNOWN_V30({code})")
+
+
+def v30_status_is_complete(status: int) -> bool:
+    """IEEE(34)值是否表示执行完成（含组合码）"""
+    return (status & 4) != 0
+
+def v30_status_has_alarm(status: int) -> bool:
+    """IEEE(34)值是否包含报警"""
+    return (status & 8) != 0

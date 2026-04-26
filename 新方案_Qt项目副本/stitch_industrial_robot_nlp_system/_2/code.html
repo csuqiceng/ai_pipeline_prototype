@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>KINETIC MONOLITH | 系统日志</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary": "#2196F3",
+                        "on-primary": "#ffffff",
+                        "primary-container": "#e3f2fd",
+                        "on-primary-container": "#1976d2",
+                        "secondary": "#4caf50",
+                        "on-secondary": "#ffffff",
+                        "secondary-container": "#e8f5e9",
+                        "on-secondary-container": "#388e3c",
+                        "tertiary": "#ff9800",
+                        "on-tertiary": "#ffffff",
+                        "background": "#f8f9fa",
+                        "on-background": "#1a1c1e",
+                        "surface": "#ffffff",
+                        "on-surface": "#1a1c1e",
+                        "surface-variant": "#f1f3f4",
+                        "on-surface-variant": "#44474e",
+                        "outline": "#74777f",
+                        "outline-variant": "#c4c7cf",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-error-container": "#410002",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-container-low": "#f7f9fc",
+                        "surface-container": "#f1f3f8",
+                        "surface-container-high": "#ebeef2",
+                        "surface-container-highest": "#e5e8ec"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "4px",
+                        "lg": "4px",
+                        "xl": "8px",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Space Grotesk", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Inter", "sans-serif"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9fa;
+            color: #1a1c1e;
+        }
+        .mono-data {
+            font-family: 'ui-monospace', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c4c7cf;
+            border-radius: 10px;
+        }
+        /* Fixed width container style */
+        .fixed-canvas {
+            width: 1440px;
+            margin: 0 auto;
+            position: relative;
+            background: #f8f9fa;
+            min-height: 100vh;
+            box-shadow: 0 0 50px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-stone-200 overflow-x-auto">
+<div class="fixed-canvas overflow-hidden flex flex-col">
+<!-- TopAppBar -->
+<header class="w-full z-50 bg-surface border-b border-outline-variant flex justify-between items-center h-16 px-6 shrink-0">
+<div class="flex items-center gap-4">
+<span class="font-['Space_Grotesk'] font-bold tracking-tight text-xl text-primary">KINETIC MONOLITH</span>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex gap-8 items-center h-full">
+<a class="text-on-surface-variant hover:text-primary transition-colors px-3 py-1 font-medium" href="#">运行</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors px-3 py-1 font-medium" href="#">管理</a>
+<a class="text-primary border-b-2 border-primary font-bold px-3 py-1 transition-colors" href="#">日志</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:bg-surface-variant p-2 rounded transition-colors active:scale-95">sensors</button>
+<button class="material-symbols-outlined text-primary hover:bg-surface-variant p-2 rounded transition-colors active:scale-95">account_circle</button>
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="h-full w-20 bg-surface-container border-r border-outline-variant flex flex-col items-center py-8 space-y-8 z-40 shrink-0">
+<div class="flex flex-col items-center gap-1 mb-4">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover" data-alt="close-up portrait of a technical operator" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOzaV2JqFUz91H6kwR6bd33ciTEm2romX2zVXTse4tKGoPi6hp1SUFGD5-ylwC9WdKN70YpChHxmR3U15tL8J1cy3_Q8b4N0JEVPgaoyvp6A8WybqdIzyqn051B9Aro9R13_x1eqbNFuCqfQpdRScO8yQ_FS95aXB5q0miwaoHqO79THqvkZvyoNpRhBzcibvGn_DQ4dc1zxfJlll45OYicgH3uEaPd385-C4aB8UZtjbRxrmjNAINzOtQTimm6aJve-caKvaXKC4"/>
+</div>
+</div>
+<nav class="flex flex-col space-y-4 w-full px-2">
+<button class="flex flex-col items-center justify-center py-3 rounded text-on-surface-variant hover:text-primary hover:bg-primary-container/50 transition-all">
+<span class="material-symbols-outlined">play_arrow</span>
+<span class="text-[10px] mt-1 uppercase tracking-widest font-bold">运行</span>
+</button>
+<button class="flex flex-col items-center justify-center py-3 rounded text-on-surface-variant hover:text-primary hover:bg-primary-container/50 transition-all">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px] mt-1 uppercase tracking-widest font-bold">管理</span>
+</button>
+<button class="flex flex-col items-center justify-center py-3 rounded bg-primary-container text-primary border-l-4 border-primary transition-all">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-[10px] mt-1 uppercase tracking-widest font-bold">日志</span>
+</button>
+</nav>
+<div class="mt-auto pb-8 w-full px-2">
+<button class="flex flex-col items-center justify-center py-3 w-full rounded text-on-surface-variant hover:text-primary hover:bg-primary-container/50 transition-all">
+<span class="material-symbols-outlined">precision_manufacturing</span>
+<span class="text-[10px] mt-1 uppercase tracking-widest font-bold">诊断</span>
+</button>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 overflow-hidden flex flex-col bg-background">
+<!-- Header -->
+<section class="h-20 bg-surface flex items-center justify-between px-8 border-b border-outline-variant shrink-0">
+<div class="flex items-center gap-6">
+<h1 class="font-['Space_Grotesk'] text-xl font-bold text-on-background flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">analytics</span>
+                        系统事件日志
+                    </h1>
+<div class="h-8 w-[1px] bg-outline-variant"></div>
+<div class="flex gap-4">
+<div class="flex items-center bg-surface-container border border-outline-variant px-3 py-1.5 rounded gap-2 cursor-pointer hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">calendar_today</span>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface">今日: 10月24日</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">arrow_drop_down</span>
+</div>
+<div class="flex items-center bg-surface-container border border-outline-variant px-3 py-1.5 rounded gap-2 cursor-pointer hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">filter_alt</span>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface">所有分类</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">arrow_drop_down</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="bg-surface border border-outline hover:bg-surface-container-high text-on-surface px-4 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors active:scale-95">
+<span class="material-symbols-outlined text-sm">download</span>
+                        导出日志
+                    </button>
+<button class="bg-error hover:bg-red-700 text-on-error px-4 py-2 rounded text-sm font-medium flex items-center gap-2 transition-colors active:scale-95">
+<span class="material-symbols-outlined text-sm">delete_sweep</span>
+                        清除日志
+                    </button>
+</div>
+</section>
+<div class="flex-1 flex overflow-hidden">
+<!-- Table Section -->
+<section class="flex-1 overflow-auto p-6 custom-scrollbar bg-surface-container-low">
+<div class="bg-surface border border-outline-variant rounded-lg overflow-hidden shadow-sm">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high border-b border-outline-variant">
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">时间 (UTC)</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">分类</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">操作</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">结果</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">详细哈希</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/30 text-sm font-body">
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:22:01.034</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-primary leading-tight">导</span>
+<span class="text-[10px] font-bold text-primary leading-tight">航</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Path_Recalculation_v4</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-secondary font-bold">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+                                            成功
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"node": 45, "latency": "12ms", "optimized": true}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:21:55.892</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-tertiary leading-tight">执</span>
+<span class="text-[10px] font-bold text-tertiary leading-tight">行</span>
+<span class="text-[10px] font-bold text-tertiary leading-tight">器</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Arm_Torque_Limit_Check</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-error font-bold">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+                                            检测到故障
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"motor_id": "M7", "load": 112, "limit": 100, "status": "SHUTDOWN"}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:20:12.451</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-primary leading-tight">视</span>
+<span class="text-[10px] font-bold text-primary leading-tight">觉</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Object_ID_LiDAR</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-secondary font-bold">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+                                            成功
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"detected": ["crate_3", "pallet_A"], "conf": 0.98}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:19:33.002</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-tertiary leading-tight">电</span>
+<span class="text-[10px] font-bold text-tertiary leading-tight">池</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">State_Of_Charge_Monitor</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-tertiary font-bold">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+                                            阈值警告
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"charge": 14.2, "temp": "42C", "mode": "ECO"}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:18:05.112</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-primary leading-tight">系</span>
+<span class="text-[10px] font-bold text-primary leading-tight">统</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Cloud_Sync_Handshake</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-secondary font-bold">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+                                            成功
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"ping": "4ms", "buffer": "0kb", "auth": "SIG_V4"}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:17:59.001</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-primary leading-tight">触</span>
+<span class="text-[10px] font-bold text-primary leading-tight">觉</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Sensor_Calibration_Auto</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-secondary font-bold">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+                                            成功
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"drift": -0.001, "axis": ["X","Y"], "temp": "22C"}</td>
+</tr>
+<tr class="hover:bg-primary-container/20 transition-colors">
+<td class="px-6 py-4 mono-data text-on-surface-variant">14:15:22.774</td>
+<td class="px-6 py-4">
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold text-primary leading-tight">安</span>
+<span class="text-[10px] font-bold text-primary leading-tight">全</span>
+</div>
+</td>
+<td class="px-6 py-4 text-on-surface font-medium">Estop_Loop_Integrity</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2 text-secondary font-bold">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+                                            安全
+                                        </div>
+</td>
+<td class="px-6 py-4 mono-data text-xs text-on-surface-variant">{"loop_a": "closed", "loop_b": "closed", "v_ref": 24.1}</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Sidebar -->
+<aside class="w-[360px] bg-surface border-l border-outline-variant p-8 flex flex-col gap-8 overflow-y-auto shrink-0">
+<div>
+<h2 class="font-headline text-lg font-bold text-on-background mb-6 uppercase tracking-wider">诊断摘要</h2>
+<div class="space-y-6">
+<!-- Stat Card -->
+<div class="bg-surface-container-low p-5 rounded border border-outline-variant border-l-4 border-l-primary">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block mb-2">总日志数 (24h)</span>
+<div class="text-3xl font-headline font-bold text-on-surface">12,842</div>
+<div class="mt-4 flex items-center justify-between text-[11px] text-on-surface-variant">
+<span>最后一次事件</span>
+<span class="mono-data font-medium">14:22:01 UTC</span>
+</div>
+</div>
+<!-- Mini Chart -->
+<div class="bg-surface-container-low p-5 rounded border border-outline-variant border-l-4 border-l-secondary">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block mb-4">错误频率</span>
+<div class="flex items-end gap-1.5 h-12">
+<div class="w-full bg-secondary/30 h-[30%] rounded-t-sm"></div>
+<div class="w-full bg-secondary/30 h-[45%] rounded-t-sm"></div>
+<div class="w-full bg-secondary/30 h-[25%] rounded-t-sm"></div>
+<div class="w-full bg-error/40 h-[80%] rounded-t-sm"></div>
+<div class="w-full bg-secondary/30 h-[20%] rounded-t-sm"></div>
+<div class="w-full bg-secondary/30 h-[35%] rounded-t-sm"></div>
+<div class="w-full bg-secondary/30 h-[50%] rounded-t-sm"></div>
+</div>
+<div class="mt-4 flex justify-between items-center">
+<span class="text-xs text-secondary font-bold">0.42% 错误率</span>
+<span class="text-[10px] text-on-surface-variant uppercase font-mono bg-surface-container px-1.5 py-0.5 rounded">正常</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Subsystems -->
+<div class="space-y-4">
+<h3 class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">活动子系统</h3>
+<div class="space-y-2">
+<div class="flex justify-between items-center bg-surface-container-low border border-outline-variant px-4 py-3 rounded">
+<span class="text-sm font-medium">核心逻辑引擎</span>
+<span class="text-[10px] font-mono font-bold text-secondary">稳定</span>
+</div>
+<div class="flex justify-between items-center bg-surface-container-low border border-outline-variant px-4 py-3 rounded">
+<span class="text-sm font-medium">LiDAR 接口</span>
+<span class="text-[10px] font-mono font-bold text-secondary">稳定</span>
+</div>
+<div class="flex justify-between items-center bg-surface-container-low border border-outline-variant px-4 py-3 rounded">
+<span class="text-sm font-medium">动力控制器</span>
+<span class="text-[10px] font-mono font-bold text-tertiary">忙碌</span>
+</div>
+<div class="flex justify-between items-center bg-surface-container-low border border-outline-variant px-4 py-3 rounded">
+<span class="text-sm font-medium">神经路径单元</span>
+<span class="text-[10px] font-mono font-bold text-primary">同步中</span>
+</div>
+</div>
+</div>
+<!-- Footer Visual -->
+<div class="mt-auto">
+<div class="relative w-full aspect-[2/1] rounded overflow-hidden border border-outline-variant">
+<img class="w-full h-full object-cover grayscale opacity-60" data-alt="high-tech circuit board" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB-PCkCyEXjvKhpskVNoNUm9NkyCnlbZkj5mrUWxn_qNdeH3Ay3Q8k5uQsNPSFJTJLjeIjohwp-hxUGVoKCHz56uYuw8ZAfx5oiHMROFI7MAvtO0Q9lDuBvB_HghPj_ovHVFO1sHCgEC6JB9XDvvtotTaUYq9DJi04U2x08GyPWOLY4aRmCZvRywM46GHxiszUAqQoP-RfubNz1gHuIwElmL3PVTqdZJ_C-bdD9_c52qJxPD1wi_6gtfEEo21OC04ffs3j9me1svLo"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-transparent"></div>
+<div class="absolute bottom-3 left-3 flex flex-col">
+<span class="text-[8px] font-mono text-primary uppercase font-bold">硬件版本</span>
+<span class="text-xs font-bold">TX-400-ALPHA</span>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</div>
+</body></html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logs Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./dashboard_theme.css">
+  <style>
+    .logs-layout {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      height: calc(100vh - 102px);
+    }
+
+    .logs-top {
+      display: grid;
+      grid-template-columns: 1fr 1fr 260px;
+      gap: 12px;
+    }
+
+    .logs-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .log-panel {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .log-panel .tree-scroll {
+      max-height: 620px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand">KINETIC MONOLITH</div>
+        <div class="divider"></div>
+        <div class="status-row">
+          <span class="status-dot"></span>
+          <span>系统状态: 正常</span>
+        </div>
+      </div>
+      <nav class="top-links">
+        <a class="top-link" href="./run_dashboard.html">▦ 运行</a>
+        <a class="top-link" href="./manage_dashboard.html">⚙ 后台</a>
+        <a class="top-link active" href="./logs_dashboard.html">⌘ 日志</a>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="side-item" href="./run_dashboard.html">
+          <div class="side-icon">▶</div>
+          <div class="side-label">运行</div>
+        </a>
+        <a class="side-item" href="./manage_dashboard.html">
+          <div class="side-icon">⚙</div>
+          <div class="side-label">后台</div>
+        </a>
+        <a class="side-item active" href="./logs_dashboard.html">
+          <div class="side-icon">⌘</div>
+          <div class="side-label">日志</div>
+        </a>
+        <div class="side-spacer"></div>
+        <div class="side-item">
+          <div class="side-icon">✦</div>
+          <div class="side-label">授权</div>
+        </div>
+      </aside>
+
+      <main class="page">
+        <section class="page-intro">
+          <div>
+            <h1>日志与审计</h1>
+            <p>保留现有日志功能，压缩成软件内更适合固定尺寸的审计视图。</p>
+          </div>
+          <div class="hero-chips">
+            <div class="hero-chip">
+              <strong>日志条数</strong>
+              <span>128</span>
+            </div>
+            <div class="hero-chip">
+              <strong>最近时间</strong>
+              <span>14:22:01</span>
+            </div>
+            <div class="hero-chip">
+              <strong>导出状态</strong>
+              <span>未导出</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="logs-layout">
+          <section class="logs-top">
+            <div class="summary-card card soft">
+              <h3>日志说明</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>记录范围</span><span>系统按钮 / 连接检测</span></div>
+                <div class="info-row"><span>记录范围</span><span>指令发送 / 反馈读取</span></div>
+                <div class="info-row"><span>记录范围</span><span>模板新增 / 保存 / 删除</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>日志摘要</h3>
+              <div class="info-grid">
+                <div class="info-row"><span>日志条数</span><span>128</span></div>
+                <div class="info-row"><span>最近时间</span><span>14:22:01</span></div>
+                <div class="info-row"><span>最近结果</span><span>成功</span></div>
+              </div>
+            </div>
+
+            <div class="summary-card card soft">
+              <h3>日志操作</h3>
+              <div class="logs-actions">
+                <button class="btn secondary" id="refresh-log">刷新日志</button>
+                <button class="btn secondary">导出日志</button>
+                <button class="btn red" id="clear-log">清空日志</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card panel log-panel">
+            <div class="section-head">
+              <div>
+                <h2 class="title">操作日志</h2>
+                <div class="subcopy">操作日志。</div>
+              </div>
+            </div>
+
+            <div class="tree log-rows">
+              <div class="tree-head">
+                <div>时间</div>
+                <div>分类</div>
+                <div>操作</div>
+                <div>结果</div>
+                <div>详情</div>
+              </div>
+              <div class="tree-scroll" id="log-table-body">
+                <div class="tree-row">
+                  <div class="mono">14:22:01</div>
+                  <div>执行</div>
+                  <div>发送模板 车床A上料位</div>
+                  <div><span class="pill ok">成功</span></div>
+                  <div>任务1001 / 标准协议 / 镜像确认成功</div>
+                </div>
+                <div class="tree-row">
+                  <div class="mono">14:21:44</div>
+                  <div>规则</div>
+                  <div>规避判断命中安全中间点</div>
+                  <div><span class="pill warn">命中</span></div>
+                  <div>原因: 低位大范围移动</div>
+                </div>
+                <div class="tree-row">
+                  <div class="mono">14:21:03</div>
+                  <div>语音</div>
+                  <div>麦克风识别</div>
+                  <div><span class="pill blue">完成</span></div>
+                  <div>文本: 把机械手移动到车床 A 上料位</div>
+                </div>
+                <div class="tree-row">
+                  <div class="mono">14:20:25</div>
+                  <div>配置</div>
+                  <div>保存模板 线性插补_V2</div>
+                  <div><span class="pill ok">成功</span></div>
+                  <div>字段校验通过，JSON 预览已刷新</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const refreshLog = document.getElementById("refresh-log");
+    const clearLog = document.getElementById("clear-log");
+    const logTableBody = document.getElementById("log-table-body");
+
+    refreshLog.addEventListener("click", () => {
+      const row = document.createElement("div");
+      row.className = "tree-row";
+      row.innerHTML = `
+        <div class="mono">14:23:18</div>
+        <div>反馈</div>
+        <div>实时监控轮询</div>
+        <div><span class="pill ok">成功</span></div>
+        <div>首次轮询成功，定时轮询已运行</div>
+      `;
+      logTableBody.prepend(row);
+    });
+
+    clearLog.addEventListener("click", () => {
+      logTableBody.innerHTML = `
+        <div class="tree-row">
+          <div class="mono">14:24:00</div>
+          <div>日志</div>
+          <div>清空日志</div>
+          <div><span class="pill warn">成功</span></div>
+          <div>已清空历史日志，当前为系统生成首条记录</div>
+        </div>
+      `;
+    });
+  </script>
+</body>
+</html>

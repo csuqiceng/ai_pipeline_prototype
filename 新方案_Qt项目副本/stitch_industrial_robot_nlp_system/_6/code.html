@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Kinetic Forge - 授权管理中心</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary-fixed-dim": "#9ecaff",
+                    "on-primary-fixed": "#001d36",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-container-low": "#f2f4f6",
+                    "tertiary-container": "#db7900",
+                    "inverse-on-surface": "#eff1f3",
+                    "surface-variant": "#e0e3e5",
+                    "on-secondary-fixed-variant": "#3f465c",
+                    "on-secondary-container": "#5c647a",
+                    "surface": "#f7f9fb",
+                    "on-surface-variant": "#404752",
+                    "on-surface": "#191c1e",
+                    "surface-dim": "#d8dadc",
+                    "on-secondary": "#ffffff",
+                    "surface-container-high": "#e6e8ea",
+                    "primary-container": "#2196f3",
+                    "outline-variant": "#bfc7d4",
+                    "on-error": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "inverse-surface": "#2d3133",
+                    "on-error-container": "#93000a",
+                    "surface-tint": "#0061a4",
+                    "on-primary-container": "#002c4f",
+                    "on-primary-fixed-variant": "#00497d",
+                    "on-tertiary-fixed": "#2e1500",
+                    "on-secondary-fixed": "#131b2e",
+                    "background": "#f7f9fb",
+                    "on-tertiary-fixed-variant": "#6d3900",
+                    "on-tertiary": "#ffffff",
+                    "on-background": "#191c1e",
+                    "tertiary": "#904d00",
+                    "primary-fixed": "#d1e4ff",
+                    "secondary": "#565e74",
+                    "primary": "#0061a4",
+                    "error-container": "#ffdad6",
+                    "tertiary-fixed-dim": "#ffb77b",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container": "#eceef0",
+                    "tertiary-fixed": "#ffdcc2",
+                    "secondary-container": "#dae2fd",
+                    "error": "#ba1a1a",
+                    "secondary-fixed-dim": "#bec6e0",
+                    "surface-container-highest": "#e0e3e5",
+                    "secondary-fixed": "#dae2fd",
+                    "outline": "#707883",
+                    "on-tertiary-container": "#452200",
+                    "inverse-primary": "#9ecaff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Space Grotesk"],
+                    "body": ["Space Grotesk"],
+                    "label": ["Space Grotesk"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .machined-gradient {
+            background: linear-gradient(to bottom, #0061a4, #2196f3);
+        }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            width: 1440px;
+            margin: 0 auto;
+            position: relative;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface overflow-x-hidden min-h-screen">
+<!-- TopAppBar Shell -->
+<header class="w-[1440px] h-16 flex items-center bg-[#ffffff] border-b border-[#bfc7d4]/20 fixed top-0 z-50">
+<div class="flex justify-between items-center px-6 w-full">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#001d36]">Kinetic Forge</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-[#404752] hover:bg-[#f2f4f6] px-3 py-1 transition-colors" href="#">仪表盘</a>
+<a class="text-[#404752] hover:bg-[#f2f4f6] px-3 py-1 transition-colors" href="#">机械臂控制</a>
+<a class="text-[#404752] hover:bg-[#f2f4f6] px-3 py-1 transition-colors" href="#">系统诊断</a>
+<a class="text-[#0061a4] font-bold border-b-2 border-[#0061a4] px-3 py-1" href="#">安全中心</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2">
+<span class="material-symbols-outlined p-2 hover:bg-[#f2f4f6] rounded-full cursor-pointer text-on-surface-variant">notifications</span>
+<span class="material-symbols-outlined p-2 hover:bg-[#f2f4f6] rounded-full cursor-pointer text-on-surface-variant">settings</span>
+<span class="material-symbols-outlined p-2 hover:bg-[#f2f4f6] rounded-full cursor-pointer text-on-surface-variant">help</span>
+</div>
+<img alt="工程师头像" class="w-8 h-8 rounded-full border border-outline-variant/20" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBF4CqSIe5Z_IGbS3yzQIumJKRs7Xjf3R_colpsJ4u1eE6IElYBvJZ7rRURIs_W0ZePBk3u_tbYSsBQSpc9ewpFMJLfMMt5yY_HYhRpEFgwy92Ldzf6jhFDsED2zeoT4miPo1uLqOYvhM-Z0QFO9kaDdKnzoGRRSBt9hsLzEs1s5VMf40wPbVsQTNrImC_yAMP9Mh09PvSxlw9feXpPeGpkxRg_5DiQP__p_EsG29c-jlQIVjd6vXQ6Ydhj7npf-fWaX6PgqVxCe_o"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar Shell -->
+<aside class="h-screen w-64 fixed left-auto top-0 bg-[#f2f4f6] pt-20 flex flex-col py-4 z-40">
+<div class="px-6 mb-8">
+<h2 class="text-lg font-black text-[#001d36] uppercase tracking-wider">控制中心</h2>
+<div class="flex items-center gap-2 mt-1">
+<div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+<span class="text-[10px] font-medium text-on-surface-variant tracking-widest uppercase">系统运行中</span>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-6 py-3 text-[#404752] hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">precision_manufacturing</span> 仪表盘
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#404752] hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">robot_2</span> 机械臂
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#404752] hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">analytics</span> 诊断
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#404752] hover:text-[#0061a4] hover:bg-[#e6e8ea] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">history_edu</span> 日志记录
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 bg-[#ffffff] text-[#0061a4] rounded-l-lg shadow-sm border-r-4 border-[#0061a4] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">shield_lock</span> 授权管理
+            </a>
+</nav>
+<div class="mt-auto px-6 pt-4 border-t border-outline-variant/10">
+<a class="flex items-center gap-3 py-3 text-[#404752] hover:text-[#0061a4] transition-all font-medium text-sm tracking-wide uppercase" href="#">
+<span class="material-symbols-outlined">contact_support</span> 帮助中心
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-16 min-h-screen w-[1184px]">
+<div class="p-8 max-w-full space-y-8">
+<!-- Header Section -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<span class="text-label-sm font-medium tracking-[0.05em] text-primary uppercase">授权管理中心</span>
+<h1 class="text-4xl font-bold tracking-tight text-on-primary-fixed mt-2">授权管理中心</h1>
+</div>
+<div class="flex gap-4">
+<div class="bg-surface-container-low px-4 py-2 rounded-lg flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">设备唯一识别码 (HWID)</span>
+<span class="font-mono text-sm font-medium text-on-surface">KF-9821-XRT-0082-ALPHA</span>
+</div>
+</div>
+</section>
+<!-- Top Bento Row -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Main License Card -->
+<div class="lg:col-span-8 bg-surface-container-lowest p-8 rounded-xl shadow-[0_12px_32px_-4px_rgba(25,28,30,0.06)] relative overflow-hidden group border border-outline-variant/10">
+<div class="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-9xl">verified_user</span>
+</div>
+<div class="relative z-10 flex flex-col h-full">
+<div class="flex justify-between items-start mb-8">
+<div class="space-y-1">
+<h3 class="text-2xl font-bold text-on-primary-fixed">专业级年度授权</h3>
+<p class="text-on-surface-variant text-sm font-mono">授权号: LNC-2023-KF-9980-A</p>
+</div>
+<span class="bg-primary-fixed text-on-primary-fixed-variant px-3 py-1 text-xs font-bold rounded-sm tracking-widest uppercase">激活中</span>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
+<div class="space-y-1">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">生效日期</p>
+<p class="font-medium">2023-11-24</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">到期日期</p>
+<p class="font-medium text-primary">2024-11-24</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">剩余天数</p>
+<p class="font-medium">321 天</p>
+</div>
+<div class="space-y-1">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">席位限制</p>
+<p class="font-medium">1 / 5 设备</p>
+</div>
+</div>
+<div class="mt-auto flex items-center gap-6 p-4 bg-surface-container-low rounded-lg">
+<div class="flex-1 space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-sm font-bold text-on-surface uppercase tracking-tight">激活新许可</span>
+</div>
+<div class="flex gap-2">
+<input class="flex-1 bg-surface-container-lowest border-none border-b-2 border-transparent focus:ring-0 focus:border-primary px-4 py-2 text-sm font-mono placeholder:text-outline/50 transition-all" placeholder="请输入 24 位激活码" type="text"/>
+<button class="machined-gradient text-on-primary px-6 py-2 rounded-md font-bold text-sm shadow-lg hover:shadow-primary-container/20 transition-all active:scale-95">
+                                        在线激活
+                                    </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Features Status -->
+<div class="lg:col-span-4 space-y-6">
+<div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/20 transition-all">
+<h3 class="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-4">当前功能模块权限</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">mic</span>
+<span class="text-sm font-medium">语音解析模块</span>
+</div>
+<span class="text-[10px] font-bold text-primary px-2 py-0.5 bg-primary-fixed rounded-sm uppercase">已开启</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">visibility</span>
+<span class="text-sm font-medium">远程监控服务</span>
+</div>
+<span class="text-[10px] font-bold text-primary px-2 py-0.5 bg-primary-fixed rounded-sm uppercase">已开启</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3 text-on-surface-variant/50">
+<span class="material-symbols-outlined">auto_graph</span>
+<span class="text-sm font-medium">高级预测分析</span>
+</div>
+<span class="text-[10px] font-bold text-on-surface-variant/40 px-2 py-0.5 bg-surface-variant rounded-sm uppercase">未开启</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">terminal</span>
+<span class="text-sm font-medium">开发者 API 访问</span>
+</div>
+<span class="text-[10px] font-bold text-primary px-2 py-0.5 bg-primary-fixed rounded-sm uppercase">已开启</span>
+</div>
+</div>
+</div>
+<div class="bg-primary-container p-6 rounded-xl text-on-primary flex items-center justify-between group cursor-pointer hover:bg-primary transition-colors">
+<div class="space-y-1">
+<p class="text-xs font-bold uppercase tracking-widest opacity-80">技术支持入口</p>
+<p class="text-lg font-bold">联络专属技术支持</p>
+</div>
+<span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+</div>
+<!-- Bottom Asymmetric Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+<!-- History Log -->
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<h3 class="text-sm font-black text-on-primary-fixed uppercase tracking-[0.1em]">授权历史记录</h3>
+<span class="material-symbols-outlined text-outline cursor-pointer hover:text-primary">filter_list</span>
+</div>
+<div class="bg-surface-container-low rounded-xl overflow-hidden border border-outline-variant/10">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high">
+<th class="p-4 text-[10px] font-bold text-on-secondary-fixed-variant uppercase tracking-widest">时间</th>
+<th class="p-4 text-[10px] font-bold text-on-secondary-fixed-variant uppercase tracking-widest">操作类型</th>
+<th class="p-4 text-[10px] font-bold text-on-secondary-fixed-variant uppercase tracking-widest">状态</th>
+<th class="p-4 text-[10px] font-bold text-on-secondary-fixed-variant uppercase tracking-widest">终端</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="p-4 text-sm font-medium">2023-11-24 14:20</td>
+<td class="p-4 text-sm">授权码续费 (1年)</td>
+<td class="p-4 text-xs font-bold text-emerald-600">成功</td>
+<td class="p-4 text-sm font-mono opacity-60">ID-8821</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="p-4 text-sm font-medium">2023-05-12 09:15</td>
+<td class="p-4 text-sm">功能模块升级</td>
+<td class="p-4 text-xs font-bold text-emerald-600">成功</td>
+<td class="p-4 text-sm font-mono opacity-60">ID-8821</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="p-4 text-sm font-medium">2022-11-24 10:00</td>
+<td class="p-4 text-sm">系统初始激活</td>
+<td class="p-4 text-xs font-bold text-emerald-600">成功</td>
+<td class="p-4 text-sm font-mono opacity-60">ID-8821</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Update Log -->
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<h3 class="text-sm font-black text-on-primary-fixed uppercase tracking-[0.1em]">版本更新日志</h3>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase">最新版本: V4.2.0-稳定版</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-container-lowest p-5 rounded-xl border-l-4 border-primary shadow-sm">
+<div class="flex justify-between items-center mb-2">
+<span class="font-bold text-on-surface">v4.2.0 - 核心引擎升级</span>
+<span class="text-xs text-on-surface-variant font-mono">2023.12.01</span>
+</div>
+<ul class="text-sm text-on-surface-variant space-y-1 list-disc list-inside">
+<li>优化了在极低带宽下的远程监控稳定性</li>
+<li>新增授权证书多端同步协议</li>
+<li>修复了在 Windows 11 环境下的 HWID 识别偏差</li>
+</ul>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-xl border-l-4 border-outline-variant/30 shadow-sm">
+<div class="flex justify-between items-center mb-2">
+<span class="font-bold text-on-surface opacity-60">v4.1.5 - 安全补丁</span>
+<span class="text-xs text-on-surface-variant font-mono">2023.10.15</span>
+</div>
+<p class="text-sm text-on-surface-variant italic">常规安全性维护与授权验证逻辑优化。</p>
+</div>
+<button class="w-full py-2 text-xs font-bold text-primary hover:bg-primary-fixed rounded transition-colors uppercase tracking-widest border border-primary/10">
+                            查看所有版本历史
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Visual Background Element -->
+<div class="fixed top-0 right-0 w-[480px] h-full -z-10 opacity-[0.03] pointer-events-none">
+<svg class="w-full h-full text-on-surface" viewbox="0 0 100 100">
+<pattern height="10" id="grid" patternunits="userSpaceOnUse" width="10">
+<path d="M 10 0 L 0 0 0 10" fill="none" stroke="currentColor" stroke-width="0.1"></path>
+</pattern>
+<rect fill="url(#grid)" height="100" width="100"></rect>
+</svg>
+</div>
+</body></html>

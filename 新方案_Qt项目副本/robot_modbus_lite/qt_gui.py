@@ -54,7 +54,7 @@ from .avoidance_config import (
     save_avoidance_config,
     validate_safe_point,
 )
-from .models import ControllerClient, QueryRecord, VrWriteRequest
+from .models import ControllerClient, QueryRecord, VrWriteRequest, VrReadRequest
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
 from .system_config import (
@@ -491,11 +491,12 @@ class RobotQtWindow(QMainWindow):
         self.controller_combo.addItems(["真实控制器", "模拟控制器"])
         self.controller_combo.setMaximumWidth(180)
         link_layout.addWidget(self.controller_combo)
+        link_layout.addWidget(QLabel("协议:"))
         self.protocol_combo = QComboBox()
-        self.protocol_combo.addItems(["当前简化协议", "最终标准协议"])
-        self.protocol_combo.setCurrentText("最终标准协议")
+        self.protocol_combo.addItems(["当前简化协议", "最终标准协议", "V3.0 Modbus TCP"])
+        self.protocol_combo.setCurrentText("V3.0 Modbus TCP")
         self.protocol_combo.setMaximumWidth(180)
-        self.protocol_combo.hide()
+        link_layout.addWidget(self.protocol_combo)
         link_layout.addWidget(QLabel("连接状态:"))
         self.connection_label = QLabel("检测中...")
         link_layout.addWidget(self.connection_label, 1)
@@ -3025,6 +3026,8 @@ class RobotQtWindow(QMainWindow):
         return values[0], values[1], values[2]
 
     def _execute_send_by_protocol(self, client: ControllerClient, record: QueryRecord) -> list[float]:
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
+            return self._execute_send_v30(client, record)
         if self.protocol_combo.currentText() == "最终标准协议":
             command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             write_request = command.to_write_request()
@@ -3074,6 +3077,84 @@ class RobotQtWindow(QMainWindow):
             f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
         )
         return values
+
+    def _execute_send_v30(self, client: ControllerClient, record: QueryRecord) -> list[float]:
+        # 1. 前置检查: BIT(243)==0 且 IEEE(34)==0或4
+        precheck_ieee, precheck_bit = self.service.build_v30_precheck_reads()
+        alarm_bits = client.read_modbus_bit(precheck_bit, 1)
+        if alarm_bits and alarm_bits[0] != 0:
+            raise RuntimeError(f"前置检查失败: BIT({precheck_bit})={alarm_bits[0]} 控制器有报警")
+        status_vals = client.read_modbus_float(precheck_ieee)
+        v30_status = self.service.parse_v30_status(status_vals)
+        if not v30_status.can_send:
+            raise RuntimeError(f"前置检查失败: IEEE(34)={v30_status.raw} 控制器未就绪")
+
+        # 2. 构建 V3.0 命令并写入
+        v30_cmd = self.service.build_v30_command_from_record(record)
+
+        # GRIP_SET: 写BIT口控制夹爪
+        if v30_cmd.func_num == -1:
+            grip_bit = 20000  # BIT(20000) 对应 OUT(0)
+            client.write_modbus_bit(grip_bit, [v30_cmd.io_grip])
+            self._append_log("Modbus", f"夹爪控制 {record.query_key}", "成功", f"BIT({grip_bit})={v30_cmd.io_grip}")
+            time.sleep(0.1)
+            rt_read = self.service.build_v30_realtime_read()
+            return client.read_modbus_float(rt_read)
+
+        # WAIT_MS: 上位机本地延时
+        if v30_cmd.func_num == -2:
+            delay_ms = v30_cmd.ext_p1
+            self._append_log("Modbus", f"等待 {record.query_key}", "成功", f"延时{delay_ms}ms")
+            time.sleep(min(delay_ms / 1000.0, 2.0))
+            rt_read = self.service.build_v30_realtime_read()
+            return client.read_modbus_float(rt_read)
+
+        # DOOR_CTRL: 写BIT口控制门
+        if v30_cmd.func_num == -3:
+            door_bit = 20001  # BIT(20001) 对应 OUT(1)
+            client.write_modbus_bit(door_bit, [v30_cmd.io_door])
+            self._append_log("Modbus", f"门控制 {record.query_key}", "成功", f"BIT({door_bit})={v30_cmd.io_door}")
+            time.sleep(0.1)
+            rt_read = self.service.build_v30_realtime_read()
+            return client.read_modbus_float(rt_read)
+
+        # 本地操作 (CHECK_IN, RESUME, AUTO_START/STOP, FIXED_FUNC): 无需发下位机
+        if v30_cmd.func_num < 0:
+            self._append_log("Modbus", f"本地操作 {record.query_key}", "成功", f"func={v30_cmd.func_num}")
+            time.sleep(0.05)
+            rt_read = self.service.build_v30_realtime_read()
+            return client.read_modbus_float(rt_read)
+
+        for wr in v30_cmd.to_func_writes():
+            client.write_modbus_float(wr)
+            self._append_log("Modbus", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
+
+        # 3. 写触发 IEEE(32)=1
+        trigger = v30_cmd.to_trigger_write()
+        client.write_modbus_float(trigger)
+        self._append_log("Modbus", f"写入触发 {record.query_key}", "成功", f"IEEE(32)=1")
+
+        # 4. 轮询 IEEE(34)==4 等待完成
+        status_read = self.service.build_v30_status_read()
+        for _ in range(100):
+            time.sleep(0.05)
+            vals = client.read_modbus_float(status_read)
+            st = self.service.parse_v30_status(vals)
+            if st.is_complete:
+                if st.has_alarm:
+                    raise RuntimeError(f"V3.0完成但带报警: IEEE(34)={st.raw}")
+                self._append_log("Modbus", f"执行完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}")
+                break
+            if st.has_alarm:
+                raise RuntimeError(f"V3.0执行报警: IEEE(34)={st.raw}")
+        else:
+            raise RuntimeError(f"V3.0执行超时: {record.query_key}")
+
+        # 5. 读实时坐标作为反馈
+        rt_read = self.service.build_v30_realtime_read()
+        rt_vals = client.read_modbus_float(rt_read)
+        self._append_log("Modbus", f"读取实时坐标", "成功", f"X={rt_vals[0]:.1f} Y={rt_vals[1]:.1f} Z={rt_vals[2]:.1f}")
+        return rt_vals
 
     def _after_send(self, record: QueryRecord, ok: bool, error: str, feedback: list[float] | None = None) -> None:
         self.history.insert(0, {
@@ -3144,6 +3225,9 @@ class RobotQtWindow(QMainWindow):
             self._append_log("系统", action_key, "失败", "流程执行中")
             if on_done:
                 on_done(False)
+            return
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
+            self._handle_system_action_v30(action_key, on_done=on_done)
             return
         if self.protocol_combo.currentText() != "最终标准协议":
             self._apply_legacy_system_action(action_key)
@@ -3216,6 +3300,57 @@ class RobotQtWindow(QMainWindow):
 
         self._run_in_background(work, on_result)
 
+    def _handle_system_action_v30(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            self._show_warning("地址为空", "请输入控制器地址。")
+            if on_done:
+                on_done(False)
+            return
+        code = SYSTEM_COMMAND_CODES[action_key]
+        self._pause_polling()
+
+        def work():
+            client = self._get_client(host)
+            v30_cmd = self.service.build_v30_system_command(code)
+            # 本地操作 (RESUME, AUTO_START/STOP): 不发下位机
+            if v30_cmd.func_num < 0:
+                self._append_log("Modbus", f"本地系统命令 {action_key}", "成功", f"func={v30_cmd.func_num}")
+                return []
+            for wr in v30_cmd.to_func_writes():
+                client.write_modbus_float(wr)
+            client.write_modbus_float(v30_cmd.to_trigger_write())
+            self._append_log("Modbus", f"系统命令 {action_key}", "成功", f"func={v30_cmd.func_num}")
+            # 轮询完成
+            status_read = self.service.build_v30_status_read()
+            for _ in range(60):
+                time.sleep(0.05)
+                vals = client.read_modbus_float(status_read)
+                st = self.service.parse_v30_status(vals)
+                if st.is_complete or st.is_idle:
+                    return []
+                if st.has_alarm:
+                    raise RuntimeError(f"V3.0系统命令报警: IEEE(34)={st.raw}")
+            raise RuntimeError(f"V3.0系统命令超时: {action_key}")
+
+        def on_result(result):
+            self._resume_polling()
+            if isinstance(result, Exception):
+                self._disconnect_client()
+                self.status_label.setText(f"系统命令失败: {result}")
+                self._show_critical("系统命令失败", str(result))
+                if on_done:
+                    on_done(False)
+                return
+            self._apply_legacy_system_action(action_key, update_status=True)
+            self.task_id += 1
+            self.status_label.setText(f"V3.0 {action_key} 完成")
+            self._refresh_status_labels()
+            if on_done:
+                on_done(True)
+
+        self._run_in_background(work, on_result)
+
     def _apply_legacy_system_action(self, action_key: str, *, update_status: bool = True) -> None:
         if action_key == "power_on":
             if update_status:
@@ -3254,6 +3389,16 @@ class RobotQtWindow(QMainWindow):
 
     def _apply_feedback_values(self, record: QueryRecord | None, values: list[float]) -> None:
         if not values:
+            return
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP" and len(values) >= 3:
+            rt = self.service.parse_v30_realtime(values)
+            self.result = "0"
+            self.busy = "空闲"
+            self.robot_x = self._fmt(rt.x)
+            self.robot_y = self._fmt(rt.y)
+            self.robot_z = self._fmt(rt.z)
+            if len(values) >= 6:
+                self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
             return
         if len(values) >= 10 and self.protocol_combo.currentText() == "最终标准协议":
             status = self.service.parse_standard_status(values)
@@ -3297,15 +3442,15 @@ class RobotQtWindow(QMainWindow):
             return "速度百分比必须在 0 到 100 之间。"
         if not (0 <= record.acc_percent <= 100):
             return "加速度百分比必须在 0 到 100 之间。"
-        if self.protocol_combo.currentText() == "最终标准协议":
+        if self.protocol_combo.currentText() in ("最终标准协议", "V3.0 Modbus TCP"):
             standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             if standard_command.code == 1001:
                 if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
-                    return f"X 坐标超出最终标准范围 {self.axis_ranges.x}。"
+                    return f"X 坐标超出范围 {self.axis_ranges.x}。"
                 if not (self.axis_ranges.y[0] <= record.registers[1] <= self.axis_ranges.y[1]):
-                    return f"Y 坐标超出最终标准范围 {self.axis_ranges.y}。"
+                    return f"Y 坐标超出范围 {self.axis_ranges.y}。"
                 if not (self.axis_ranges.z[0] <= record.registers[2] <= self.axis_ranges.z[1]):
-                    return f"Z 坐标超出最终标准范围 {self.axis_ranges.z}。"
+                    return f"Z 坐标超出范围 {self.axis_ranges.z}。"
         return None
 
     @staticmethod
@@ -3402,7 +3547,24 @@ class RobotQtWindow(QMainWindow):
             return
         self._polling_feedback = True
         try:
-            if self.protocol_combo.currentText() == "最终标准协议":
+            if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
+                rt_read = self.service.build_v30_realtime_read()
+                host = self.host_edit.text().strip()
+                client = self._get_client(host)
+                rt_vals = client.read_modbus_float(rt_read)
+                self._apply_feedback_values(None, rt_vals)
+                st_read = self.service.build_v30_status_read()
+                st_vals = client.read_modbus_float(st_read)
+                v30_status = self.service.parse_v30_status(st_vals)
+                self.busy = "空闲" if v30_status.is_idle or v30_status.is_complete else "运行中"
+                if v30_status.has_alarm:
+                    self.alarm_text = f"V3.0报警 IEEE(34)={v30_status.raw}"
+                    self.alarm_code = f"ERR_V30_{v30_status.raw}"
+                else:
+                    self.alarm_text = "系统正常"
+                    self.alarm_code = "ERR_000"
+                self._refresh_status_labels()
+            elif self.protocol_combo.currentText() == "最终标准协议":
                 status_values, status_request = self._read_feedback_once()
                 self._apply_feedback_values(None, status_values)
                 values, monitor_request = self._read_realtime_once()
@@ -3441,7 +3603,10 @@ class RobotQtWindow(QMainWindow):
     def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
         host = self.host_edit.text().strip()
         client = self._get_client(host)
-        if self.protocol_combo.currentText() == "最终标准协议":
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
+            read_request = self.service.build_v30_status_read()
+            values = client.read_modbus_float(read_request)
+        elif self.protocol_combo.currentText() == "最终标准协议":
             read_request = self.service.build_standard_status_read()
             values = client.read_vr(read_request)
         else:
@@ -3452,8 +3617,12 @@ class RobotQtWindow(QMainWindow):
     def _read_realtime_once(self) -> tuple[list[float], VrReadRequest]:
         host = self.host_edit.text().strip()
         client = self._get_client(host)
-        read_request = self.service.build_standard_monitor_read()
-        values = client.read_vr(read_request)
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
+            read_request = self.service.build_v30_realtime_read()
+            values = client.read_modbus_float(read_request)
+        else:
+            read_request = self.service.build_standard_monitor_read()
+            values = client.read_vr(read_request)
         return values, read_request
 
     def _apply_realtime_values(self, values: list[float]) -> None:
@@ -3553,6 +3722,8 @@ class RobotQtWindow(QMainWindow):
 
     def _evaluate_feedback_result(self, feedback: list[float] | None) -> tuple[bool, str]:
         if not feedback:
+            return True, ""
+        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
             return True, ""
         if self.protocol_combo.currentText() == "最终标准协议" and len(feedback) >= 10:
             status = self.service.parse_standard_status(feedback)

@@ -12,8 +12,14 @@ from .protocol import (
     ALM_SPEED_LIMIT,
     CMD,
     EXEC_TRIGGER_VR,
+    FuncV3,
     MIRROR_VR_COUNT,
     MIRROR_VR_START,
+    MODBUS_ALARM_BIT,
+    MODBUS_FUNC_ADDR,
+    MODBUS_RT_XYZ_START,
+    MODBUS_STATUS_ADDR,
+    MODBUS_TRIGGER_ADDR,
     MONITOR_VR_START,
     RESULT_FAIL,
     RESULT_OK,
@@ -25,6 +31,16 @@ from .protocol import (
     STATUS_IDLE,
     STATUS_PAUSED,
     STATUS_RUNNING,
+    V30_P_RX,
+    V30_P_RY,
+    V30_P_RZ,
+    V30_P_X,
+    V30_P_Y,
+    V30_P_Z,
+    V30_STATUS_ALARM_ILLEGAL,
+    V30_STATUS_COMPLETE,
+    V30_STATUS_EXECUTING,
+    V30_STATUS_IDLE,
     VR_OFFSET,
     VR_SIZE,
     VR_TOTAL,
@@ -47,9 +63,15 @@ class MockController:
         z_range: tuple[float, float] | None = None,
     ) -> None:
         self._vr: list[float] = [0.0] * VR_TOTAL
+        # V3.0 Modbus 寄存器
+        self._modbus_ieee: list[float] = [0.0] * 2048
+        self._modbus_bit: list[int] = [0] * 24000
+        self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_IDLE)
+        self._modbus_bit[MODBUS_ALARM_BIT] = 0
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
         self._exec_thread: threading.Thread | None = None
+        self._exec_thread_v30: threading.Thread | None = None
         self._x_range = x_range if x_range is not None else X_RANGE
         self._y_range = y_range if y_range is not None else Y_RANGE
         self._z_range = z_range if z_range is not None else Z_RANGE
@@ -109,6 +131,42 @@ class MockController:
     def snapshot(self) -> dict[str, float]:
         with self._lock:
             return {f.name: self._vr[f.index] for f in VR_OFFSET.values()}
+
+    # ── V3.0 Modbus IEEE/BIT 方法 ────────────────────────────────
+
+    def write_modbus_float(self, start: int, values: list[float] | tuple[float, ...]) -> None:
+        should_dispatch = False
+        with self._lock:
+            for i, v in enumerate(values):
+                idx = start + i
+                if idx < 0 or idx >= len(self._modbus_ieee):
+                    raise IndexError(f"IEEE[{idx}] 超出范围")
+                self._modbus_ieee[idx] = float(v)
+            if start == MODBUS_TRIGGER_ADDR and values and values[0] != 0:
+                should_dispatch = True
+
+        if should_dispatch:
+            self._dispatch_v30_command()
+
+    def read_modbus_float(self, start: int, count: int) -> list[float]:
+        with self._lock:
+            if start < 0 or start + count > len(self._modbus_ieee):
+                raise IndexError(f"读取范围 IEEE[{start}..{start + count - 1}] 超出范围")
+            return list(self._modbus_ieee[start : start + count])
+
+    def write_modbus_bit(self, start: int, values: list[int] | tuple[int, ...]) -> None:
+        with self._lock:
+            for i, v in enumerate(values):
+                idx = start + i
+                if idx < 0 or idx >= len(self._modbus_bit):
+                    raise IndexError(f"BIT[{idx}] 超出范围")
+                self._modbus_bit[idx] = int(v)
+
+    def read_modbus_bit(self, start: int, count: int) -> list[int]:
+        with self._lock:
+            if start < 0 or start + count > len(self._modbus_bit):
+                raise IndexError(f"读取范围 BIT[{start}..{start + count - 1}] 超出范围")
+            return list(self._modbus_bit[start : start + count])
 
     def shutdown(self) -> None:
         self._running = False
@@ -385,3 +443,103 @@ class MockController:
         self._vr[MONITOR_VR_START + 17] = 0.0
         self._vr[MONITOR_VR_START + 18] = 0.0
         self._vr[MONITOR_VR_START + 19] = 0.0
+
+    # ── V3.0 Modbus 命令分发 ──────────────────────────────────────
+
+    def _dispatch_v30_command(self) -> None:
+        with self._lock:
+            if self._modbus_ieee[MODBUS_STATUS_ADDR] == float(V30_STATUS_EXECUTING):
+                return
+            func_num = int(self._modbus_ieee[MODBUS_FUNC_ADDR])
+            if func_num == 0:
+                return
+            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_EXECUTING)
+
+        if self._exec_thread_v30 and self._exec_thread_v30.is_alive():
+            self._exec_thread_v30.join(timeout=5.0)
+
+        self._exec_thread_v30 = threading.Thread(
+            target=self._execute_v30_command, args=(func_num,), daemon=True
+        )
+        self._exec_thread_v30.start()
+
+    def _execute_v30_command(self, func_num: int) -> None:
+        try:
+            if func_num == FuncV3.LINE_MOVE:
+                self._do_v30_line_move()
+            elif func_num == FuncV3.JOINT_MOVE:
+                self._do_v30_joint_move()
+            elif func_num == FuncV3.ALARM_CLEAR:
+                self._do_v30_alarm_clear()
+            elif func_num == FuncV3.STOP:
+                self._do_v30_stop()
+            elif func_num == FuncV3.STATUS_QUERY:
+                self._do_v30_status_query()
+            else:
+                with self._lock:
+                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_ALARM_ILLEGAL)
+        finally:
+            with self._lock:
+                if self._modbus_ieee[MODBUS_STATUS_ADDR] == float(V30_STATUS_EXECUTING):
+                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_COMPLETE)
+                self._modbus_ieee[MODBUS_TRIGGER_ADDR] = 0.0
+                self._sync_modbus_realtime_locked()
+
+    def _do_v30_line_move(self) -> None:
+        with self._lock:
+            target_x = self._modbus_ieee[V30_P_X]
+            target_y = self._modbus_ieee[V30_P_Y]
+            target_z = self._modbus_ieee[V30_P_Z]
+            target_rx = self._modbus_ieee[V30_P_RX]
+            target_ry = self._modbus_ieee[V30_P_RY]
+            target_rz = self._modbus_ieee[V30_P_RZ]
+            cur_x = self._vr[VR_OFFSET["CUR_X"].index]
+            cur_y = self._vr[VR_OFFSET["CUR_Y"].index]
+            cur_z = self._vr[VR_OFFSET["CUR_Z"].index]
+
+        steps = 5
+        for i in range(1, steps + 1):
+            if not self._running:
+                break
+            t = i / steps
+            with self._lock:
+                self._vr[VR_OFFSET["CUR_X"].index] = cur_x + (target_x - cur_x) * t
+                self._vr[VR_OFFSET["CUR_Y"].index] = cur_y + (target_y - cur_y) * t
+                self._vr[VR_OFFSET["CUR_Z"].index] = cur_z + (target_z - cur_z) * t
+                self._vr[VR_OFFSET["CUR_RX"].index] = target_rx
+                self._vr[VR_OFFSET["CUR_RY"].index] = target_ry
+                self._vr[VR_OFFSET["CUR_RZ"].index] = target_rz
+                self._sync_realtime_monitor_locked()
+                self._sync_modbus_realtime_locked()
+            time.sleep(0.02)
+
+    def _do_v30_joint_move(self) -> None:
+        self._do_v30_line_move()
+
+    def _do_v30_alarm_clear(self) -> None:
+        with self._lock:
+            self._modbus_bit[MODBUS_ALARM_BIT] = 0
+            self._vr[VR_OFFSET["ALM_CODE"].index] = float(ALM_NORMAL)
+            if self._vr[VR_OFFSET["STATUS"].index] == STATUS_FAULT:
+                self._set_status(STATUS_IDLE)
+            self._sync_modbus_realtime_locked()
+        time.sleep(0.05)
+
+    def _do_v30_stop(self) -> None:
+        with self._lock:
+            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_COMPLETE)
+            self._set_status(STATUS_IDLE)
+            self._sync_modbus_realtime_locked()
+
+    def _do_v30_status_query(self) -> None:
+        with self._lock:
+            self._sync_modbus_realtime_locked()
+        time.sleep(0.02)
+
+    def _sync_modbus_realtime_locked(self) -> None:
+        self._modbus_ieee[MODBUS_RT_XYZ_START] = self._vr[VR_OFFSET["CUR_X"].index]
+        self._modbus_ieee[MODBUS_RT_XYZ_START + 1] = self._vr[VR_OFFSET["CUR_Y"].index]
+        self._modbus_ieee[MODBUS_RT_XYZ_START + 2] = self._vr[VR_OFFSET["CUR_Z"].index]
+        self._modbus_ieee[MODBUS_RT_XYZ_START + 3] = self._vr[VR_OFFSET["CUR_RX"].index]
+        self._modbus_ieee[MODBUS_RT_XYZ_START + 4] = self._vr[VR_OFFSET["CUR_RY"].index]
+        self._modbus_ieee[MODBUS_RT_XYZ_START + 5] = self._vr[VR_OFFSET["CUR_RZ"].index]

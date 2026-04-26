@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robot Control System</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* ===== Design Tokens (Stitch Kinetic Monolith) ===== */
+:root {
+  --bg: #101418;
+  --surface: #1C2025;
+  --surface-hi: #262A2F;
+  --surface-bright: #36393F;
+  --primary: #9ECAFF;
+  --primary-action: #2196F3;
+  --primary-bg: rgba(33,150,243,0.12);
+  --green: #78DC77;
+  --green-bg: rgba(120,220,119,0.12);
+  --amber: #FFB77B;
+  --amber-bg: rgba(255,183,123,0.12);
+  --red: #FF6B6B;
+  --red-bg: rgba(255,107,107,0.15);
+  --text: #E0E0E0;
+  --muted: #BFC7D4;
+  --dim: #7B8494;
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+  --font-h: "Space Grotesk", sans-serif;
+  --font-b: "Inter", sans-serif;
+  --font-m: "JetBrains Mono", monospace;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.5 var(--font-b); overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; outline: none; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-bright); border-radius: 3px; }
+
+/* ===== Layout ===== */
+.app { display: grid; grid-template-rows: 48px 1fr 28px; grid-template-columns: 72px 1fr; height: 100vh; }
+
+/* ===== Top Bar ===== */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-strong);
+  z-index: 10;
+}
+.brand { font: 700 15px/1 var(--font-h); color: var(--primary); letter-spacing: -0.02em; white-space: nowrap; }
+.top-sep { width: 1px; height: 24px; background: var(--border-strong); }
+.hud { display: flex; gap: 12px; }
+.hud-item { display: flex; align-items: baseline; gap: 4px; }
+.hud-label { font: 600 9px/1 var(--font-m); color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.hud-val { font: 500 13px/1 var(--font-m); color: var(--primary); min-width: 48px; }
+.top-spacer { flex: 1; }
+.conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px rgba(120,220,119,0.6); }
+.conn-dot.offline { background: var(--red); box-shadow: 0 0 8px rgba(255,107,107,0.6); }
+.conn-text { font: 500 11px/1 var(--font-m); color: var(--muted); }
+.estop {
+  width: 52px; height: 36px; border: 0; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #FF6B6B, #D32F2F);
+  color: #fff; font: 700 11px/1 var(--font-h); cursor: pointer;
+  box-shadow: 0 0 12px rgba(255,107,107,0.3);
+  transition: box-shadow 0.2s;
+}
+.estop:hover { box-shadow: 0 0 20px rgba(255,107,107,0.6); }
+
+/* ===== Sidebar ===== */
+.sidebar {
+  grid-row: 2; grid-column: 1;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border-strong);
+}
+.nav-btn {
+  width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 0;
+  background: 0; border: 0; cursor: pointer;
+  color: var(--dim); transition: color 0.15s, background 0.15s;
+  border-left: 3px solid transparent;
+}
+.nav-btn:hover { color: var(--muted); background: var(--surface-hi); }
+.nav-btn.active { color: var(--primary); background: var(--primary-bg); border-left-color: var(--primary-action); }
+.nav-icon { font-size: 16px; }
+.nav-label { font: 600 9px/1 var(--font-m); letter-spacing: 0.04em; }
+.nav-spacer { flex: 1; }
+
+/* ===== Footer ===== */
+.footer {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border-strong);
+  font: 500 10px/1 var(--font-m); color: var(--dim);
+}
+
+/* ===== Content ===== */
+.page-wrap { grid-row: 2; grid-column: 2; overflow: auto; padding: 14px; }
+.page { display: none; }
+.page.active { display: block; }
+
+/* ===== Shared Components ===== */
+.card {
+  background: var(--surface);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.card-hi { background: var(--surface-hi); }
+.card-pad { padding: 14px; }
+.section-title {
+  margin: 0 0 12px;
+  font: 700 11px/1 var(--font-h); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.field { margin-bottom: 0; }
+.field-label {
+  display: block; margin-bottom: 4px;
+  font: 600 9px/1 var(--font-m); color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.input, .select, .textarea {
+  width: 100%; height: 34px;
+  padding: 0 10px;
+  background: var(--surface-hi); border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-sm); color: var(--text);
+}
+.textarea { height: auto; min-height: 80px; padding: 8px 10px; resize: none; }
+.mono { font-family: var(--font-m); }
+.btn {
+  height: 34px; padding: 0 14px;
+  border: 0; border-radius: var(--radius-sm);
+  font: 700 11px/1 var(--font-h); cursor: pointer;
+  transition: filter 0.15s;
+}
+.btn:hover { filter: brightness(1.15); }
+.btn-primary { background: var(--primary-action); color: #fff; }
+.btn-secondary { background: var(--surface-bright); color: var(--text); }
+.btn-green { background: linear-gradient(135deg, #78DC77, #4CAF50); color: #000; }
+.btn-amber { background: linear-gradient(135deg, #FFB77B, #E68A00); color: #000; }
+.btn-red { background: linear-gradient(135deg, #FF6B6B, #D32F2F); color: #fff; }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 10px; }
+.tag {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 8px;
+  border-radius: 10px;
+  font: 500 9px/1 var(--font-m);
+  text-transform: uppercase;
+}
+.tag-param { background: var(--primary-bg); color: var(--primary); }
+.tag-fixed { background: var(--green-bg); color: var(--green); }
+.pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 48px; height: 20px; padding: 0 8px;
+  border-radius: 10px;
+  font: 600 9px/1 var(--font-m);
+}
+.pill-ok { background: var(--green-bg); color: var(--green); }
+.pill-warn { background: var(--amber-bg); color: var(--amber); }
+.pill-err { background: var(--red-bg); color: var(--red); }
+.pill-blue { background: var(--primary-bg); color: var(--primary); }
+
+.info-grid { display: grid; gap: 6px; }
+.info-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-bottom: 6px; border-bottom: 0.5px solid var(--border);
+  font-size: 11px;
+}
+.info-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.info-row .lbl { color: var(--dim); }
+.info-row .val { font-family: var(--font-m); font-size: 11px; color: var(--primary); }
+
+.tree { border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-hi); border: 0.5px solid var(--border-strong); }
+.tree-head, .tree-row {
+  display: grid; gap: 8px; padding: 8px 10px; font-size: 11px;
+}
+.tree-head {
+  background: var(--surface-bright); color: var(--dim);
+  font: 600 9px/1 var(--font-m); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.tree-row { border-top: 0.5px solid var(--border); cursor: pointer; }
+.tree-row:hover { background: rgba(255,255,255,0.03); }
+.tree-row.active { background: var(--primary-bg); box-shadow: inset 3px 0 0 var(--primary-action); }
+.tree-scroll { max-height: 260px; overflow: auto; }
+
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+.tab-btn {
+  height: 32px; padding: 0 16px;
+  border: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--surface-hi); color: var(--dim);
+  font: 700 11px/1 var(--font-h); cursor: pointer;
+}
+.tab-btn.active { background: var(--surface); color: var(--primary); box-shadow: inset 0 2px 0 var(--primary-action); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+/* ===== Run Page ===== */
+.run-grid {
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+  min-height: calc(100vh - 120px);
+}
+.run-grid .conn-bar { grid-column: 1 / -1; }
+.run-grid .run-content { grid-column: 1; min-width: 0; overflow: auto; }
+.run-grid .run-side { grid-column: 2; }
+.run-grid .run-bottom { grid-column: 1 / -1; }
+
+.conn-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
+.conn-bar .field { margin: 0; }
+.conn-bar .field .input, .conn-bar .field .select { width: auto; min-width: 140px; }
+.conn-status { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+.cmd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 10px; }
+.cmd-card { padding: 10px; border-radius: var(--radius-sm); background: var(--surface-hi); border: 0.5px solid var(--border-strong); }
+.cmd-card h4 { margin: 6px 0 4px; font-size: 12px; color: var(--text); }
+.cmd-card p { margin: 0 0 8px; color: var(--dim); font-size: 10px; line-height: 1.4; }
+
+.flow-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.nlp-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; margin-top: 10px; }
+
+.run-bottom-grid { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 10px; }
+
+.side-btn-group { display: flex; flex-direction: column; gap: 8px; }
+.side-btn-group .btn { width: 100%; }
+
+.state-card {
+  margin-top: auto; padding: 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, #1a2a3e, #1e3348);
+  text-align: center;
+}
+.state-card .state-label { font: 700 9px/1 var(--font-m); color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.1em; }
+.state-card .state-val { margin-top: 6px; font: 700 22px/1 var(--font-h); color: var(--primary); }
+.state-card .state-sub { margin-top: 4px; font-size: 10px; color: rgba(255,255,255,0.5); line-height: 1.4; }
+
+/* ===== Manage Page ===== */
+.manage-grid { display: grid; grid-template-columns: 220px 1fr 280px; gap: 12px; min-height: calc(100vh - 120px); }
+.manage-grid .template-list { overflow: auto; }
+.manage-grid .editor { overflow: auto; }
+.manage-grid .preview { overflow: auto; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.form-grid .full { grid-column: 1 / -1; }
+
+/* ===== Config Page ===== */
+.config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.avoidance-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+
+/* ===== Logs Page ===== */
+.log-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.log-table { border-radius: var(--radius); overflow: hidden; border: 0.5px solid var(--border-strong); }
+.log-head, .log-row {
+  display: grid; grid-template-columns: 90px 80px 180px 80px 1fr;
+  gap: 8px; padding: 10px 14px; font-size: 11px;
+}
+.log-head {
+  background: var(--surface-hi); color: var(--dim);
+  font: 600 9px/1 var(--font-m); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.log-row { border-top: 0.5px solid var(--border); }
+.log-row:nth-child(even) { background: rgba(255,255,255,0.015); }
+.log-scroll { max-height: calc(100vh - 220px); overflow: auto; }
+
+/* ===== License Page ===== */
+.license-center { max-width: 600px; margin: 40px auto; }
+.license-card { padding: 24px; }
+.license-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== Top Bar ===== -->
+  <header class="topbar">
+    <div class="brand">KINETIC MONOLITH</div>
+    <div class="top-sep"></div>
+    <div class="hud">
+      <div class="hud-item"><span class="hud-label">X</span><span class="hud-val mono" id="hud-x">1250.0</span></div>
+      <div class="hud-item"><span class="hud-label">Y</span><span class="hud-val mono" id="hud-y">0.0</span></div>
+      <div class="hud-item"><span class="hud-label">Z</span><span class="hud-val mono" id="hud-z">860.0</span></div>
+      <div class="hud-item"><span class="hud-label">SPD</span><span class="hud-val mono" id="hud-spd">30%</span></div>
+    </div>
+    <div class="top-spacer"></div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="conn-dot" id="conn-dot"></span>
+      <span class="conn-text" id="conn-text">在线</span>
+    </div>
+    <div class="top-sep"></div>
+    <button class="estop" onclick="toast('急停已触发','err')">急停</button>
+  </header>
+
+  <!-- ===== Sidebar ===== -->
+  <nav class="sidebar">
+    <button class="nav-btn active" data-page="run"><div class="nav-icon">&#9654;</div><div class="nav-label">运行</div></button>
+    <button class="nav-btn" data-page="manage"><div class="nav-icon">&#9881;</div><div class="nav-label">管理</div></button>
+    <button class="nav-btn" data-page="config"><div class="nav-icon">&#9672;</div><div class="nav-label">配置</div></button>
+    <button class="nav-btn" data-page="logs"><div class="nav-icon">&#8984;</div><div class="nav-label">日志</div></button>
+    <div class="nav-spacer"></div>
+    <button class="nav-btn" data-page="license"><div class="nav-icon">&#10022;</div><div class="nav-label">授权</div></button>
+  </nav>
+
+  <!-- ===== Page Content ===== -->
+  <div class="page-wrap">
+
+    <!-- ==================== RUN PAGE ==================== -->
+    <div id="page-run" class="page active">
+      <div class="run-grid">
+        <!-- Connection Bar -->
+        <div class="card conn-bar">
+          <div class="field"><span class="field-label">控制器地址</span><input class="input mono" style="width:160px" value="192.168.1.11"></div>
+          <div class="field"><span class="field-label">控制器类型</span>
+            <select class="select" style="width:130px"><option>真实控制器</option><option>模拟控制器</option></select>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="toggleConnection()">检测连接</button>
+          <button class="btn btn-secondary btn-sm" onclick="toast('反馈读取成功')">读取反馈</button>
+          <div class="conn-status">
+            <span style="color:var(--dim);font-size:11px;">连接状态</span>
+            <span class="mono" style="font-size:11px;color:var(--green)" id="conn-detail">真实连接成功</span>
+          </div>
+          <div class="conn-status">
+            <span style="color:var(--dim);font-size:11px;">监控</span>
+            <span class="mono" style="font-size:11px;color:var(--primary)">运行中</span>
+          </div>
+        </div>
+
+        <!-- Main Content Tabs -->
+        <div class="run-content">
+          <div class="tabs">
+            <button class="tab-btn active" data-run-tab="single">单次执行</button>
+            <button class="tab-btn" data-run-tab="flow">流程执行</button>
+            <button class="tab-btn" data-run-tab="nlp">自然语言</button>
+          </div>
+
+          <!-- Single Execute -->
+          <div id="run-single" class="tab-panel active">
+            <div class="toolbar" style="margin-bottom:10px">
+              <div class="field"><input class="input" placeholder="筛选名称 / 关键词" style="width:200px"></div>
+              <select class="select" style="width:110px"><option>全部</option><option>参数型</option><option>固定型</option></select>
+              <span class="mono" style="color:var(--dim);font-size:10px;margin-left:auto">12 项</span>
+            </div>
+            <div class="cmd-grid">
+              <div class="cmd-card"><span class="tag tag-param">参数型</span><h4>车床A上料位</h4><p>MOVE_ABS / 自动规避</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 车床A上料位','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-fixed">固定型</span><h4>抓手闭合</h4><p>GRIP_SET / 固定函数</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 抓手闭合','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-param">参数型</span><h4>等待位</h4><p>MOVE_ABS / 安全回退</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 等待位','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-fixed">固定型</span><h4>回零</h4><p>HOME / 原点回归</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 回零','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-param">参数型</span><h4>装夹准备位</h4><p>MOVE_ABS / 准备姿态</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 装夹准备位','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-fixed">固定型</span><h4>打开机床门</h4><p>DOOR_CTRL / 门控制</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 打开机床门','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-param">参数型</span><h4>车床B下料位</h4><p>MOVE_ABS / 自动规避</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 车床B下料位','ok')">执行</button></div>
+              <div class="cmd-card"><span class="tag tag-fixed">固定型</span><h4>抓手张开</h4><p>GRIP_SET / 固定函数</p><button class="btn btn-primary btn-sm" style="width:100%" onclick="toast('执行: 抓手张开','ok')">执行</button></div>
+            </div>
+          </div>
+
+          <!-- Flow Execute -->
+          <div id="run-flow" class="tab-panel">
+            <div class="toolbar" style="margin-bottom:10px">
+              <div class="field"><span class="field-label">流程</span>
+                <select class="select" style="width:200px"><option>上下料标准流程</option><option>车床A单站流程</option></select>
+              </div>
+            </div>
+            <div class="flow-layout">
+              <div class="tree" style="grid-template-rows:auto 1fr">
+                <div class="tree-head" style="grid-template-columns:1fr 80px"><div>步骤</div><div>状态</div></div>
+                <div class="tree-scroll">
+                  <div class="tree-row" style="grid-template-columns:1fr 80px"><div>等待位</div><div style="color:var(--green)">已完成</div></div>
+                  <div class="tree-row active" style="grid-template-columns:1fr 80px"><div>车床A上料位</div><div style="color:var(--primary)">执行中</div></div>
+                  <div class="tree-row" style="grid-template-columns:1fr 80px"><div>抓手闭合</div><div style="color:var(--dim)">待执行</div></div>
+                  <div class="tree-row" style="grid-template-columns:1fr 80px"><div>抬升离开工位</div><div style="color:var(--dim)">待执行</div></div>
+                  <div class="tree-row" style="grid-template-columns:1fr 80px"><div>车床B下料位</div><div style="color:var(--dim)">待执行</div></div>
+                  <div class="tree-row" style="grid-template-columns:1fr 80px"><div>抓手张开</div><div style="color:var(--dim)">待执行</div></div>
+                </div>
+              </div>
+              <div>
+                <div class="card card-pad" style="margin-bottom:10px">
+                  <div class="section-title">流程状态</div>
+                  <div class="info-grid">
+                    <div class="info-row"><span class="lbl">当前流程</span><span class="val">上下料标准流程</span></div>
+                    <div class="info-row"><span class="lbl">当前步骤</span><span class="val">2 / 6</span></div>
+                    <div class="info-row"><span class="lbl">流程状态</span><span class="val" style="color:var(--primary)">运行中</span></div>
+                    <div class="info-row"><span class="lbl">执行模板</span><span class="val">车床A上料位</span></div>
+                  </div>
+                </div>
+                <div class="grid-2">
+                  <button class="btn btn-primary" onclick="toast('流程已启动','ok')">开始流程</button>
+                  <button class="btn btn-secondary" onclick="toast('单步执行')">单步执行</button>
+                  <button class="btn btn-secondary" onclick="toast('流程已停止')">停止流程</button>
+                  <button class="btn btn-secondary" onclick="toast('流程已重置')">重置流程</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NLP Execute -->
+          <div id="run-nlp" class="tab-panel">
+            <div class="toolbar" style="margin-bottom:10px">
+              <label style="display:flex;align-items:center;gap:6px;color:var(--dim);font-size:11px"><input type="checkbox" checked>使用DeepSeek</label>
+              <div class="field"><span class="field-label">麦克风</span>
+                <select class="select" style="width:180px"><option>系统默认麦克风</option></select>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="toast('设备已刷新')">刷新设备</button>
+            </div>
+            <div class="nlp-layout">
+              <div>
+                <div class="field"><span class="field-label">输入文本</span>
+                  <textarea class="textarea" style="min-height:120px" placeholder="例如：执行流程11 / 回零 / 启动 / 把机械手移动到位置A"></textarea>
+                </div>
+                <div class="toolbar" style="margin-top:8px">
+                  <button class="btn btn-secondary" onclick="parseNlp()">解析文本</button>
+                  <button class="btn btn-secondary" id="mic-btn" onclick="toggleMic()">开始录音</button>
+                  <button class="btn btn-secondary" onclick="document.querySelector('#run-nlp textarea:not([readonly])').value=''">清空</button>
+                  <button class="btn btn-green" onclick="toast('NLP 执行开始','ok')">执行</button>
+                </div>
+              </div>
+              <div class="field"><span class="field-label">解析结果</span>
+                <textarea class="textarea mono" style="min-height:160px;font-size:11px" id="nlp-result" readonly></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Sidebar: System Controls + Status -->
+        <div class="run-side">
+          <div class="side-btn-group">
+            <button class="btn btn-secondary" onclick="toast('系统已上电','ok')">上电</button>
+            <button class="btn btn-green" onclick="toast('系统启动','ok')">启动</button>
+            <button class="btn btn-secondary" onclick="toast('系统停机')">停机</button>
+            <button class="btn btn-amber" onclick="toast('任务已暂停','warn')">暂停</button>
+            <button class="btn btn-secondary" onclick="toast('继续运行','ok')">继续</button>
+          </div>
+          <div class="state-card">
+            <div class="state-label">总状态</div>
+            <div class="state-val" id="state-val">READY</div>
+            <div class="state-sub">监控运行中<br>下位机空闲待命</div>
+          </div>
+        </div>
+
+        <!-- Bottom Status Panels -->
+        <div class="run-bottom-grid">
+          <div class="card card-pad card-hi">
+            <div class="section-title">机械手状态</div>
+            <div class="info-grid">
+              <div class="info-row"><span class="lbl">X / Y / Z</span><span class="val">1250 / 0 / 860</span></div>
+              <div class="info-row"><span class="lbl">RX / RY / RZ</span><span class="val">0 / 0 / 0</span></div>
+              <div class="info-row"><span class="lbl">速度 / 加速度</span><span class="val">30% / 40%</span></div>
+              <div class="info-row"><span class="lbl">夹爪使能</span><span class="val">0</span></div>
+              <div class="info-row"><span class="lbl">夹爪刹车</span><span class="val">0</span></div>
+              <div class="info-row"><span class="lbl">伺服使能</span><span class="val">0</span></div>
+              <div class="info-row"><span class="lbl">实时状态</span><span class="val">空闲</span></div>
+              <div class="info-row"><span class="lbl">运动进度</span><span class="val">0%</span></div>
+            </div>
+          </div>
+          <div class="card card-pad card-hi">
+            <div class="section-title">执行摘要</div>
+            <div class="info-grid">
+              <div class="info-row"><span class="lbl">当前模式</span><span class="val">自动</span></div>
+              <div class="info-row"><span class="lbl">忙闲状态</span><span class="val">空闲</span></div>
+              <div class="info-row"><span class="lbl">执行结果</span><span class="val">0</span></div>
+              <div class="info-row"><span class="lbl">报警码</span><span class="val">ERR_000</span></div>
+              <div class="info-row"><span class="lbl">系统说明</span><span class="val">系统正常</span></div>
+              <div class="info-row"><span class="lbl">IO状态位</span><span class="val">0</span></div>
+              <div class="info-row"><span class="lbl">监控任务ID</span><span class="val">1001</span></div>
+              <div class="info-row"><span class="lbl">命令回显</span><span class="val">-</span></div>
+            </div>
+          </div>
+          <div class="card card-pad" style="padding:0;overflow:hidden">
+            <div style="padding:10px 14px 0"><div class="section-title">最近执行记录</div></div>
+            <div class="tree" style="border:0;border-radius:0">
+              <div class="tree-head" style="grid-template-columns:60px 60px 1fr 100px 60px"><div>ID</div><div>码</div><div>名称</div><div>类型</div><div>结果</div></div>
+              <div class="tree-scroll">
+                <div class="tree-row" style="grid-template-columns:60px 60px 1fr 100px 60px"><div class="mono">1001</div><div class="mono">1001</div><div>车床A上料位</div><div>参数型</div><div><span class="pill pill-ok">成功</span></div></div>
+                <div class="tree-row" style="grid-template-columns:60px 60px 1fr 100px 60px"><div class="mono">1000</div><div class="mono">1004</div><div>抓手闭合</div><div>固定型</div><div><span class="pill pill-ok">成功</span></div></div>
+                <div class="tree-row" style="grid-template-columns:60px 60px 1fr 100px 60px"><div class="mono">999</div><div class="mono">1003</div><div>回零</div><div>参数型</div><div><span class="pill pill-blue">待执行</span></div></div>
+                <div class="tree-row" style="grid-template-columns:60px 60px 1fr 100px 60px"><div class="mono">998</div><div class="mono">5001</div><div>打开机床门</div><div>固定型</div><div><span class="pill pill-ok">成功</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MANAGE PAGE ==================== -->
+    <div id="page-manage" class="page">
+      <div class="manage-grid">
+        <!-- Template List -->
+        <div class="card card-pad template-list">
+          <div class="section-title">指令模板列表</div>
+          <div class="toolbar" style="margin-bottom:10px">
+            <input class="input" placeholder="搜索..." style="flex:1">
+          </div>
+          <div class="tree" style="border:0">
+            <div class="tree-head" style="grid-template-columns:1fr 70px"><div>名称</div><div>类型</div></div>
+            <div class="tree-scroll" style="max-height:calc(100vh - 220px)" id="tpl-list">
+              <div class="tree-row active" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'线性插补_V2')"><div>线性插补_V2</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'圆弧引导_入口')"><div>圆弧引导_入口</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'快速定位_安全')"><div>快速定位_安全</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'抓手闭合')"><div>抓手闭合</div><div><span class="tag tag-fixed">固定</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'抓手张开')"><div>抓手张开</div><div><span class="tag tag-fixed">固定</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'打开机床门')"><div>打开机床门</div><div><span class="tag tag-fixed">固定</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'车床A上料位')"><div>车床A上料位</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'车床B下料位')"><div>车床B下料位</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'回零')"><div>回零</div><div><span class="tag tag-param">参数</span></div></div>
+              <div class="tree-row" style="grid-template-columns:1fr 70px" onclick="selectTemplate(this,'等待位')"><div>等待位</div><div><span class="tag tag-param">参数</span></div></div>
+            </div>
+          </div>
+          <div class="toolbar" style="margin-top:10px">
+            <button class="btn btn-secondary btn-sm" onclick="toast('新增模板')">新增</button>
+            <button class="btn btn-secondary btn-sm" onclick="toast('已另存')">另存</button>
+            <button class="btn btn-red btn-sm" onclick="toast('已删除','err')">删除</button>
+          </div>
+        </div>
+
+        <!-- Editor -->
+        <div class="card card-pad editor">
+          <div class="section-title">工程师后台管理</div>
+          <div class="form-grid">
+            <div class="field"><span class="field-label">显示名称</span><input class="input" value="线性插补_V2"></div>
+            <div class="field"><span class="field-label">指令码</span><input class="input mono" value="1001"></div>
+            <div class="field"><span class="field-label">指令类型</span><select class="select"><option>MOVE_ABS</option><option>MOVE_REL</option><option>HOME</option><option>GRIP_SET</option><option>DOOR_CTRL</option><option>FIXED_FUNC</option></select></div>
+            <div class="field"><span class="field-label">模板分类</span><select class="select"><option>parametric</option><option>fixed</option></select></div>
+            <div class="field full"><span class="field-label">自然语言关键词</span><input class="input" value="插补, 平滑, 工位A, 线性移动"></div>
+            <div class="field"><span class="field-label">工位ID</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">设备ID</span><input class="input mono" value="1"></div>
+            <div class="field"><span class="field-label">X</span><input class="input mono" value="100"></div>
+            <div class="field"><span class="field-label">Y</span><input class="input mono" value="200"></div>
+            <div class="field"><span class="field-label">Z</span><input class="input mono" value="50"></div>
+            <div class="field"><span class="field-label">RX</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">RY</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">RZ</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">速度%</span><input class="input mono" value="30"></div>
+            <div class="field"><span class="field-label">加速度%</span><input class="input mono" value="40"></div>
+            <div class="field"><span class="field-label">夹爪动作</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">机床门动作</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">扩展参数1</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">扩展参数2</span><input class="input mono" value="0"></div>
+            <div class="field"><span class="field-label">安全等级</span><input class="input mono" value="5"></div>
+            <div class="field full"><span class="field-label">说明</span><input class="input" value="模板编辑说明"></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn btn-primary" onclick="toast('模板已保存','ok')">保存</button>
+            <button class="btn btn-secondary" onclick="toast('已导出')">导出指令</button>
+            <button class="btn btn-secondary" onclick="toast('已导入')">导入指令</button>
+          </div>
+        </div>
+
+        <!-- Preview + Flow Management -->
+        <div class="preview">
+          <div class="tabs" style="margin-bottom:8px">
+            <button class="tab-btn active" data-mgr-tab="json">JSON预览</button>
+            <button class="tab-btn" data-mgr-tab="flow">流程管理</button>
+          </div>
+          <div id="mgr-json" class="tab-panel active">
+            <div class="card card-pad">
+              <div class="section-title">结构化 JSON</div>
+              <textarea class="textarea mono" style="min-height:calc(100vh - 240px);font-size:11px" readonly>{
+  "query_key": "线性插补_V2",
+  "function_id": 1001,
+  "function_name": "MOVE_ABS",
+  "template_type": "parametric",
+  "registers": [100, 200, 50, 0, 0, 0, 30],
+  "acc_percent": 40,
+  "safety_level": 5,
+  "keywords": ["插补","平滑","工位A"]
+}</textarea>
+            </div>
+          </div>
+          <div id="mgr-flow" class="tab-panel">
+            <div class="card card-pad" style="margin-bottom:10px">
+              <div class="section-title">流程管理</div>
+              <div class="field" style="margin-bottom:10px"><span class="field-label">流程名称</span><input class="input" value="上下料标准流程"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:4px;font-weight:600">已有流程</div>
+                  <div class="tree" style="border:0">
+                    <div class="tree-scroll" style="max-height:180px">
+                      <div class="tree-row active"><div>上下料标准流程</div></div>
+                      <div class="tree-row"><div>车床A单站流程</div></div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:4px;font-weight:600">流程步骤</div>
+                  <div class="tree" style="border:0">
+                    <div class="tree-scroll" style="max-height:180px">
+                      <div class="tree-row"><div>1. 等待位</div></div>
+                      <div class="tree-row"><div>2. 车床A上料位</div></div>
+                      <div class="tree-row"><div>3. 抓手闭合</div></div>
+                      <div class="tree-row"><div>4. 抬升离开</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:4px;font-weight:600">可选模板</div>
+                  <div class="tree" style="border:0">
+                    <div class="tree-scroll" style="max-height:120px">
+                      <div class="tree-row" style="grid-template-columns:1fr 50px"><div>等待位</div><div>参数</div></div>
+                      <div class="tree-row" style="grid-template-columns:1fr 50px"><div>抓手闭合</div><div>固定</div></div>
+                      <div class="tree-row" style="grid-template-columns:1fr 50px"><div>回零</div><div>参数</div></div>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:4px;font-weight:600">步骤操作</div>
+                  <div class="grid-2">
+                    <button class="btn btn-secondary btn-sm" onclick="toast('步骤已添加','ok')">添加步骤</button>
+                    <button class="btn btn-secondary btn-sm" onclick="toast('步骤已移除')">移除步骤</button>
+                    <button class="btn btn-secondary btn-sm" onclick="toast('步骤已上移')">上移</button>
+                    <button class="btn btn-secondary btn-sm" onclick="toast('步骤已下移')">下移</button>
+                  </div>
+                  <div class="grid-2" style="margin-top:8px">
+                    <button class="btn btn-primary btn-sm" onclick="toast('流程已保存','ok')">保存流程</button>
+                    <button class="btn btn-red btn-sm" onclick="toast('流程已删除','err')">删除流程</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== CONFIG PAGE ==================== -->
+    <div id="page-config" class="page">
+      <div class="config-grid">
+        <!-- Axis Ranges -->
+        <div class="card card-pad">
+          <div class="section-title">轴范围配置</div>
+          <div class="form-grid">
+            <div class="field"><span class="field-label">X 最小</span><input class="input mono" value="-742"></div>
+            <div class="field"><span class="field-label">X 最大</span><input class="input mono" value="1200"></div>
+            <div class="field"><span class="field-label">Y 最小</span><input class="input mono" value="-112"></div>
+            <div class="field"><span class="field-label">Y 最大</span><input class="input mono" value="800"></div>
+            <div class="field"><span class="field-label">Z 最小</span><input class="input mono" value="-45"></div>
+            <div class="field"><span class="field-label">Z 最大</span><input class="input mono" value="300"></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn btn-primary" onclick="toast('轴范围已保存','ok')">保存范围</button>
+            <button class="btn btn-secondary" onclick="toast('已重载')">重载范围</button>
+          </div>
+        </div>
+
+        <!-- Avoidance Config -->
+        <div class="card card-pad">
+          <div class="section-title">规避规则配置</div>
+          <div class="form-grid">
+            <div class="field full"><span class="field-label">规避模式</span>
+              <select class="select"><option>自动判断</option><option>关闭</option><option>每次都经过中间点</option></select>
+            </div>
+            <div class="field"><span class="field-label">RX 变化 &ge;</span><input class="input mono" value="30"></div>
+            <div class="field"><span class="field-label">RY 变化 &ge;</span><input class="input mono" value="30"></div>
+            <div class="field"><span class="field-label">RZ 变化 &ge;</span><input class="input mono" value="45"></div>
+            <div class="field"><span class="field-label">低位 Z &lt;</span><input class="input mono" value="150"></div>
+            <div class="field full"><span class="field-label">XY 移动 &gt;</span><input class="input mono" value="100"></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn btn-primary" onclick="toast('规避配置已保存','ok')">保存规避配置</button>
+          </div>
+        </div>
+
+        <!-- Safe Points -->
+        <div class="card card-pad" style="grid-column: 1 / -1">
+          <div class="section-title">安全中间点管理</div>
+          <div class="avoidance-split">
+            <div>
+              <div class="tree" style="border:0">
+                <div class="tree-head" style="grid-template-columns:1fr 100px"><div>中间点</div><div>说明</div></div>
+                <div class="tree-scroll" style="max-height:200px">
+                  <div class="tree-row active" style="grid-template-columns:1fr 100px"><div>高位过渡 A</div><div>默认规避点</div></div>
+                  <div class="tree-row" style="grid-template-columns:1fr 100px"><div>双车床中线位</div><div>流程共享</div></div>
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top:8px">
+                <button class="btn btn-secondary btn-sm" onclick="toast('新增中间点')">新增</button>
+                <button class="btn btn-red btn-sm" onclick="toast('已删除','err')">删除</button>
+              </div>
+            </div>
+            <div>
+              <div class="form-grid">
+                <div class="field full"><span class="field-label">名称</span><input class="input" value="高位过渡 A"></div>
+                <div class="field"><span class="field-label">X</span><input class="input mono" value="0"></div>
+                <div class="field"><span class="field-label">Y</span><input class="input mono" value="0"></div>
+                <div class="field"><span class="field-label">Z</span><input class="input mono" value="200"></div>
+                <div class="field"><span class="field-label">RX</span><input class="input mono" value="0"></div>
+                <div class="field"><span class="field-label">RY</span><input class="input mono" value="0"></div>
+                <div class="field"><span class="field-label">RZ</span><input class="input mono" value="0"></div>
+                <div class="field"><span class="field-label">速度%</span><input class="input mono" value="20"></div>
+                <div class="field"><span class="field-label">加速度%</span><input class="input mono" value="20"></div>
+                <div class="field full"><span class="field-label">说明</span><input class="input" value="默认规避点"></div>
+              </div>
+              <div class="toolbar" style="margin-top:8px">
+                <button class="btn btn-primary btn-sm" onclick="toast('中间点已保存','ok')">保存中间点</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== LOGS PAGE ==================== -->
+    <div id="page-logs" class="page">
+      <div class="log-toolbar">
+        <button class="btn btn-secondary" onclick="addLog()">刷新日志</button>
+        <button class="btn btn-secondary" onclick="toast('日志已导出')">导出日志</button>
+        <button class="btn btn-red" onclick="clearLogs()">清空日志</button>
+        <div style="flex:1"></div>
+        <div style="color:var(--dim);font-size:11px">共 <span class="mono" id="log-count">5</span> 条</div>
+      </div>
+      <div class="log-table">
+        <div class="log-head"><div>时间</div><div>分类</div><div>操作</div><div>结果</div><div>详情</div></div>
+        <div class="log-scroll" id="log-body">
+          <div class="log-row"><div class="mono">14:22:01</div><div>执行</div><div>发送模板 车床A上料位</div><div><span class="pill pill-ok">成功</span></div><div>任务1001 / 标准协议 / 镜像确认成功</div></div>
+          <div class="log-row"><div class="mono">14:21:44</div><div>规则</div><div>规避判断命中安全中间点</div><div><span class="pill pill-warn">命中</span></div><div>原因: 低位大范围移动</div></div>
+          <div class="log-row"><div class="mono">14:21:03</div><div>语音</div><div>麦克风识别</div><div><span class="pill pill-blue">完成</span></div><div>文本: 把机械手移动到车床A上料位</div></div>
+          <div class="log-row"><div class="mono">14:20:55</div><div>连接</div><div>检测连接</div><div><span class="pill pill-ok">成功</span></div><div>真实控制器 192.168.1.11 已连接</div></div>
+          <div class="log-row"><div class="mono">14:20:30</div><div>系统</div><div>系统上电</div><div><span class="pill pill-ok">成功</span></div><div>系统已上电，进入待机状态</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== LICENSE PAGE ==================== -->
+    <div id="page-license" class="page">
+      <div class="license-center">
+        <div class="card card-pad license-card">
+          <div class="section-title">授权状态</div>
+          <div class="license-status-grid">
+            <div class="card card-pad card-hi">
+              <div class="info-grid">
+                <div class="info-row"><span class="lbl">授权类型</span><span class="val">月度订阅</span></div>
+                <div class="info-row"><span class="lbl">到期时间</span><span class="val">2026-05-20</span></div>
+                <div class="info-row"><span class="lbl">机器码</span><span class="val" style="font-size:9px">A3F2...8B1C</span></div>
+              </div>
+            </div>
+            <div class="card card-pad card-hi">
+              <div class="info-grid">
+                <div class="info-row"><span class="lbl">语音日配额</span><span class="val">50 / 100</span></div>
+                <div class="info-row"><span class="lbl">DeepSeek月配额</span><span class="val">1000 / 5000</span></div>
+                <div class="info-row"><span class="lbl">上次心跳</span><span class="val">14:20:30</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card card-pad license-card" style="margin-top:12px">
+          <div class="section-title">激活授权</div>
+          <div class="form-grid">
+            <div class="field full"><span class="field-label">授权码 (RMLT-XXXX-XXXX-XXXX-XXXX-SSSS)</span><input class="input mono" placeholder="RMLT-XXXX-XXXX-XXXX-XXXX-SSSS"></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn btn-primary" onclick="toast('授权码已激活','ok')">激活</button>
+            <button class="btn btn-secondary" onclick="toast('设备已解绑')">解绑设备</button>
+            <button class="btn btn-secondary" onclick="toast('状态已刷新','ok')">刷新状态</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /page-wrap -->
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>数据源: query_table.json | 系统就绪</span>
+    <span style="color:var(--green)">[月度订阅]</span>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast-container" style="position:fixed;top:60px;right:16px;z-index:999;display:flex;flex-direction:column;gap:8px"></div>
+
+<script>
+// ===== Page Navigation =====
+const navBtns = document.querySelectorAll('.nav-btn[data-page]');
+const pages = document.querySelectorAll('.page');
+navBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.page;
+    navBtns.forEach(b => b.classList.toggle('active', b === btn));
+    pages.forEach(p => p.classList.toggle('active', p.id === 'page-' + target));
+  });
+});
+
+// ===== Run Tabs =====
+document.querySelectorAll('[data-run-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.runTab;
+    document.querySelectorAll('[data-run-tab]').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.run-content .tab-panel').forEach(p => p.classList.toggle('active', p.id === 'run-' + t));
+  });
+});
+
+// ===== Manage Tabs =====
+document.querySelectorAll('[data-mgr-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.mgrTab;
+    document.querySelectorAll('[data-mgr-tab]').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('mgr-json').classList.toggle('active', t === 'json');
+    document.getElementById('mgr-flow').classList.toggle('active', t === 'flow');
+  });
+});
+
+// ===== Toast =====
+function toast(msg, type) {
+  const colors = { ok: 'var(--green)', warn: 'var(--amber)', err: 'var(--red)' };
+  const bg = { ok: 'var(--green-bg)', warn: 'var(--amber-bg)', err: 'var(--red-bg)' };
+  const el = document.createElement('div');
+  el.style.cssText = 'padding:8px 14px;border-radius:8px;font:600 11px/1.4 "Space Grotesk",sans-serif;background:' + (bg[type]||'var(--surface-bright)') + ';color:' + (colors[type]||'var(--text)') + ';box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.2s';
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  requestAnimationFrame(() => el.style.opacity = 1);
+  setTimeout(() => { el.style.opacity = 0; setTimeout(() => el.remove(), 200); }, 2000);
+}
+
+// ===== HUD Animation =====
+let hx = 1250, hy = 0, hz = 860, hs = 30;
+setInterval(() => {
+  hx += (Math.random() - 0.5) * 2;
+  hy += (Math.random() - 0.5) * 1;
+  hz += (Math.random() - 0.5) * 1.5;
+  document.getElementById('hud-x').textContent = hx.toFixed(1);
+  document.getElementById('hud-y').textContent = hy.toFixed(1);
+  document.getElementById('hud-z').textContent = hz.toFixed(1);
+  document.getElementById('hud-spd').textContent = hs + '%';
+}, 1000);
+
+// ===== Connection Toggle =====
+let online = true;
+function toggleConnection() {
+  online = !online;
+  document.getElementById('conn-dot').className = 'conn-dot' + (online ? '' : ' offline');
+  document.getElementById('conn-text').textContent = online ? '在线' : '离线';
+  document.getElementById('conn-detail').textContent = online ? '真实连接成功' : '连接断开';
+  document.getElementById('conn-detail').style.color = online ? 'var(--green)' : 'var(--red)';
+  toast(online ? '连接成功' : '连接断开', online ? 'ok' : 'err');
+}
+
+// ===== Mic Toggle =====
+let micOn = false;
+function toggleMic() {
+  micOn = !micOn;
+  const btn = document.getElementById('mic-btn');
+  btn.textContent = micOn ? '停止录音' : '开始录音';
+  btn.className = micOn ? 'btn btn-amber' : 'btn btn-secondary';
+  toast(micOn ? '录音中...' : '录音停止', micOn ? 'warn' : 'ok');
+}
+
+// ===== NLP Parse =====
+function parseNlp() {
+  document.getElementById('nlp-result').value = JSON.stringify({
+    source: "deepseek",
+    actions: [
+      { type: "template", target: "车床A上料位" },
+      { type: "template", target: "抓手闭合" }
+    ]
+  }, null, 2);
+  toast('解析完成', 'ok');
+}
+
+// ===== Template Select =====
+function selectTemplate(el, name) {
+  document.querySelectorAll('#tpl-list .tree-row').forEach(r => r.classList.remove('active'));
+  el.classList.add('active');
+  toast('选中: ' + name);
+}
+
+// ===== Logs =====
+const logCats = ['执行','系统','连接','语音','规则','流程'];
+const logActs = ['发送模板 车床A上料位','规避判断','心跳签到','麦克风识别','系统上电','流程启动'];
+let logCount = 5;
+function addLog() {
+  const t = new Date().toTimeString().slice(0,8);
+  const c = logCats[Math.floor(Math.random()*logCats.length)];
+  const a = logActs[Math.floor(Math.random()*logActs.length)];
+  const ok = Math.random() > 0.2;
+  const r = document.createElement('div');
+  r.className = 'log-row';
+  r.innerHTML = '<div class="mono">'+t+'</div><div>'+c+'</div><div>'+a+'</div><div><span class="pill '+(ok?'pill-ok':'pill-err')+'">'+(ok?'成功':'失败')+'</span></div><div>任务'+(1000+Math.floor(Math.random()*10))+'</div>';
+  document.getElementById('log-body').prepend(r);
+  logCount++;
+  document.getElementById('log-count').textContent = logCount;
+}
+function clearLogs() {
+  document.getElementById('log-body').innerHTML = '';
+  logCount = 0;
+  document.getElementById('log-count').textContent = 0;
+  toast('日志已清空', 'warn');
+}
+
+// ===== Tree Row Click =====
+document.querySelectorAll('.tree-row').forEach(row => {
+  row.addEventListener('click', function() {
+    const p = this.closest('.tree-scroll');
+    if (p) { p.querySelectorAll('.tree-row').forEach(r => r.classList.remove('active')); this.classList.add('active'); }
+  });
+});
+</script>
+</body>
+</html>
