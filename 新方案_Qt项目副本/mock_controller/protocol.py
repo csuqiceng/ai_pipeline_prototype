@@ -121,7 +121,7 @@ SPEED_MAX_DEBUG = 30
 SPEED_MAX_DANGER = 20
 
 
-# ── V3.0 Modbus TCP 协议常量 ──────────────────────────────────────
+# ── Modbus TCP 寄存器地址映射 ──────────────────────────────────────
 
 # IEEE 寄存器地址 (4x float)
 MODBUS_FUNC_ADDR = 0           # IEEE(0)  函数号
@@ -143,73 +143,92 @@ MODBUS_RT_SAFE_START = 1700    # IEEE(1700~1706) 安全参数
 MODBUS_RT_R3D = 1740           # IEEE(1740) R3d距离
 MODBUS_RT_ZHEIGHT = 1742       # IEEE(1742) Z高度
 
-# Func 102 参数偏移 (IEEE地址)
-V30_P_X = 2
-V30_P_Y = 4
-V30_P_Z = 6
-V30_P_RX = 8
-V30_P_RY = 10
-V30_P_RZ = 12
-V30_P_SPEED = 14               # mm/s
-V30_P_ACCEL = 16               # mm/s²
-V30_P_DECEL = 18               # mm/s²
-V30_P_FUZZY = 20               # 0=精确 1=模糊
-V30_P_FUZZY_STEP = 22          # 模糊最大步长 mm
+# ── 六轴机械手协议常量 (VPLC516E) ──────────────────────────────────
 
-# Func 101 参数偏移
-V30_P_AXIS = 2                 # 轴号 0~5
-V30_P_DIR = 4                  # 方向 1=正 -1=反
-V30_P_AXIS_SPEED = 6           # 速度 度/s
-V30_P_ANGLE = 8                # 角度 度
-V30_P_AXIS_FUZZY = 10          # 模糊标志
+# BIT 寄存器地址
+SIX_ALARM_BIT = 151              # BIT(151) 报警复位
+
+# IEEE 寄存器地址
+SIX_ALARM_DETAIL_ADDR = 38       # IEEE(38) 报警详情(位组合)
+SIX_CURR_FUNC_ADDR = 324         # IEEE(324) 当前函数号
+
+# 实时数据 IEEE 地址
+SIX_RT_J_START = 1500            # IEEE(1500~1510) J1~J6角度
+SIX_RT_XYZ_START = 1512          # IEEE(1512~1522) X/Y/Z/Rx/Ry/Rz
+
+# 安全限位地址
+SIX_SAFE_R_MIN = 1700            # IEEE(1700) 最小半径
+SIX_SAFE_R_MAX = 1702            # IEEE(1702) 最大半径
+SIX_SAFE_Z_MIN = 1704            # IEEE(1704) 最小高度
+SIX_SAFE_Z_MAX = 1706            # IEEE(1706) 最大高度
+SIX_SAFE_SPD_MAX = 1708          # IEEE(1708) 最大速度
+SIX_SAFE_ACC_MAX = 1710          # IEEE(1710) 最大加速度
+SIX_SAFE_DEC_MAX = 1712          # IEEE(1712) 最大减速度
+
+# IEEE(34) 状态位掩码
+# Bit0=已收到(1), Bit1=执行中(2), Bit2=完成(4), Bit3=错误(8), Bit6=报警(64)
+SIX_STATUS_RECEIVED = 1          # 下位机收到命令后设置
+SIX_STATUS_EXECUTING = 2
+SIX_STATUS_COMPLETE = 4
+SIX_STATUS_ERROR = 8             # 参数错误/速度=0
+SIX_STATUS_ALARM = 64            # 限位截断/ECAT断线
+# 组合值
+SIX_STATUS_COMPLETE_ALARM = 68   # 4+64 完成+报警(运动已结束,记录警告)
+SIX_STATUS_ERROR_ALARM = 72      # 8+64 错误+报警(严重问题)
 
 # Func 104 参数偏移
-V30_P_STOP_MODE = 2            # 0=急停 1=慢停
+SIX_P_STOP_MODE = 2              # 0=急停 1=慢停
 
-# IEEE(34) 函数状态值
-V30_STATUS_IDLE = 0
-V30_STATUS_READY = 1
-V30_STATUS_EXECUTING = 2
-V30_STATUS_COMPLETE = 4
-# 组合码
-V30_STATUS_COMPLETE_ALARM = 12     # 4+8 完成+报警
-V30_STATUS_COMPLETE_RADIUS = 28    # 4+8+16 完成+半径超限
-V30_STATUS_COMPLETE_HEIGHT = 44    # 4+8+32 完成+高度超限
-V30_STATUS_ALARM_ILLEGAL = 72      # 8+64 报警+指令非法
+# Func 106/107 参数偏移 (IEEE地址)
+SIX_P_AXIS_NO = 2                # 轴号 (106: 0~5关节, 107: 6~11虚拟轴)
+SIX_P_POS_VAL = 4                # 位置值(度或mm)
+SIX_P_SPD = 6                    # 速度
+SIX_P_ACC_V = 8                  # 加速度
+SIX_P_DEC_V = 10                 # 减速度
+SIX_P_FUZZY_POS = 12             # 模糊位置
+SIX_P_FUZZY_SPD = 14             # 模糊速度
+SIX_P_FUZZY_ACC = 16             # 模糊加速度
+SIX_P_FUZZY_DEC = 18             # 模糊减速度
+SIX_P_STOP_CMD = 20              # 停止命令
 
-# 默认速度 mm/s
-V30_DEFAULT_SPEED = 3000.0
-V30_DEFAULT_ACCEL = 1000.0
-V30_DEFAULT_DECEL = 1000.0
+# Func 108 参数偏移 (IEEE地址)
+SIX_P_TARGET_X = 2
+SIX_P_TARGET_Y = 4
+SIX_P_TARGET_Z = 6
+SIX_P_TARGET_RX = 8
+SIX_P_TARGET_RY = 10
+SIX_P_TARGET_RZ = 12
+SIX_108_SPD = 14
+SIX_108_ACC = 16
+SIX_108_DEC = 18
+SIX_108_STOP_CMD = 20
+SIX_108_FUZZY_POS = 22           # Func108模糊参数在IEEE(22~28)
+SIX_108_FUZZY_SPD = 24
+SIX_108_FUZZY_ACC = 26
+SIX_108_FUZZY_DEC = 28
+SIX_108_MOVE_TYPE = 30           # 0=直线插补 1=PTP
 
 
-class FuncV3:
-    """V3.0 函数号定义"""
-    JOINT_MOVE = 101              # 关节移动
-    LINE_MOVE = 102               # 直线插补运动
-    ALARM_CLEAR = 103             # 报警清除
-    STOP = 104                    # 停止
-    STATUS_QUERY = 105            # 状态查询
-    WELD_TRACK = 106              # 焊缝巡迹(预留)
+class FuncSixAxis:
+    """六轴机械手函数号定义"""
+    STOP = 104                    # 停止(急停/慢停)
+    JOINT_JOG = 106               # 关节点动(J1~J6)
+    VIRTUAL_JOG = 107             # 虚拟轴点动(X/Y/Z/Rx/Ry/Rz)
+    LINE_MOVE = 108               # 直线插补/PTP运动
 
     _NAMES = {
-        101: "JOINT_MOVE",
-        102: "LINE_MOVE",
-        103: "ALARM_CLEAR",
         104: "STOP",
-        105: "STATUS_QUERY",
-        106: "WELD_TRACK",
+        106: "JOINT_JOG",
+        107: "VIRTUAL_JOG",
+        108: "LINE_MOVE",
     }
 
     @classmethod
     def name(cls, code: int) -> str:
-        return cls._NAMES.get(code, f"UNKNOWN_V30({code})")
+        return cls._NAMES.get(code, f"UNKNOWN_SIX({code})")
 
 
-def v30_status_is_complete(status: int) -> bool:
-    """IEEE(34)值是否表示执行完成（含组合码）"""
-    return (status & 4) != 0
-
-def v30_status_has_alarm(status: int) -> bool:
-    """IEEE(34)值是否包含报警"""
-    return (status & 8) != 0
+# 六轴默认速度
+SIX_DEFAULT_SPEED = 3000.0
+SIX_DEFAULT_ACCEL = 1000.0
+SIX_DEFAULT_DECEL = 1000.0

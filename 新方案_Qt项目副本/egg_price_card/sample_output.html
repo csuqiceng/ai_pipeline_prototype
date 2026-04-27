@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>鸡蛋价格卡片 - 2026/04/27</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    font-family: "Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif;
+    background: #E8E0D8;
+    display: flex;
+    justify-content: center;
+    gap: 28px;
+    padding: 40px 20px;
+    flex-wrap: wrap;
+}
+
+/* ── Card Shell ─────────────────────────────────── */
+.card {
+    width: 360px;
+    background: #FFF8F0;
+    border-radius: 14px;
+    border: 1.5px solid #D4C4B0;
+    box-shadow: 0 3px 16px rgba(120,80,40,0.12);
+    overflow: hidden;
+}
+
+/* ── Top Band ───────────────────────────────────── */
+.card-top {
+    background: linear-gradient(180deg, #FFBE76 0%, #F5A623 100%);
+    padding: 18px 0 14px;
+    text-align: center;
+}
+.icon-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 20px;
+}
+
+/* ── Table ──────────────────────────────────────── */
+.ptable {
+    width: 100%;
+    border-collapse: collapse;
+}
+.ptable thead th {
+    background: #F0932B;
+    color: #FFFFFF;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 6px;
+    text-align: center;
+    line-height: 1.45;
+    border-bottom: 2px solid #D4851F;
+}
+.ptable thead th .sub {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.85;
+}
+.ptable tbody td {
+    padding: 9px 6px;
+    text-align: center;
+    font-size: 13.5px;
+    color: #333333;
+    border-bottom: 1px solid #EDE0D0;
+}
+.col-name  { font-weight: 500; }
+.col-price { font-variant-numeric: tabular-nums; }
+.col-change{ font-variant-numeric: tabular-nums; }
+.col-trend { font-weight: 700; }
+
+/* ── Footer ─────────────────────────────────────── */
+.card-bottom {
+    background: #FFF3E6;
+    padding: 8px 14px;
+    font-size: 11.5px;
+    color: #8B6914;
+    border-top: 1px solid #EDE0D0;
+    line-height: 1.6;
+}
+</style>
+</head>
+<body>
+
+        <div class="card">
+            <div class="card-top">
+                <div class="icon-row">
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <ellipse cx="18" cy="20" rx="12" ry="14" fill="#FAFAFA" stroke="#E0C8A8" stroke-width="1.5"/>
+  <circle cx="18" cy="22" r="5" fill="#F5A623"/>
+  <circle cx="16.5" cy="20.5" r="1.5" fill="#E8941A" opacity="0.6"/>
+</svg>
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="6" y="2" width="24" height="32" rx="3" fill="#F5A623"/>
+  <rect x="9" y="5" width="18" height="8" rx="1.5" fill="#FFF3E0"/>
+  <rect x="9" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="15.5" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="9" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="15.5" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="9" y="28" width="11.5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="28" width="5" height="4" rx="1" fill="#FFCC80"/>
+</svg>
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <path d="M4 14 L8 32 L28 32 L32 14 Z" fill="#F5A623"/>
+  <path d="M4 14 L32 14" stroke="#E8941A" stroke-width="2"/>
+  <path d="M12 14 Q12 6 18 6 Q24 6 24 14" fill="none" stroke="#F5A623" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="8" y="14" width="20" height="2" fill="#E8941A"/>
+</svg>
+                </div>
+            </div>
+            <table class="ptable">
+                <thead>
+                    <tr>
+                        <th>品种</th>
+                        <th>价格<br><span class="sub">(元/斤)</span></th>
+                        <th>较昨日</th>
+                        <th>涨跌</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">粉壳蛋</td>
+                    <td class="col-price">3.7</td>
+                    <td class="col-change">-0.1</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">褐壳蛋</td>
+                    <td class="col-price">4.0</td>
+                    <td class="col-change">-0.1</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">富硒蛋</td>
+                    <td class="col-price">3.85</td>
+                    <td class="col-change">-0.1</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">保洁蛋</td>
+                    <td class="col-price">4.1</td>
+                    <td class="col-change">-0.1</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <div class="card-top">
+                <div class="icon-row">
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="2" y="10" width="20" height="14" rx="2" fill="#F5A623"/>
+  <path d="M22 14 L30 14 L34 20 L34 26 L22 26 Z" fill="#E8941A"/>
+  <rect x="24" y="16" width="6" height="6" rx="1" fill="#FFF3E0"/>
+  <circle cx="10" cy="27" r="3.5" fill="#FAFAFA" stroke="#BDBDBD" stroke-width="1"/>
+  <circle cx="10" cy="27" r="1.5" fill="#BDBDBD"/>
+  <circle cx="29" cy="27" r="3.5" fill="#FAFAFA" stroke="#BDBDBD" stroke-width="1"/>
+  <circle cx="29" cy="27" r="1.5" fill="#BDBDBD"/>
+</svg>
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <rect x="6" y="2" width="24" height="32" rx="3" fill="#F5A623"/>
+  <rect x="9" y="5" width="18" height="8" rx="1.5" fill="#FFF3E0"/>
+  <rect x="9" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="15.5" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="16" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="9" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="15.5" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="22" width="5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="9" y="28" width="11.5" height="4" rx="1" fill="#FFF3E0"/>
+  <rect x="22" y="28" width="5" height="4" rx="1" fill="#FFCC80"/>
+</svg>
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <path d="M4 14 L8 32 L28 32 L32 14 Z" fill="#F5A623"/>
+  <path d="M4 14 L32 14" stroke="#E8941A" stroke-width="2"/>
+  <path d="M12 14 Q12 6 18 6 Q24 6 24 14" fill="none" stroke="#F5A623" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="8" y="14" width="20" height="2" fill="#E8941A"/>
+</svg>
+                </div>
+            </div>
+            <table class="ptable">
+                <thead>
+                    <tr>
+                        <th>360枚/箱<br><span class="sub">净重</span></th>
+                        <th>价格<br><span class="sub">(元/箱)</span></th>
+                        <th>较昨日</th>
+                        <th>涨跌</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">44</td>
+                    <td class="col-price">176</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">43</td>
+                    <td class="col-price">174</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">42</td>
+                    <td class="col-price">172</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">41</td>
+                    <td class="col-price">170</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">40</td>
+                    <td class="col-price">168</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">39</td>
+                    <td class="col-price">166</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">37-38</td>
+                    <td class="col-price">163</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">35-36</td>
+                    <td class="col-price">161</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr style="background:#FFF6ED;">
+                    <td class="col-name">33-34</td>
+                    <td class="col-price">158</td>
+                    <td class="col-change">-2</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                <tr>
+                    <td class="col-name">33以下</td>
+                    <td class="col-price">155</td>
+                    <td class="col-change">-3</td>
+                    <td class="col-trend" style="color:#2E7D32">跌</td>
+                </tr>
+                </tbody>
+            </table>
+            <div class="card-bottom">
+                <b>要求：</b>无药残、无双黄、脏蛋、裂纹沙壳
+            </div>
+        </div>
+</body>
+</html>

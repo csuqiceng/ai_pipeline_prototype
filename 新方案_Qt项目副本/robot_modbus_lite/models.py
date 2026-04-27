@@ -104,29 +104,6 @@ class StandardProtocolCommand:
     safety_level: int = 5
     desc: str = ""
 
-    def to_vr_values(self) -> tuple[float, ...]:
-        return (
-            float(self.code),
-            float(self.task_id),
-            float(self.x),
-            float(self.y),
-            float(self.z),
-            float(self.rx),
-            float(self.ry),
-            float(self.rz),
-            float(self.speed_percent),
-            float(self.acc_percent),
-            float(self.device_id),
-            float(self.io_grip),
-            float(self.io_door),
-            float(self.ext_p1),
-            float(self.ext_p2),
-            float(self.safety_level),
-        )
-
-    def to_write_request(self, start_vr: int = 0) -> "VrWriteRequest":
-        return VrWriteRequest(start_vr=start_vr, values=self.to_vr_values())
-
     def to_json_dict(self) -> dict:
         params: dict[str, float | int] = {
             "x": self.x,
@@ -259,97 +236,158 @@ class FlowDefinition:
         return asdict(self)
 
 
-# ── V3.0 Modbus TCP 数据模型 ──────────────────────────────────────
+
+# ── 六轴机械手数据模型 (VPLC516E) ──────────────────────────────────
+
 
 @dataclass(frozen=True)
-class V30Command:
-    """V3.0 IEEE/Modbus TCP 协议命令"""
+class SixAxisCommand:
+    """六轴机械手协议命令 (Func 104/106/107/108)"""
     func_num: int
     desc: str = ""
-    # Func 102 直线插补参数
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    rx: float = 0.0
-    ry: float = 0.0
-    rz: float = 0.0
-    speed: float = 0.0      # mm/s
-    accel: float = 0.0      # mm/s²
-    decel: float = 0.0      # mm/s²
-    fuzzy: int = 0           # 0=精确 1=模糊
-    fuzzy_step: float = 0.0  # 模糊最大步长 mm
-    # Func -1/-2/-3 特殊命令参数
-    io_grip: int = 0         # GRIP: 1=合 0=开
-    io_door: int = 0         # DOOR: 1=开 0=关
-    ext_p1: float = 0.0      # WAIT: 延时ms
+    # Func 104: 停止
+    stop_mode: int = 0           # 0=急停 1=慢停
+    # Func 106/107: 点动参数
+    axis_no: int = 0
+    pos_val: float = 0.0
+    spd: float = 0.0
+    acc_v: float = 0.0
+    dec_v: float = 0.0
+    fuzzy_pos: float = 0.0
+    fuzzy_spd: float = 0.0
+    fuzzy_acc: float = 0.0
+    fuzzy_dec: float = 0.0
+    stop_cmd: int = 0
+    # Func 108: 直线插补/PTP
+    target_x: float = 0.0
+    target_y: float = 0.0
+    target_z: float = 0.0
+    target_rx: float = 0.0
+    target_ry: float = 0.0
+    target_rz: float = 0.0
+    move_type: int = 0           # 0=直线插补 1=PTP
+    # 特殊命令参数
+    io_grip: int = 0
+    io_door: int = 0
+    ext_p1: float = 0.0
 
     def to_func_writes(self) -> list[VrWriteRequest]:
-        """返回V3.0协议需要的写入操作列表（函数号+参数）"""
-        _IEEE_FUNC = 0
-        _IEEE_P_X, _IEEE_P_Y, _IEEE_P_Z = 2, 4, 6
-        _IEEE_P_RX, _IEEE_P_RY, _IEEE_P_RZ = 8, 10, 12
-        _IEEE_P_SPEED, _IEEE_P_ACCEL, _IEEE_P_DECEL = 14, 16, 18
-        _IEEE_P_FUZZY, _IEEE_P_FUZZY_STEP = 20, 22
-        param_map = {
-            _IEEE_P_X: self.x, _IEEE_P_Y: self.y, _IEEE_P_Z: self.z,
-            _IEEE_P_RX: self.rx, _IEEE_P_RY: self.ry, _IEEE_P_RZ: self.rz,
-            _IEEE_P_SPEED: self.speed, _IEEE_P_ACCEL: self.accel, _IEEE_P_DECEL: self.decel,
-            _IEEE_P_FUZZY: float(self.fuzzy), _IEEE_P_FUZZY_STEP: self.fuzzy_step,
-        }
-        writes = [
-            VrWriteRequest(start_vr=_IEEE_FUNC, values=(float(self.func_num),)),
-        ]
-        for addr, val in sorted(param_map.items()):
-            writes.append(VrWriteRequest(start_vr=addr, values=(val,)))
-        return writes
+        if self.func_num == 104:
+            return [
+                VrWriteRequest(start_vr=0, values=(104.0,)),
+                VrWriteRequest(start_vr=2, values=(float(self.stop_mode),)),
+            ]
+        if self.func_num in (106, 107):
+            return [
+                VrWriteRequest(start_vr=0, values=(float(self.func_num),)),
+                VrWriteRequest(start_vr=2, values=(float(self.axis_no),)),
+                VrWriteRequest(start_vr=4, values=(self.pos_val,)),
+                VrWriteRequest(start_vr=6, values=(self.spd,)),
+                VrWriteRequest(start_vr=8, values=(self.acc_v,)),
+                VrWriteRequest(start_vr=10, values=(self.dec_v,)),
+                VrWriteRequest(start_vr=12, values=(self.fuzzy_pos,)),
+                VrWriteRequest(start_vr=14, values=(self.fuzzy_spd,)),
+                VrWriteRequest(start_vr=16, values=(self.fuzzy_acc,)),
+                VrWriteRequest(start_vr=18, values=(self.fuzzy_dec,)),
+                VrWriteRequest(start_vr=20, values=(float(self.stop_cmd),)),
+            ]
+        if self.func_num == 108:
+            return [
+                VrWriteRequest(start_vr=0, values=(108.0,)),
+                VrWriteRequest(start_vr=2, values=(self.target_x,)),
+                VrWriteRequest(start_vr=4, values=(self.target_y,)),
+                VrWriteRequest(start_vr=6, values=(self.target_z,)),
+                VrWriteRequest(start_vr=8, values=(self.target_rx,)),
+                VrWriteRequest(start_vr=10, values=(self.target_ry,)),
+                VrWriteRequest(start_vr=12, values=(self.target_rz,)),
+                VrWriteRequest(start_vr=14, values=(self.spd,)),
+                VrWriteRequest(start_vr=16, values=(self.acc_v,)),
+                VrWriteRequest(start_vr=18, values=(self.dec_v,)),
+                VrWriteRequest(start_vr=20, values=(float(self.stop_cmd),)),
+                VrWriteRequest(start_vr=22, values=(self.fuzzy_pos,)),
+                VrWriteRequest(start_vr=24, values=(self.fuzzy_spd,)),
+                VrWriteRequest(start_vr=26, values=(self.fuzzy_acc,)),
+                VrWriteRequest(start_vr=28, values=(self.fuzzy_dec,)),
+                VrWriteRequest(start_vr=30, values=(float(self.move_type),)),
+            ]
+        return []
 
     def to_trigger_write(self) -> VrWriteRequest:
         return VrWriteRequest(start_vr=32, values=(1.0,))
 
-    def to_json_dict(self) -> dict:
-        return {
-            "funcNum": self.func_num,
-            "x": self.x, "y": self.y, "z": self.z,
-            "rx": self.rx, "ry": self.ry, "rz": self.rz,
-            "speed": self.speed, "accel": self.accel, "decel": self.decel,
-            "fuzzy": self.fuzzy, "fuzzyStep": self.fuzzy_step,
-            "desc": self.desc,
-        }
-
 
 @dataclass(frozen=True)
-class V30Status:
-    """V3.0 IEEE(34) 函数状态解析"""
-    raw: int
+class SixAxisStatus:
+    """六轴 IEEE(34) 状态解析 — 错误和报警是两个独立概念
 
-    @property
-    def is_idle(self) -> bool:
-        return self.raw == 0
+    Bit2=完成(4), Bit3=错误(8), Bit6=报警(64)
+    68=完成+报警(运动已结束,记录警告,不中断), 72=错误+报警(严重,raise)
+    """
+    raw: int
 
     @property
     def is_complete(self) -> bool:
         return (self.raw & 4) != 0
 
     @property
-    def has_alarm(self) -> bool:
+    def has_error(self) -> bool:
         return (self.raw & 8) != 0
 
     @property
-    def is_executing(self) -> bool:
-        return self.raw == 2
+    def has_alarm(self) -> bool:
+        return (self.raw & 64) != 0
 
     @property
     def can_send(self) -> bool:
-        return self.raw in (0, 1, 4)
+        return self.raw in (0, 4)
 
     @classmethod
-    def from_value(cls, val: float) -> "V30Status":
+    def from_value(cls, val: float) -> "SixAxisStatus":
         return cls(raw=int(val))
 
 
 @dataclass(frozen=True)
-class V30RealtimeData:
-    """V3.0 IEEE(1512~1522) 实时坐标"""
+class SixAxisAlarmDetail:
+    """六轴 IEEE(38) 报警详情 — 位组合"""
+    radius: bool = False      # Bit0: 半径超限
+    height: bool = False      # Bit1: 高度超限
+    speed: bool = False       # Bit3: 速度超限
+    accel: bool = False       # Bit4: 加速度超限
+    decel: bool = False       # Bit5: 减速度超限
+    ecat_exceeded: bool = False  # Bit6: ECAT通讯异常
+
+    @classmethod
+    def from_value(cls, val: float) -> "SixAxisAlarmDetail":
+        raw = int(val)
+        return cls(
+            radius=(raw & 1) != 0,
+            height=(raw & 2) != 0,
+            speed=(raw & 8) != 0,
+            accel=(raw & 16) != 0,
+            decel=(raw & 32) != 0,
+            ecat_exceeded=(raw & 64) != 0,
+        )
+
+    def __str__(self) -> str:
+        parts = []
+        if self.radius: parts.append("半径超限")
+        if self.height: parts.append("高度超限")
+        if self.speed: parts.append("速度超限")
+        if self.accel: parts.append("加速度超限")
+        if self.decel: parts.append("减速度超限")
+        if self.ecat_exceeded: parts.append("ECAT异常")
+        return "、".join(parts) if parts else "无报警详情"
+
+
+@dataclass(frozen=True)
+class SixAxisRealtimeData:
+    """六轴实时坐标 — 分两组读取: IEEE(1500,6) J1~J6 + IEEE(1512,6) X/Y/Z/Rx/Ry/Rz"""
+    j1: float = 0.0
+    j2: float = 0.0
+    j3: float = 0.0
+    j4: float = 0.0
+    j5: float = 0.0
+    j6: float = 0.0
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
@@ -358,11 +396,12 @@ class V30RealtimeData:
     rz: float = 0.0
 
     @classmethod
-    def from_values(cls, values: list[float]) -> "V30RealtimeData":
-        padded = list(values[:6]) + [0.0] * max(0, 6 - len(values))
+    def from_joints_and_xyz(cls, joint_values: list[float], xyz_values: list[float]) -> "SixAxisRealtimeData":
+        j = list(joint_values[:6]) + [0.0] * max(0, 6 - len(joint_values))
+        v = list(xyz_values[:6]) + [0.0] * max(0, 6 - len(xyz_values))
         return cls(
-            x=float(padded[0]), y=float(padded[1]), z=float(padded[2]),
-            rx=float(padded[3]), ry=float(padded[4]), rz=float(padded[5]),
+            j1=j[0], j2=j[1], j3=j[2], j4=j[3], j5=j[4], j6=j[5],
+            x=v[0], y=v[1], z=v[2], rx=v[3], ry=v[4], rz=v[5],
         )
 
 

@@ -1,0 +1,18 @@
+{
+  "cmd": [
+    "E:\\VeighNa\\python.exe",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\gui_main.py",
+    "--iflytek-worker",
+    "--mode",
+    "audio",
+    "--input",
+    "C:\\Users\\a\\AppData\\Local\\Temp\\tmpcpgmzgqg.pcm",
+    "--debug-save-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\data\\exported_logs\\voice_debug_20260425_222156.pcm",
+    "--result-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\data\\exported_logs\\iflytek_result_20260425_222156.json"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ""
+}

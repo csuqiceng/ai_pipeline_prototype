@@ -1,0 +1,737 @@
+[
+  {
+    "time": "00:39:45",
+    "category": "执行",
+    "action": "发送指令 位置E",
+    "result": "成功",
+    "detail": "任务1041"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "读取实时坐标",
+    "result": "成功",
+    "detail": "X=1700.0 Y=-30.0 Z=1800.0"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "执行完成 位置E",
+    "result": "成功",
+    "detail": "IEEE(34)=4"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入触发 位置E",
+    "result": "成功",
+    "detail": "IEEE(32)=1"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(30)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(28)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(26)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(24)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(22)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(20)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(18)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(16)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(14)",
+    "result": "成功",
+    "detail": "values=[300.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(12)",
+    "result": "成功",
+    "detail": "values=[50.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(10)",
+    "result": "成功",
+    "detail": "values=[40.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(8)",
+    "result": "成功",
+    "detail": "values=[20.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(6)",
+    "result": "成功",
+    "detail": "values=[1800.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(4)",
+    "result": "成功",
+    "detail": "values=[-30.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(2)",
+    "result": "成功",
+    "detail": "values=[1700.0]"
+  },
+  {
+    "time": "00:39:45",
+    "category": "六轴",
+    "action": "写入IEEE(0)",
+    "result": "成功",
+    "detail": "values=[108.0]"
+  },
+  {
+    "time": "00:39:42",
+    "category": "流程",
+    "action": "流程完成 222",
+    "result": "成功",
+    "detail": "共完成 4 步"
+  },
+  {
+    "time": "00:39:42",
+    "category": "流程",
+    "action": "流程第4步成功",
+    "result": "成功",
+    "detail": "放下"
+  },
+  {
+    "time": "00:39:42",
+    "category": "执行",
+    "action": "发送指令 放下",
+    "result": "成功",
+    "detail": "任务1040"
+  },
+  {
+    "time": "00:39:42",
+    "category": "六轴",
+    "action": "夹爪控制 放下",
+    "result": "成功",
+    "detail": "BIT(20000)=0"
+  },
+  {
+    "time": "00:39:42",
+    "category": "流程",
+    "action": "流程第4步开始",
+    "result": "成功",
+    "detail": "放下"
+  },
+  {
+    "time": "00:39:42",
+    "category": "流程",
+    "action": "流程第3步成功",
+    "result": "成功",
+    "detail": "抓取"
+  },
+  {
+    "time": "00:39:42",
+    "category": "执行",
+    "action": "发送指令 抓取",
+    "result": "成功",
+    "detail": "任务1039"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "夹爪控制 抓取",
+    "result": "成功",
+    "detail": "BIT(20000)=0"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "流程第3步开始",
+    "result": "成功",
+    "detail": "抓取"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "流程第2步成功",
+    "result": "成功",
+    "detail": "位置A"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "发送指令 位置A",
+    "result": "成功",
+    "detail": "任务1038"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "发送指令 中间点-SAFE_POINT",
+    "result": "成功",
+    "detail": "任务1037"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "读取实时坐标",
+    "result": "成功",
+    "detail": "X=100.0 Y=-1.0 Z=180.0"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "执行完成 位置A",
+    "result": "成功",
+    "detail": "IEEE(34)=4"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入触发 位置A",
+    "result": "成功",
+    "detail": "IEEE(32)=1"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(30)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(28)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(26)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(24)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(22)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(20)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(18)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(16)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(14)",
+    "result": "成功",
+    "detail": "values=[300.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(12)",
+    "result": "成功",
+    "detail": "values=[1.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(10)",
+    "result": "成功",
+    "detail": "values=[80.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(8)",
+    "result": "成功",
+    "detail": "values=[1.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(6)",
+    "result": "成功",
+    "detail": "values=[180.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(4)",
+    "result": "成功",
+    "detail": "values=[-1.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(2)",
+    "result": "成功",
+    "detail": "values=[100.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(0)",
+    "result": "成功",
+    "detail": "values=[108.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "规避执行第2步",
+    "result": "成功",
+    "detail": "位置A | -"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "读取实时坐标",
+    "result": "成功",
+    "detail": "X=0.0 Y=0.0 Z=200.0"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "执行完成 中间点-SAFE_POINT",
+    "result": "成功",
+    "detail": "IEEE(34)=4"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入触发 中间点-SAFE_POINT",
+    "result": "成功",
+    "detail": "IEEE(32)=1"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(30)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(28)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(26)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(24)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(22)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(20)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(18)",
+    "result": "成功",
+    "detail": "values=[200.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(16)",
+    "result": "成功",
+    "detail": "values=[200.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(14)",
+    "result": "成功",
+    "detail": "values=[600.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(12)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(10)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(8)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(6)",
+    "result": "成功",
+    "detail": "values=[200.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(4)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(2)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(0)",
+    "result": "成功",
+    "detail": "values=[108.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "规避执行第1步",
+    "result": "成功",
+    "detail": "中间点-SAFE_POINT | 规避中间点：SAFE_POINT"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "规避判断 位置A",
+    "result": "成功",
+    "detail": "规避模式=每次都经过中间点，使用 SAFE_POINT"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "流程第2步开始",
+    "result": "成功",
+    "detail": "位置A"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "流程第1步成功",
+    "result": "成功",
+    "detail": "home"
+  },
+  {
+    "time": "00:39:41",
+    "category": "执行",
+    "action": "发送指令 home",
+    "result": "成功",
+    "detail": "任务1036"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "读取实时坐标",
+    "result": "成功",
+    "detail": "X=1380.0 Y=0.0 Z=1350.0"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "执行完成 home",
+    "result": "成功",
+    "detail": "IEEE(34)=4"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入触发 home",
+    "result": "成功",
+    "detail": "IEEE(32)=1"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(30)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(28)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(26)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(24)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(22)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(20)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(18)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(16)",
+    "result": "成功",
+    "detail": "values=[400.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(14)",
+    "result": "成功",
+    "detail": "values=[300.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(12)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(10)",
+    "result": "成功",
+    "detail": "values=[83.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(8)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(6)",
+    "result": "成功",
+    "detail": "values=[1350.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(4)",
+    "result": "成功",
+    "detail": "values=[0.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(2)",
+    "result": "成功",
+    "detail": "values=[1380.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "六轴",
+    "action": "写入IEEE(0)",
+    "result": "成功",
+    "detail": "values=[108.0]"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "流程第1步开始",
+    "result": "成功",
+    "detail": "home"
+  },
+  {
+    "time": "00:39:41",
+    "category": "流程",
+    "action": "开始流程 222",
+    "result": "成功",
+    "detail": "共 4 步"
+  },
+  {
+    "time": "00:39:37",
+    "category": "六轴",
+    "action": "系统命令 sys_estop",
+    "result": "成功",
+    "detail": "func=104"
+  },
+  {
+    "time": "00:39:36",
+    "category": "六轴",
+    "action": "本地系统命令 sys_resume",
+    "result": "成功",
+    "detail": "func=-5"
+  },
+  {
+    "time": "00:39:35",
+    "category": "六轴",
+    "action": "系统命令 sys_pause",
+    "result": "成功",
+    "detail": "func=104"
+  },
+  {
+    "time": "00:39:34",
+    "category": "六轴",
+    "action": "本地系统命令 auto_stop",
+    "result": "成功",
+    "detail": "func=-5"
+  },
+  {
+    "time": "00:39:33",
+    "category": "六轴",
+    "action": "本地系统命令 auto_start",
+    "result": "成功",
+    "detail": "func=-5"
+  },
+  {
+    "time": "00:39:31",
+    "category": "六轴",
+    "action": "报警复位",
+    "result": "成功",
+    "detail": "BIT(151)=0 恢复"
+  },
+  {
+    "time": "00:39:31",
+    "category": "六轴",
+    "action": "报警复位",
+    "result": "执行",
+    "detail": "BIT(151)=1"
+  },
+  {
+    "time": "00:39:30",
+    "category": "日志",
+    "action": "清空日志",
+    "result": "成功",
+    "detail": "已清空 200 条日志"
+  }
+]

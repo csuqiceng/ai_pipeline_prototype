@@ -1,0 +1,17 @@
+{
+  "cmd": [
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\dist\\RobotModbusLite\\RobotModbusLite.exe",
+    "--iflytek-worker",
+    "--mode",
+    "audio",
+    "--input",
+    "C:\\Users\\a\\AppData\\Local\\Temp\\tmp1g4a8l5a.pcm",
+    "--debug-save-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\dist\\RobotModbusLite\\data\\exported_logs\\voice_debug_20260427_005114.pcm",
+    "--result-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\dist\\RobotModbusLite\\data\\exported_logs\\iflytek_result_20260427_005114.json"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ""
+}

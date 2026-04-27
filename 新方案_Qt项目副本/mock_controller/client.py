@@ -36,7 +36,7 @@ class MockZMotionVrClient:
             raise RuntimeError("控制器未连接。")
         return self._ctrl.read_vr(request.start_vr, request.count)
 
-    # ── V3.0 Modbus TCP 方法 ──────────────────────────────────────
+    # ── Modbus TCP 方法 ─────────────────────────────────────────────
 
     def write_modbus_float(self, request: Any) -> None:
         if not self.connected:

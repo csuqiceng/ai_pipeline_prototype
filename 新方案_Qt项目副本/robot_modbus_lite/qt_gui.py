@@ -87,10 +87,6 @@ SYSTEM_COMMAND_CODES = {
     "sys_resume": 4004,
     "sys_estop": 4002,
 }
-MIRROR_RETRY_COUNT = 5
-MIRROR_RETRY_INTERVAL_SEC = 0.1
-EXECUTION_RETRY_COUNT = 100
-EXECUTION_RETRY_INTERVAL_SEC = 0.1
 
 
 class RobotQtWindow(QMainWindow):
@@ -105,7 +101,7 @@ class RobotQtWindow(QMainWindow):
         client_factory: Callable[[str, Path], ZMotionVrClient] | None = None,
     ) -> None:
         super().__init__()
-        self.setWindowTitle("机械手自然语言编程控制系统 - Qt版")
+        self.setWindowTitle("机械手控制系统")
         self.resize(1380, 860)
 
         self.runtime_root = _runtime_dir()
@@ -153,8 +149,6 @@ class RobotQtWindow(QMainWindow):
         self._last_poll_error = ""
         self._last_realtime_snapshot: tuple[str, str, str, str] | None = None
         self._poll_started_logged = False
-        self._last_polled_status_values: tuple[float, ...] | None = None
-        self._last_polled_monitor_values: tuple[float, ...] | None = None
         self._cached_client = None
         self._cached_client_host = ""
         self._client_cache_lock = threading.Lock()
@@ -248,9 +242,6 @@ class RobotQtWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        header = self._build_header()
-        root_layout.addWidget(header)
-
         main = QWidget()
         main_layout = QHBoxLayout(main)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -273,7 +264,7 @@ class RobotQtWindow(QMainWindow):
         main_layout.addWidget(right_panel)
         root_layout.addWidget(main, 1)
 
-        self.status_label = QLabel(f"第一版 Qt 页面已就绪 | 数据源: {self.json_path}")
+        self.status_label = QLabel(f"系统就绪 | 数据源: {self.json_path}")
         self.status_label.setObjectName("footerStatus")
         self.status_label.setMinimumHeight(28)
 
@@ -291,29 +282,6 @@ class RobotQtWindow(QMainWindow):
         root_layout.addWidget(footer_widget)
 
         self._apply_styles()
-
-    def _build_header(self) -> QWidget:
-        frame = QFrame()
-        frame.setObjectName("header")
-        frame.setFixedHeight(64)
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(12, 2, 12, 2)
-
-        title = QLabel("机械手自然语言编程控制系统")
-        title.setObjectName("title")
-        self.header_status = None
-        layout.addStretch(1)
-        layout.addWidget(title)
-        layout.addStretch(1)
-
-        # 授权状态快捷按钮
-        self._license_btn = QPushButton("授权")
-        self._license_btn.setFlat(True)
-        self._license_btn.setFixedHeight(28)
-        self._license_btn.clicked.connect(self._show_license_dialog)
-        layout.addWidget(self._license_btn)
-
-        return frame
 
     # ---------- 授权管理 ----------
 
@@ -440,7 +408,7 @@ class RobotQtWindow(QMainWindow):
             btn.setProperty("klass", klass)
             btn.clicked.connect(lambda _=False, k=key: self._handle_system_action(k))
             layout.addWidget(btn)
-        status_group = QGroupBox("总状态")
+        status_group = QGroupBox("系统状态")
         status_group.setObjectName("subPanel")
         status_layout = QVBoxLayout(status_group)
         self.status_light_label = QLabel()
@@ -454,6 +422,12 @@ class RobotQtWindow(QMainWindow):
         status_layout.addWidget(self.status_light_detail_label)
         layout.addStretch(1)
         layout.addWidget(status_group)
+
+        self._license_btn = QPushButton("授权")
+        self._license_btn.setFixedHeight(28)
+        self._license_btn.clicked.connect(self._show_license_dialog)
+        layout.addWidget(self._license_btn)
+
         return panel
 
     def _show_page(self, index: int) -> None:
@@ -493,9 +467,9 @@ class RobotQtWindow(QMainWindow):
         link_layout.addWidget(self.controller_combo)
         link_layout.addWidget(QLabel("协议:"))
         self.protocol_combo = QComboBox()
-        self.protocol_combo.addItems(["当前简化协议", "最终标准协议", "V3.0 Modbus TCP"])
-        self.protocol_combo.setCurrentText("V3.0 Modbus TCP")
+        self.protocol_combo.addItems(["Modbus TCP (V2.2)"])
         self.protocol_combo.setMaximumWidth(180)
+        self.protocol_combo.setDisabled(True)
         link_layout.addWidget(self.protocol_combo)
         link_layout.addWidget(QLabel("连接状态:"))
         self.connection_label = QLabel("检测中...")
@@ -563,7 +537,7 @@ class RobotQtWindow(QMainWindow):
         flow_body_layout.addWidget(flow_side, 1)
         flow_layout.addWidget(flow_body)
 
-        self.command_group = QGroupBox("固定指令执行页")
+        self.command_group = QGroupBox("固定指令执行")
         self.command_group.setObjectName("panel")
         self.command_group.setMinimumHeight(300)
         command_box_layout = QVBoxLayout(self.command_group)
@@ -605,7 +579,7 @@ class RobotQtWindow(QMainWindow):
         nlp_left_layout.setSpacing(6)
         nlp_head = QHBoxLayout()
         nlp_head.addWidget(QLabel("输入文本:"))
-        self.nlp_use_deepseek_check = QCheckBox("使用DeepSeek")
+        self.nlp_use_deepseek_check = QCheckBox("在线AI解析")
         self.nlp_use_deepseek_check.setChecked(True)
         nlp_head.addWidget(self.nlp_use_deepseek_check)
         nlp_head.addWidget(QLabel("麦克风:"))
@@ -709,7 +683,7 @@ class RobotQtWindow(QMainWindow):
         top_layout = QHBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(10)
-        self.backend_info = self._make_static_group("后台作用", [
+        self.backend_info = self._make_static_group("功能说明", [
             ("用途", "维护按钮与模板映射"),
             ("支持", "参数型指令"),
             ("支持", "固定函数型无参数"),
@@ -756,7 +730,7 @@ class RobotQtWindow(QMainWindow):
         self.template_tree.itemSelectionChanged.connect(self._on_template_selected)
         left_layout.addWidget(self.template_tree)
 
-        middle = QGroupBox("工程师后台管理")
+        middle = QGroupBox("模板编辑")
         middle.setObjectName("panel")
         middle_layout = QVBoxLayout(middle)
         form_widget = QWidget()
@@ -767,7 +741,8 @@ class RobotQtWindow(QMainWindow):
         self.cmd_combo = QComboBox()
         self.cmd_combo.addItems(COMMAND_TYPES)
         self.template_type_combo = QComboBox()
-        self.template_type_combo.addItems(["parametric", "fixed"])
+        self.template_type_combo.addItem("参数型", "parametric")
+        self.template_type_combo.addItem("固定型", "fixed")
         self.keywords_edit = QLineEdit()
         self.pos_id_edit = QLineEdit("0")
         self.device_id_edit = QLineEdit("1")
@@ -1088,11 +1063,6 @@ class RobotQtWindow(QMainWindow):
             QScrollArea {
                 background: transparent;
                 border: 0;
-            }
-            #header {
-                border-bottom: 2px solid #222;
-                background: #25d9e0;
-                min-height: 64px;
             }
             #nav {
                 background: #cfcfcf;
@@ -1491,7 +1461,7 @@ class RobotQtWindow(QMainWindow):
         self.name_edit.setText(record.query_key)
         self.code_edit.setText(str(standard_command.code))
         self.cmd_combo.setCurrentText(standard_command.cmd)
-        self.template_type_combo.setCurrentText(record.template_type)
+        self.template_type_combo.setCurrentIndex(self.template_type_combo.findData(record.template_type))
         self.keywords_edit.setText(record.keywords)
         self.pos_id_edit.setText(str(record.pos_id))
         self.device_id_edit.setText(str(record.device_id))
@@ -1522,7 +1492,7 @@ class RobotQtWindow(QMainWindow):
             function_id=int(float(self.code_edit.text() or "0")),
             function_name=self.cmd_combo.currentText(),
             data_format="IEE",
-            template_type=self.template_type_combo.currentText(),
+            template_type=self.template_type_combo.currentData(),
             keywords=self.keywords_edit.text().strip(),
             description=self.desc_edit.text().strip(),
             pos_id=int(float(self.pos_id_edit.text() or "0")),
@@ -1885,8 +1855,6 @@ class RobotQtWindow(QMainWindow):
         self.alarm_text_label.setText(self.alarm_text)
         self.io_status_label.setText(self.io_status)
         self.task_label.setText(str(self.task_id))
-        if self.header_status is not None:
-            self.header_status.setText("第一版：任务运行中" if self.busy == "运行中" else "第一版：固定指令 + 后台模板")
         self._refresh_overall_state_indicator()
 
     def _refresh_overall_state_indicator(self) -> None:
@@ -1920,46 +1888,13 @@ class RobotQtWindow(QMainWindow):
         prev_overall, prev_busy, prev_run, prev_alarm = self._last_realtime_snapshot
         curr_overall, curr_busy, curr_run, curr_alarm = current
         detail = (
-            f"总状态 {prev_overall} -> {curr_overall} | "
+            f"系统状态 {prev_overall} -> {curr_overall} | "
             f"忙闲 {prev_busy} -> {curr_busy} | "
             f"实时 {prev_run} -> {curr_run} | "
             f"报警 {prev_alarm} -> {curr_alarm}"
         )
         self._append_log("反馈", "实时状态变化", "成功", detail)
         self._last_realtime_snapshot = current
-
-    def _log_poll_register_values_if_needed(
-        self,
-        *,
-        status_values: list[float],
-        status_request,
-        monitor_values: list[float] | None = None,
-        monitor_request=None,
-    ) -> None:
-        status_tuple = tuple(float(v) for v in status_values)
-        should_log_status = self._last_polled_status_values is None or self._last_polled_status_values != status_tuple
-        if should_log_status:
-            self._append_log(
-                "反馈",
-                "轮询状态区",
-                "成功",
-                f"{self._format_read_request(status_request.start_vr, status_request.count)} -> {status_values}",
-            )
-            self._last_polled_status_values = status_tuple
-
-        if monitor_values is None or monitor_request is None:
-            return
-
-        monitor_tuple = tuple(float(v) for v in monitor_values)
-        should_log_monitor = self._last_polled_monitor_values is None or self._last_polled_monitor_values != monitor_tuple
-        if should_log_monitor:
-            self._append_log(
-                "反馈",
-                "轮询监控区",
-                "成功",
-                f"{self._format_read_request(monitor_request.start_vr, monitor_request.count)} -> {monitor_values}",
-            )
-            self._last_polled_monitor_values = monitor_tuple
 
     def _refresh_logs(self) -> None:
         if not hasattr(self, "log_table"):
@@ -2293,40 +2228,6 @@ class RobotQtWindow(QMainWindow):
             return None
         data = self.mic_device_combo.currentData()
         return int(data) if data is not None else None
-
-    def _transcribe_audio_file(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择音频文件",
-            str(self.runtime_root),
-            "音频文件 (*.pcm *.wav *.mp3 *.m4a);;所有文件 (*.*)",
-        )
-        if not file_path:
-            return
-        try:
-            self._create_iflytek_client()
-            text = self._run_iflytek_worker(["--mode", "audio", "--input", file_path])
-            self.nlp_input_edit.setPlainText(text)
-            self.status_label.setText(f"音频识别完成: {Path(file_path).name}")
-            self._append_log("语音", "导入音频识别", "成功", f"{Path(file_path).name} -> {text or '-'}")
-        except Exception as exc:
-            self._show_critical("音频识别失败", str(exc))
-            self._append_log("语音", "导入音频识别", "失败", str(exc))
-
-    def _transcribe_microphone(self) -> None:
-        try:
-            self._create_iflytek_client()
-            args = ["--mode", "mic", "--duration", "4.0"]
-            selected_device = self._selected_microphone_device()
-            if selected_device is not None:
-                args.extend(["--device", str(selected_device)])
-            text = self._run_iflytek_worker(args)
-            self.nlp_input_edit.setPlainText(text)
-            self.status_label.setText("麦克风识别完成")
-            self._append_log("语音", "麦克风识别", "成功", text or "-")
-        except Exception as exc:
-            self._show_critical("麦克风识别失败", str(exc))
-            self._append_log("语音", "麦克风识别", "失败", str(exc))
 
     def _toggle_microphone_recording(self) -> None:
         # 持久线程：正在采集 → 停止
@@ -2707,7 +2608,7 @@ class RobotQtWindow(QMainWindow):
         self.name_edit.setText("")
         self.code_edit.setText("1001")
         self.cmd_combo.setCurrentText("MOVE_ABS")
-        self.template_type_combo.setCurrentText("parametric")
+        self.template_type_combo.setCurrentIndex(self.template_type_combo.findData("parametric"))
         self.keywords_edit.setText("")
         self.pos_id_edit.setText("0")
         self.device_id_edit.setText("1")
@@ -2934,6 +2835,47 @@ class RobotQtWindow(QMainWindow):
 
         self._run_in_background(work, on_result)
 
+    def _after_send(self, record: QueryRecord, ok: bool, error: str, feedback: list[float] | None = None) -> None:
+        self.history.insert(0, {
+            "task": self.task_id,
+            "code": self.service.build_standard_command_from_record(record, task_id=self.task_id).code,
+            "name": record.query_key,
+            "type": "固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令",
+            "result": "成功" if ok else "失败",
+        })
+        if ok:
+            self.busy = "运行中"
+            self.result = "0"
+            self.alarm_code = "ERR_000"
+            self.alarm_text = "系统正常"
+            if feedback:
+                self._apply_feedback_values(record, feedback)
+            elif record.template_type != "fixed":
+                self.robot_x = self._fmt(record.registers[0])
+                self.robot_y = self._fmt(record.registers[1])
+                self.robot_z = self._fmt(record.registers[2])
+                self.robot_r = f"{self._fmt(record.registers[3])} / {self._fmt(record.registers[4])} / {self._fmt(record.registers[5])}"
+                self.robot_speed = f"{self._fmt(record.registers[6])}% / {self.acc_edit.text()}%"
+            self.task_id += 1
+            self.status_label.setText(f"已执行: {record.query_key}")
+            self._append_log("执行", f"发送指令 {record.query_key}", "成功", f"任务{self.task_id - 1}")
+        else:
+            self.busy = "空闲"
+            self.result = "9"
+            if "通讯故障" in error or "镜像区连续" in error:
+                self.alarm_code = "ERR_COMM"
+                self.alarm_text = "镜像确认失败，判定通讯故障"
+            else:
+                self.alarm_code = "ERR_SEND"
+                self.alarm_text = error
+            self.status_label.setText(f"发送失败: {error}")
+            self._show_critical("发送失败", error)
+            self._append_log("执行", f"发送指令 {record.query_key}", "失败", error)
+        if ok:
+            self._refresh_all()
+        else:
+            self._refresh_status_labels()
+
     def _build_execution_plan(self, record: QueryRecord) -> tuple[list[QueryRecord], str]:
         safe_point, reason = self._select_safe_point_for_record(record)
         if safe_point is None:
@@ -3026,176 +2968,120 @@ class RobotQtWindow(QMainWindow):
         return values[0], values[1], values[2]
 
     def _execute_send_by_protocol(self, client: ControllerClient, record: QueryRecord) -> list[float]:
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-            return self._execute_send_v30(client, record)
-        if self.protocol_combo.currentText() == "最终标准协议":
-            command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
-            write_request = command.to_write_request()
-            client.write_vr(write_request)
-            self._append_log(
-                "寄存器",
-                f"写入标准协议 {record.query_key}",
-                "成功",
-                self._format_write_request(write_request),
-            )
-            mirror_request = self.service.build_standard_mirror_ack_read()
-            self._wait_for_mirror_match(client, write_request, mirror_request, record.query_key)
-            exec_request = self.service.build_standard_execute_trigger_write()
-            client.write_vr(exec_request)
-            self._append_log(
-                "寄存器",
-                f"写入执行触发 {record.query_key}",
-                "成功",
-                self._format_write_request(exec_request),
-            )
-            read_request = self.service.build_standard_status_read()
-            values = self._wait_for_execution_complete(client, read_request, record.query_key)
-            return values
-        _, command = self.service.build_fixed_command_from_key(record.query_key)
-        payload_request = VrWriteRequest(start_vr=command.payload_start_vr, values=command.payload_values)
-        trigger_request = VrWriteRequest(start_vr=command.trigger_vr, values=(command.trigger_value,))
-        client.write_vr(payload_request)
-        self._append_log(
-            "寄存器",
-            f"写入简化负载 {record.query_key}",
-            "成功",
-            self._format_write_request(payload_request),
-        )
-        client.write_vr(trigger_request)
-        self._append_log(
-            "寄存器",
-            f"写入简化触发 {record.query_key}",
-            "成功",
-            self._format_write_request(trigger_request),
-        )
-        read_request = self.service.build_status_read()
-        values = client.read_vr(read_request)
-        self._append_log(
-            "寄存器",
-            f"读取简化反馈 {record.query_key}",
-            "成功",
-            f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
-        )
-        return values
+        return self._execute_send_six(client, record)
 
-    def _execute_send_v30(self, client: ControllerClient, record: QueryRecord) -> list[float]:
-        # 1. 前置检查: BIT(243)==0 且 IEEE(34)==0或4
-        precheck_ieee, precheck_bit = self.service.build_v30_precheck_reads()
-        alarm_bits = client.read_modbus_bit(precheck_bit, 1)
-        if alarm_bits and alarm_bits[0] != 0:
-            raise RuntimeError(f"前置检查失败: BIT({precheck_bit})={alarm_bits[0]} 控制器有报警")
-        status_vals = client.read_modbus_float(precheck_ieee)
-        v30_status = self.service.parse_v30_status(status_vals)
-        if not v30_status.can_send:
-            raise RuntimeError(f"前置检查失败: IEEE(34)={v30_status.raw} 控制器未就绪")
+    def _execute_send_six(self, client: ControllerClient, record: QueryRecord) -> list[float]:
+        """六轴机械手协议执行流程 (Func 104/106/107/108)"""
+        # 1. 构建六轴命令
+        six_cmd = self.service.build_six_command_from_record(record)
 
-        # 2. 构建 V3.0 命令并写入
-        v30_cmd = self.service.build_v30_command_from_record(record)
+        # 2. 判断是否跳过前置检查
+        skip_precheck = (
+            six_cmd.func_num == 104          # Func104急停/慢停: 不需要前置检查
+            or six_cmd.func_num == -10       # ALARM_RESET: 报警时can_send为false，必须跳过
+            or six_cmd.func_num < 0          # 其他本地命令
+        )
 
-        # GRIP_SET: 写BIT口控制夹爪
-        if v30_cmd.func_num == -1:
-            grip_bit = 20000  # BIT(20000) 对应 OUT(0)
-            client.write_modbus_bit(grip_bit, [v30_cmd.io_grip])
-            self._append_log("Modbus", f"夹爪控制 {record.query_key}", "成功", f"BIT({grip_bit})={v30_cmd.io_grip}")
+        # 3. 前置检查 (非跳过时)
+        if not skip_precheck:
+            status_read = self.service.build_six_status_read()
+            status_vals = client.read_modbus_float(status_read)
+            six_status = self.service.parse_six_status(status_vals)
+            if not six_status.can_send:
+                raise RuntimeError(f"六轴前置检查失败: IEEE(34)={six_status.raw} 控制器未就绪")
+
+        # 4. 本地命令处理
+        if six_cmd.func_num == -10:
+            # ALARM_RESET: 写BIT(151)=1 → 轮询确认 → 写BIT(151)=0
+            client.write_modbus_bit(151, [1])
+            self._append_log("六轴", f"报警复位 {record.query_key}", "执行", "BIT(151)=1")
+            status_read = self.service.build_six_status_read()
+            for _ in range(10):
+                time.sleep(0.05)
+                vals = client.read_modbus_float(status_read)
+                st = self.service.parse_six_status(vals)
+                if not st.has_alarm and st.can_send:
+                    break
+            client.write_modbus_bit(151, [0])
+            self._append_log("六轴", f"报警复位 {record.query_key}", "成功", "BIT(151)=0 恢复")
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            return client.read_modbus_float(xyz_read)
+
+        if six_cmd.func_num == -1:
+            client.write_modbus_bit(20000, [six_cmd.io_grip])
+            self._append_log("六轴", f"夹爪控制 {record.query_key}", "成功", f"BIT(20000)={six_cmd.io_grip}")
             time.sleep(0.1)
-            rt_read = self.service.build_v30_realtime_read()
-            return client.read_modbus_float(rt_read)
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            return client.read_modbus_float(xyz_read)
 
-        # WAIT_MS: 上位机本地延时
-        if v30_cmd.func_num == -2:
-            delay_ms = v30_cmd.ext_p1
-            self._append_log("Modbus", f"等待 {record.query_key}", "成功", f"延时{delay_ms}ms")
+        if six_cmd.func_num == -2:
+            delay_ms = six_cmd.ext_p1
+            self._append_log("六轴", f"等待 {record.query_key}", "成功", f"延时{delay_ms}ms")
             time.sleep(min(delay_ms / 1000.0, 2.0))
-            rt_read = self.service.build_v30_realtime_read()
-            return client.read_modbus_float(rt_read)
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            return client.read_modbus_float(xyz_read)
 
-        # DOOR_CTRL: 写BIT口控制门
-        if v30_cmd.func_num == -3:
-            door_bit = 20001  # BIT(20001) 对应 OUT(1)
-            client.write_modbus_bit(door_bit, [v30_cmd.io_door])
-            self._append_log("Modbus", f"门控制 {record.query_key}", "成功", f"BIT({door_bit})={v30_cmd.io_door}")
+        if six_cmd.func_num == -3:
+            client.write_modbus_bit(20001, [six_cmd.io_door])
+            self._append_log("六轴", f"门控制 {record.query_key}", "成功", f"BIT(20001)={six_cmd.io_door}")
             time.sleep(0.1)
-            rt_read = self.service.build_v30_realtime_read()
-            return client.read_modbus_float(rt_read)
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            return client.read_modbus_float(xyz_read)
 
-        # 本地操作 (CHECK_IN, RESUME, AUTO_START/STOP, FIXED_FUNC): 无需发下位机
-        if v30_cmd.func_num < 0:
-            self._append_log("Modbus", f"本地操作 {record.query_key}", "成功", f"func={v30_cmd.func_num}")
+        if six_cmd.func_num < 0:
+            self._append_log("六轴", f"本地操作 {record.query_key}", "成功", f"func={six_cmd.func_num}")
             time.sleep(0.05)
-            rt_read = self.service.build_v30_realtime_read()
-            return client.read_modbus_float(rt_read)
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            return client.read_modbus_float(xyz_read)
 
-        for wr in v30_cmd.to_func_writes():
+        # 5. 写参数
+        for wr in six_cmd.to_func_writes():
             client.write_modbus_float(wr)
-            self._append_log("Modbus", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
+            self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
-        # 3. 写触发 IEEE(32)=1
-        trigger = v30_cmd.to_trigger_write()
+        # 6. 参数回显校验: 读回IEEE(0)和IEEE(2)对比
+        echo_read = client.read_modbus_float(VrReadRequest(start_vr=0, count=3))
+        if echo_read and abs(echo_read[0] - float(six_cmd.func_num)) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(0)期望={six_cmd.func_num}, 实际={echo_read[0]}")
+        # IEEE(2)是第一个参数: Func104=stop_mode, Func108=target_x
+        if six_cmd.func_num == 104 and abs(echo_read[2] - float(six_cmd.stop_mode)) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.stop_mode}, 实际={echo_read[2]}")
+        if six_cmd.func_num == 108 and abs(echo_read[2] - six_cmd.target_x) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.target_x}, 实际={echo_read[2]}")
+
+        # 7. 写触发 IEEE(32)=1
+        trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
-        self._append_log("Modbus", f"写入触发 {record.query_key}", "成功", f"IEEE(32)=1")
+        self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
 
-        # 4. 轮询 IEEE(34)==4 等待完成
-        status_read = self.service.build_v30_status_read()
+        # 8. 轮询 IEEE(34)
+        status_read = self.service.build_six_status_read()
         for _ in range(100):
             time.sleep(0.05)
             vals = client.read_modbus_float(status_read)
-            st = self.service.parse_v30_status(vals)
-            if st.is_complete:
-                if st.has_alarm:
-                    raise RuntimeError(f"V3.0完成但带报警: IEEE(34)={st.raw}")
-                self._append_log("Modbus", f"执行完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}")
+            st = self.service.parse_six_status(vals)
+            if st.has_error:
+                raise RuntimeError(f"六轴执行错误: IEEE(34)={st.raw}")
+            if st.is_complete and not st.has_alarm:
+                self._append_log("六轴", f"执行完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}")
                 break
-            if st.has_alarm:
-                raise RuntimeError(f"V3.0执行报警: IEEE(34)={st.raw}")
+            if st.is_complete and st.has_alarm:
+                # 68=完成+报警: 运动已结束，读IEEE(38)记录警告，不中断
+                alarm_read = self.service.build_six_alarm_detail_read()
+                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
+                self._append_log("六轴", f"完成+报警 {record.query_key}", "警告",
+                                 f"IEEE(34)={st.raw}, 详情: {alarm_detail}")
+                break
         else:
-            raise RuntimeError(f"V3.0执行超时: {record.query_key}")
+            raise RuntimeError(f"六轴执行超时: {record.query_key}")
 
-        # 5. 读实时坐标作为反馈
-        rt_read = self.service.build_v30_realtime_read()
-        rt_vals = client.read_modbus_float(rt_read)
-        self._append_log("Modbus", f"读取实时坐标", "成功", f"X={rt_vals[0]:.1f} Y={rt_vals[1]:.1f} Z={rt_vals[2]:.1f}")
-        return rt_vals
-
-    def _after_send(self, record: QueryRecord, ok: bool, error: str, feedback: list[float] | None = None) -> None:
-        self.history.insert(0, {
-            "task": self.task_id,
-            "code": self.service.build_standard_command_from_record(record, task_id=self.task_id).code,
-            "name": record.query_key,
-            "type": "固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令",
-            "result": "成功" if ok else "失败",
-        })
-        if ok:
-            self.busy = "运行中"
-            self.result = "0"
-            self.alarm_code = "ERR_000"
-            self.alarm_text = "系统正常"
-            if feedback:
-                self._apply_feedback_values(record, feedback)
-            elif record.template_type != "fixed":
-                self.robot_x = self._fmt(record.registers[0])
-                self.robot_y = self._fmt(record.registers[1])
-                self.robot_z = self._fmt(record.registers[2])
-                self.robot_r = f"{self._fmt(record.registers[3])} / {self._fmt(record.registers[4])} / {self._fmt(record.registers[5])}"
-                self.robot_speed = f"{self._fmt(record.registers[6])}% / {self.acc_edit.text()}%"
-            self.task_id += 1
-            self.status_label.setText(f"已执行: {record.query_key}")
-            self._append_log("执行", f"发送指令 {record.query_key}", "成功", f"任务{self.task_id - 1}")
-        else:
-            self.busy = "空闲"
-            self.result = "9"
-            if "通讯故障" in error or "镜像区连续" in error:
-                self.alarm_code = "ERR_COMM"
-                self.alarm_text = "镜像确认失败，判定通讯故障"
-            else:
-                self.alarm_code = "ERR_SEND"
-                self.alarm_text = error
-            self.status_label.setText(f"发送失败: {error}")
-            self._show_critical("发送失败", error)
-            self._append_log("执行", f"发送指令 {record.query_key}", "失败", error)
-        if ok:
-            self._refresh_all()
-        else:
-            self._refresh_status_labels()
+        # 9. 读实时坐标: 两组分别读取
+        xyz_read = self.service.build_six_realtime_xyz_read()
+        xyz_vals = client.read_modbus_float(xyz_read)
+        self._append_log("六轴", "读取实时坐标", "成功",
+                         f"X={xyz_vals[0]:.1f} Y={xyz_vals[1]:.1f} Z={xyz_vals[2]:.1f}")
+        return xyz_vals
 
     def _read_feedback(self) -> None:
         host = self.host_edit.text().strip()
@@ -3226,81 +3112,9 @@ class RobotQtWindow(QMainWindow):
             if on_done:
                 on_done(False)
             return
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-            self._handle_system_action_v30(action_key, on_done=on_done)
-            return
-        if self.protocol_combo.currentText() != "最终标准协议":
-            self._apply_legacy_system_action(action_key)
-            self._append_log("系统", action_key, "成功", "简化协议页面动作")
-            if on_done:
-                on_done(True)
-            return
-        host = self.host_edit.text().strip()
-        if not host:
-            self._show_warning("地址为空", "请输入控制器地址。")
-            self._append_log("系统", action_key, "失败", "地址为空")
-            if on_done:
-                on_done(False)
-            return
+        self._handle_system_action_six(action_key, on_done=on_done)
 
-        code = SYSTEM_COMMAND_CODES[action_key]
-        action_text = next(k for k, v in SYSTEM_COMMANDS.items() if v[0] == action_key)
-        command = self.service.build_standard_system_command(
-            code=code,
-            task_id=self.task_id,
-            desc=SYSTEM_COMMANDS[action_text][1],
-        )
-        self._pause_polling()
-
-        def work():
-            client = self._get_client(host)
-            write_request = command.to_write_request()
-            client.write_vr(write_request)
-            self._append_log("寄存器", f"写入系统命令 {action_key}", "成功", self._format_write_request(write_request))
-            mirror_request = self.service.build_standard_mirror_ack_read()
-            self._wait_for_mirror_match(client, write_request, mirror_request, action_key)
-            exec_request = self.service.build_standard_execute_trigger_write()
-            client.write_vr(exec_request)
-            self._append_log(
-                "寄存器",
-                f"写入系统执行触发 {action_key}",
-                "成功",
-                self._format_write_request(exec_request),
-            )
-            read_request = self.service.build_standard_status_read()
-            feedback = self._wait_for_execution_complete(client, read_request, action_key)
-            return feedback
-
-        def on_result(result):
-            self._resume_polling()
-            if isinstance(result, Exception):
-                self._disconnect_client()
-                self.status_label.setText(f"系统命令失败: {result}")
-                self._show_critical("系统命令失败", str(result))
-                self._append_log("系统", action_key, "失败", str(result))
-                if on_done:
-                    on_done(False)
-                return
-            feedback = result
-            ok, error = self._evaluate_feedback_result(feedback)
-            if ok:
-                self._apply_feedback_values(None, feedback)
-                self._apply_legacy_system_action(action_key, update_status=False)
-                self.task_id += 1
-                self.status_label.setText(SYSTEM_COMMANDS[action_text][1])
-                self._refresh_status_labels()
-                self._append_log("系统", action_key, "成功", f"命令码 {code}")
-            else:
-                self.status_label.setText(f"系统命令失败: {error}")
-                self._show_critical("系统命令失败", error)
-                self._append_log("系统", action_key, "失败", error)
-                self._refresh_status_labels()
-            if on_done:
-                on_done(ok)
-
-        self._run_in_background(work, on_result)
-
-    def _handle_system_action_v30(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
+    def _handle_system_action_six(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         host = self.host_edit.text().strip()
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
@@ -3312,39 +3126,58 @@ class RobotQtWindow(QMainWindow):
 
         def work():
             client = self._get_client(host)
-            v30_cmd = self.service.build_v30_system_command(code)
-            # 本地操作 (RESUME, AUTO_START/STOP): 不发下位机
-            if v30_cmd.func_num < 0:
-                self._append_log("Modbus", f"本地系统命令 {action_key}", "成功", f"func={v30_cmd.func_num}")
+            six_cmd = self.service.build_six_system_command(code)
+
+            # 本地操作: 不发下位机
+            if six_cmd.func_num < 0 and six_cmd.func_num != -10:
+                self._append_log("六轴", f"本地系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
                 return []
-            for wr in v30_cmd.to_func_writes():
+
+            # ALARM_RESET: BIT(151)=1 → 轮询 → BIT(151)=0
+            if six_cmd.func_num == -10:
+                client.write_modbus_bit(151, [1])
+                self._append_log("六轴", "报警复位", "执行", "BIT(151)=1")
+                status_read = self.service.build_six_status_read()
+                for _ in range(10):
+                    time.sleep(0.05)
+                    vals = client.read_modbus_float(status_read)
+                    st = self.service.parse_six_status(vals)
+                    if not st.has_alarm and st.can_send:
+                        break
+                client.write_modbus_bit(151, [0])
+                self._append_log("六轴", "报警复位", "成功", "BIT(151)=0 恢复")
+                return []
+
+            # Func104: 跳过前置检查直接执行
+            for wr in six_cmd.to_func_writes():
                 client.write_modbus_float(wr)
-            client.write_modbus_float(v30_cmd.to_trigger_write())
-            self._append_log("Modbus", f"系统命令 {action_key}", "成功", f"func={v30_cmd.func_num}")
+            client.write_modbus_float(six_cmd.to_trigger_write())
+            self._append_log("六轴", f"系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
+
             # 轮询完成
-            status_read = self.service.build_v30_status_read()
+            status_read = self.service.build_six_status_read()
             for _ in range(60):
                 time.sleep(0.05)
                 vals = client.read_modbus_float(status_read)
-                st = self.service.parse_v30_status(vals)
-                if st.is_complete or st.is_idle:
+                st = self.service.parse_six_status(vals)
+                if st.is_complete and not st.has_error:
                     return []
-                if st.has_alarm:
-                    raise RuntimeError(f"V3.0系统命令报警: IEEE(34)={st.raw}")
-            raise RuntimeError(f"V3.0系统命令超时: {action_key}")
+                if st.has_error:
+                    raise RuntimeError(f"六轴系统命令错误: IEEE(34)={st.raw}")
+            raise RuntimeError(f"六轴系统命令超时: {action_key}")
 
         def on_result(result):
             self._resume_polling()
             if isinstance(result, Exception):
                 self._disconnect_client()
-                self.status_label.setText(f"系统命令失败: {result}")
+                self.status_label.setText(f"六轴系统命令失败: {result}")
                 self._show_critical("系统命令失败", str(result))
                 if on_done:
                     on_done(False)
                 return
             self._apply_legacy_system_action(action_key, update_status=True)
             self.task_id += 1
-            self.status_label.setText(f"V3.0 {action_key} 完成")
+            self.status_label.setText(f"六轴 {action_key} 完成")
             self._refresh_status_labels()
             if on_done:
                 on_done(True)
@@ -3390,8 +3223,8 @@ class RobotQtWindow(QMainWindow):
     def _apply_feedback_values(self, record: QueryRecord | None, values: list[float]) -> None:
         if not values:
             return
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP" and len(values) >= 3:
-            rt = self.service.parse_v30_realtime(values)
+        if len(values) >= 3:
+            rt = self.service.parse_six_realtime([], values)
             self.result = "0"
             self.busy = "空闲"
             self.robot_x = self._fmt(rt.x)
@@ -3399,18 +3232,6 @@ class RobotQtWindow(QMainWindow):
             self.robot_z = self._fmt(rt.z)
             if len(values) >= 6:
                 self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
-            return
-        if len(values) >= 10 and self.protocol_combo.currentText() == "最终标准协议":
-            status = self.service.parse_standard_status(values)
-            self.result = str(status.result)
-            self.busy = self._status_text(status.status)
-            self.alarm_code = "ERR_000" if status.alm_code == 0 else f"ERR_{status.alm_code}"
-            self.alarm_text = "系统正常" if status.alm_code == 0 else "控制器报警"
-            self.robot_x = self._fmt(status.cur_x)
-            self.robot_y = self._fmt(status.cur_y)
-            self.robot_z = self._fmt(status.cur_z)
-            self.robot_r = f"{self._fmt(status.cur_rx)} / {self._fmt(status.cur_ry)} / {self._fmt(status.cur_rz)}"
-            self.io_status = str(status.io_stat)
             return
         result_code = int(values[0])
         status_code = int(values[1]) if len(values) > 1 else (1 if record else 0)
@@ -3442,15 +3263,14 @@ class RobotQtWindow(QMainWindow):
             return "速度百分比必须在 0 到 100 之间。"
         if not (0 <= record.acc_percent <= 100):
             return "加速度百分比必须在 0 到 100 之间。"
-        if self.protocol_combo.currentText() in ("最终标准协议", "V3.0 Modbus TCP"):
-            standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
-            if standard_command.code == 1001:
-                if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
-                    return f"X 坐标超出范围 {self.axis_ranges.x}。"
-                if not (self.axis_ranges.y[0] <= record.registers[1] <= self.axis_ranges.y[1]):
-                    return f"Y 坐标超出范围 {self.axis_ranges.y}。"
-                if not (self.axis_ranges.z[0] <= record.registers[2] <= self.axis_ranges.z[1]):
-                    return f"Z 坐标超出范围 {self.axis_ranges.z}。"
+        standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
+        if standard_command.code == 1001:
+            if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
+                return f"X 坐标超出范围 {self.axis_ranges.x}。"
+            if not (self.axis_ranges.y[0] <= record.registers[1] <= self.axis_ranges.y[1]):
+                return f"Y 坐标超出范围 {self.axis_ranges.y}。"
+            if not (self.axis_ranges.z[0] <= record.registers[2] <= self.axis_ranges.z[1]):
+                return f"Z 坐标超出范围 {self.axis_ranges.z}。"
         return None
 
     @staticmethod
@@ -3462,8 +3282,8 @@ class RobotQtWindow(QMainWindow):
             3: "故障",
         }.get(status_code, f"状态{status_code}")
 
-    def _sync_template_type_mode(self, template_type: str) -> None:
-        is_fixed = template_type == "fixed"
+    def _sync_template_type_mode(self, *_) -> None:
+        is_fixed = self.template_type_combo.currentData() == "fixed"
         for widget in self.param_widgets:
             widget.setDisabled(is_fixed)
 
@@ -3547,41 +3367,26 @@ class RobotQtWindow(QMainWindow):
             return
         self._polling_feedback = True
         try:
-            if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-                rt_read = self.service.build_v30_realtime_read()
-                host = self.host_edit.text().strip()
-                client = self._get_client(host)
-                rt_vals = client.read_modbus_float(rt_read)
-                self._apply_feedback_values(None, rt_vals)
-                st_read = self.service.build_v30_status_read()
-                st_vals = client.read_modbus_float(st_read)
-                v30_status = self.service.parse_v30_status(st_vals)
-                self.busy = "空闲" if v30_status.is_idle or v30_status.is_complete else "运行中"
-                if v30_status.has_alarm:
-                    self.alarm_text = f"V3.0报警 IEEE(34)={v30_status.raw}"
-                    self.alarm_code = f"ERR_V30_{v30_status.raw}"
-                else:
-                    self.alarm_text = "系统正常"
-                    self.alarm_code = "ERR_000"
-                self._refresh_status_labels()
-            elif self.protocol_combo.currentText() == "最终标准协议":
-                status_values, status_request = self._read_feedback_once()
-                self._apply_feedback_values(None, status_values)
-                values, monitor_request = self._read_realtime_once()
-                self._apply_realtime_values(values)
-                self._log_poll_register_values_if_needed(
-                    status_values=status_values,
-                    status_request=status_request,
-                    monitor_values=values,
-                    monitor_request=monitor_request,
-                )
+            xyz_read = self.service.build_six_realtime_xyz_read()
+            client = self._get_client(host)
+            xyz_vals = client.read_modbus_float(xyz_read)
+            self._apply_feedback_values(None, xyz_vals)
+            st_read = self.service.build_six_status_read()
+            st_vals = client.read_modbus_float(st_read)
+            six_status = self.service.parse_six_status(st_vals)
+            self.busy = "空闲" if six_status.can_send else "运行中"
+            if six_status.has_alarm:
+                alarm_read = self.service.build_six_alarm_detail_read()
+                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
+                self.alarm_text = f"报警: {alarm_detail}"
+                self.alarm_code = f"ERR_{six_status.raw}"
+            elif six_status.has_error:
+                self.alarm_text = f"错误 IEEE(34)={six_status.raw}"
+                self.alarm_code = f"ERR_{six_status.raw}"
             else:
-                values, read_request = self._read_feedback_once()
-                self._apply_feedback_values(None, values)
-                self._log_poll_register_values_if_needed(
-                    status_values=values,
-                    status_request=read_request,
-                )
+                self.alarm_text = "系统正常"
+                self.alarm_code = "ERR_000"
             self.monitor_label.setText("实时监控运行中")
             self._refresh_status_labels()
             if not self._poll_started_logged:
@@ -3603,141 +3408,14 @@ class RobotQtWindow(QMainWindow):
     def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
         host = self.host_edit.text().strip()
         client = self._get_client(host)
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-            read_request = self.service.build_v30_status_read()
-            values = client.read_modbus_float(read_request)
-        elif self.protocol_combo.currentText() == "最终标准协议":
-            read_request = self.service.build_standard_status_read()
-            values = client.read_vr(read_request)
-        else:
-            read_request = self.service.build_status_read()
-            values = client.read_vr(read_request)
+        read_request = self.service.build_six_status_read()
+        values = client.read_modbus_float(read_request)
         return values, read_request
-
-    def _read_realtime_once(self) -> tuple[list[float], VrReadRequest]:
-        host = self.host_edit.text().strip()
-        client = self._get_client(host)
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-            read_request = self.service.build_v30_realtime_read()
-            values = client.read_modbus_float(read_request)
-        else:
-            read_request = self.service.build_standard_monitor_read()
-            values = client.read_vr(read_request)
-        return values, read_request
-
-    def _apply_realtime_values(self, values: list[float]) -> None:
-        if len(values) < 12:
-            self._append_log("反馈", "实时状态更新", "跳过", f"数据不足: 期望 >=12，实际 {len(values)}")
-            return
-        status = self.service.parse_standard_realtime_status(values)
-        self.robot_x = self._fmt(status.cur_x)
-        self.robot_y = self._fmt(status.cur_y)
-        self.robot_z = self._fmt(status.cur_z)
-        self.robot_r = f"{self._fmt(status.cur_rx)} / {self._fmt(status.cur_ry)} / {self._fmt(status.cur_rz)}"
-        self.claw_enable = str(status.claw_enable)
-        self.claw_brake = str(status.claw_brake)
-        self.servo_enable = str(status.servo_enable)
-        self.run_state = self._status_text(status.run_state)
-        self.busy = self._status_text(status.run_state)
-        self.alarm_code = "ERR_000" if status.alm_code == 0 else f"ERR_{status.alm_code}"
-        self.alarm_text = "系统正常" if status.alm_code == 0 else "控制器报警"
-        self.io_status = str(status.io_stat)
-        self.monitor_task = str(status.echo_task_id) if status.echo_task_id else "-"
-        self.motion_percent = f"{self._fmt(status.motion_percent)}%"
-        self.echo_cmd = str(status.echo_cmd_code) if status.echo_cmd_code else "-"
-        self.exec_state = str(status.exec_trigger)
-
-    def _wait_for_mirror_match(
-        self,
-        client: ControllerClient,
-        request: VrWriteRequest,
-        mirror_request,
-        query_key: str,
-    ) -> None:
-        attempts: list[tuple[float, ...]] = []
-
-        while len(attempts) < MIRROR_RETRY_COUNT:
-            time.sleep(MIRROR_RETRY_INTERVAL_SEC)
-            mirror_values = client.read_vr(mirror_request)
-            self._append_log(
-                "寄存器",
-                f"轮询镜像区 {query_key}",
-                "成功",
-                f"{self._format_read_request(mirror_request.start_vr, mirror_request.count)} -> {mirror_values}",
-            )
-            mirror_data = self.service.parse_standard_mirror_ack(mirror_values).mirror_values
-            attempts.append(mirror_data)
-            if self._values_equal(request.values, mirror_data):
-                self._append_log(
-                    "执行",
-                    f"镜像确认 {query_key}",
-                    "成功",
-                    f"第 {len(attempts)} 次比对一致，进入执行触发",
-                )
-                return
-
-        raise RuntimeError(f"镜像区连续 {MIRROR_RETRY_COUNT} 次比对不一致，判定通讯故障。")
-
-    def _wait_for_execution_complete(
-        self,
-        client: ControllerClient,
-        read_request: VrReadRequest,
-        query_key: str,
-    ) -> list[float]:
-        self._append_log(
-            "执行",
-            f"等待执行完成 {query_key}",
-            "成功",
-            f"轮询 {self._format_read_request(read_request.start_vr, read_request.count)}，最多 {EXECUTION_RETRY_COUNT} 次",
-        )
-        last_values: list[float] = []
-        for attempt in range(1, EXECUTION_RETRY_COUNT + 1):
-            values = client.read_vr(read_request)
-            last_values = values
-            status = self.service.parse_standard_status(values)
-            self._append_log(
-                "寄存器",
-                f"轮询执行状态 {query_key}",
-                "成功",
-                f"第 {attempt} 次 {self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
-            )
-            if status.status != 1:
-                self._append_log(
-                    "执行",
-                    f"执行完成确认 {query_key}",
-                    "成功" if status.result == 0 else "失败",
-                    f"STATUS={status.status}, RESULT={status.result}, ALM={status.alm_code}",
-                )
-                self._append_log(
-                    "寄存器",
-                    f"读取标准反馈 {query_key}",
-                    "成功",
-                    f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
-                )
-                return values
-            time.sleep(EXECUTION_RETRY_INTERVAL_SEC)
-        raise RuntimeError(
-            f"等待执行完成超时: {query_key} 在 {EXECUTION_RETRY_COUNT * EXECUTION_RETRY_INTERVAL_SEC:.1f}s 内未结束，最后反馈 {last_values}"
-        )
 
     def _evaluate_feedback_result(self, feedback: list[float] | None) -> tuple[bool, str]:
-        if not feedback:
-            return True, ""
-        if self.protocol_combo.currentText() == "V3.0 Modbus TCP":
-            return True, ""
-        if self.protocol_combo.currentText() == "最终标准协议" and len(feedback) >= 10:
-            status = self.service.parse_standard_status(feedback)
-            if status.result == 0:
-                return True, ""
-            detail = f"控制器执行失败: RESULT={status.result}, ALM={status.alm_code}"
-            return False, detail
-        try:
-            result_code = int(feedback[0])
-        except (ValueError, TypeError, IndexError):
-            return True, ""
-        if result_code == 0:
-            return True, ""
-        return False, f"控制器执行失败: RESULT={result_code}"
+        # 六轴协议的错误通过异常传递（on_result 的 isinstance(result, Exception) 分支），
+        # 能走到这里的都是成功返回的坐标值。
+        return True, ""
 
     def _start_flow(self, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:

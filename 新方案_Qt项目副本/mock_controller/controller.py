@@ -12,18 +12,37 @@ from .protocol import (
     ALM_SPEED_LIMIT,
     CMD,
     EXEC_TRIGGER_VR,
-    FuncV3,
+    FuncSixAxis,
     MIRROR_VR_COUNT,
     MIRROR_VR_START,
-    MODBUS_ALARM_BIT,
     MODBUS_FUNC_ADDR,
-    MODBUS_RT_XYZ_START,
     MODBUS_STATUS_ADDR,
     MODBUS_TRIGGER_ADDR,
     MONITOR_VR_START,
     RESULT_FAIL,
     RESULT_OK,
     SAFETY_MIN_AUTO,
+    SIX_ALARM_BIT,
+    SIX_ALARM_DETAIL_ADDR,
+    SIX_CURR_FUNC_ADDR,
+    SIX_P_AXIS_NO,
+    SIX_P_POS_VAL,
+    SIX_P_TARGET_X,
+    SIX_P_TARGET_Y,
+    SIX_P_TARGET_Z,
+    SIX_P_TARGET_RX,
+    SIX_P_TARGET_RY,
+    SIX_P_TARGET_RZ,
+    SIX_RT_J_START,
+    SIX_RT_XYZ_START,
+    SIX_108_FUZZY_POS,
+    SIX_SAFE_R_MAX,
+    SIX_SAFE_Z_MAX,
+    SIX_STATUS_COMPLETE,
+    SIX_STATUS_COMPLETE_ALARM,
+    SIX_STATUS_ERROR,
+    SIX_STATUS_EXECUTING,
+    SIX_STATUS_RECEIVED,
     SPEED_MAX_AUTO,
     SPEED_MAX_DANGER,
     SPEED_MAX_DEBUG,
@@ -31,18 +50,7 @@ from .protocol import (
     STATUS_IDLE,
     STATUS_PAUSED,
     STATUS_RUNNING,
-    V30_P_RX,
-    V30_P_RY,
-    V30_P_RZ,
-    V30_P_X,
-    V30_P_Y,
-    V30_P_Z,
-    V30_STATUS_ALARM_ILLEGAL,
-    V30_STATUS_COMPLETE,
-    V30_STATUS_EXECUTING,
-    V30_STATUS_IDLE,
     VR_OFFSET,
-    VR_SIZE,
     VR_TOTAL,
     X_RANGE,
     Y_RANGE,
@@ -66,12 +74,12 @@ class MockController:
         # V3.0 Modbus 寄存器
         self._modbus_ieee: list[float] = [0.0] * 2048
         self._modbus_bit: list[int] = [0] * 24000
-        self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_IDLE)
-        self._modbus_bit[MODBUS_ALARM_BIT] = 0
+        self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
+        self._modbus_bit[SIX_ALARM_BIT] = 0
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
         self._exec_thread: threading.Thread | None = None
-        self._exec_thread_v30: threading.Thread | None = None
+        self._exec_thread_six: threading.Thread | None = None
         self._x_range = x_range if x_range is not None else X_RANGE
         self._y_range = y_range if y_range is not None else Y_RANGE
         self._z_range = z_range if z_range is not None else Z_RANGE
@@ -161,6 +169,10 @@ class MockController:
                 if idx < 0 or idx >= len(self._modbus_bit):
                     raise IndexError(f"BIT[{idx}] 超出范围")
                 self._modbus_bit[idx] = int(v)
+            # 报警复位: BIT(151)=1 时清除 IEEE(34) 和 IEEE(38)
+            if start == SIX_ALARM_BIT and values and values[0] == 1:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
+                self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
 
     def read_modbus_bit(self, start: int, count: int) -> list[int]:
         with self._lock:
@@ -444,58 +456,115 @@ class MockController:
         self._vr[MONITOR_VR_START + 18] = 0.0
         self._vr[MONITOR_VR_START + 19] = 0.0
 
-    # ── V3.0 Modbus 命令分发 ──────────────────────────────────────
+    # ── Modbus 命令分发 (V2.2) ──────────────────────────────────────
 
     def _dispatch_v30_command(self) -> None:
+        self._dispatch_six_command()
+
+    # ── 六轴机械手命令分发 (VPLC516E) ───────────────────────────────
+
+    def _dispatch_six_command(self) -> None:
         with self._lock:
-            if self._modbus_ieee[MODBUS_STATUS_ADDR] == float(V30_STATUS_EXECUTING):
-                return
+            raw_status = int(self._modbus_ieee[MODBUS_STATUS_ADDR])
+            # Func104可在执行中调用
             func_num = int(self._modbus_ieee[MODBUS_FUNC_ADDR])
             if func_num == 0:
                 return
-            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_EXECUTING)
+            if func_num != FuncSixAxis.STOP and raw_status in (SIX_STATUS_EXECUTING, SIX_STATUS_RECEIVED):
+                return
+            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_RECEIVED)
 
-        if self._exec_thread_v30 and self._exec_thread_v30.is_alive():
-            self._exec_thread_v30.join(timeout=5.0)
+        if self._exec_thread_six and self._exec_thread_six.is_alive():
+            self._exec_thread_six.join(timeout=5.0)
 
-        self._exec_thread_v30 = threading.Thread(
-            target=self._execute_v30_command, args=(func_num,), daemon=True
+        self._exec_thread_six = threading.Thread(
+            target=self._execute_six_command, args=(func_num,), daemon=True
         )
-        self._exec_thread_v30.start()
+        self._exec_thread_six.start()
 
-    def _execute_v30_command(self, func_num: int) -> None:
+    def _execute_six_command(self, func_num: int) -> None:
+        with self._lock:
+            self._modbus_ieee[SIX_CURR_FUNC_ADDR] = float(func_num)
+            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_EXECUTING)
+
         try:
-            if func_num == FuncV3.LINE_MOVE:
-                self._do_v30_line_move()
-            elif func_num == FuncV3.JOINT_MOVE:
-                self._do_v30_joint_move()
-            elif func_num == FuncV3.ALARM_CLEAR:
-                self._do_v30_alarm_clear()
-            elif func_num == FuncV3.STOP:
-                self._do_v30_stop()
-            elif func_num == FuncV3.STATUS_QUERY:
-                self._do_v30_status_query()
+            if func_num == FuncSixAxis.STOP:
+                self._do_six_stop()
+            elif func_num == FuncSixAxis.JOINT_JOG:
+                self._do_six_joint_jog()
+            elif func_num == FuncSixAxis.VIRTUAL_JOG:
+                self._do_six_virtual_jog()
+            elif func_num == FuncSixAxis.LINE_MOVE:
+                self._do_six_line_move()
             else:
                 with self._lock:
-                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_ALARM_ILLEGAL)
+                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR)
         finally:
             with self._lock:
-                if self._modbus_ieee[MODBUS_STATUS_ADDR] == float(V30_STATUS_EXECUTING):
-                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_COMPLETE)
+                if int(self._modbus_ieee[MODBUS_STATUS_ADDR]) == SIX_STATUS_EXECUTING:
+                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE)
                 self._modbus_ieee[MODBUS_TRIGGER_ADDR] = 0.0
-                self._sync_modbus_realtime_locked()
+                # 六轴: 不清零IEEE(0)函数号
+                self._sync_six_realtime_locked()
 
-    def _do_v30_line_move(self) -> None:
+    def _do_six_stop(self) -> None:
         with self._lock:
-            target_x = self._modbus_ieee[V30_P_X]
-            target_y = self._modbus_ieee[V30_P_Y]
-            target_z = self._modbus_ieee[V30_P_Z]
-            target_rx = self._modbus_ieee[V30_P_RX]
-            target_ry = self._modbus_ieee[V30_P_RY]
-            target_rz = self._modbus_ieee[V30_P_RZ]
-            cur_x = self._vr[VR_OFFSET["CUR_X"].index]
-            cur_y = self._vr[VR_OFFSET["CUR_Y"].index]
-            cur_z = self._vr[VR_OFFSET["CUR_Z"].index]
+            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE)
+            self._set_status(STATUS_IDLE)
+
+    def _do_six_joint_jog(self) -> None:
+        with self._lock:
+            axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
+            target_pos = self._modbus_ieee[SIX_P_POS_VAL]
+            current = self._modbus_ieee[SIX_RT_J_START + axis_no]
+
+        steps = 3
+        for i in range(1, steps + 1):
+            if not self._running:
+                break
+            t = i / steps
+            with self._lock:
+                self._modbus_ieee[SIX_RT_J_START + axis_no] = current + (target_pos - current) * t
+                self._sync_six_realtime_locked()
+            time.sleep(0.02)
+
+    def _do_six_virtual_jog(self) -> None:
+        with self._lock:
+            axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
+            target_pos = self._modbus_ieee[SIX_P_POS_VAL]
+            # 虚拟轴6~11映射到IEEE(1512+): 6→1512, 7→1513, ...
+            target_idx = SIX_RT_XYZ_START + (axis_no - 6)
+            current = self._modbus_ieee[target_idx]
+
+        steps = 3
+        for i in range(1, steps + 1):
+            if not self._running:
+                break
+            t = i / steps
+            with self._lock:
+                self._modbus_ieee[target_idx] = current + (target_pos - current) * t
+                self._sync_six_realtime_locked()
+            time.sleep(0.02)
+
+        # 检查安全限位，模拟报警
+        self._check_six_safety_limit()
+
+    def _do_six_line_move(self) -> None:
+        with self._lock:
+            targets = [
+                self._modbus_ieee[SIX_P_TARGET_X],
+                self._modbus_ieee[SIX_P_TARGET_Y],
+                self._modbus_ieee[SIX_P_TARGET_Z],
+                self._modbus_ieee[SIX_P_TARGET_RX],
+                self._modbus_ieee[SIX_P_TARGET_RY],
+                self._modbus_ieee[SIX_P_TARGET_RZ],
+            ]
+            fuzzy_pos = int(self._modbus_ieee[SIX_108_FUZZY_POS])
+            if fuzzy_pos == 1:
+                for i in range(6):
+                    targets[i] = self._modbus_ieee[SIX_RT_XYZ_START + i] + targets[i]
+
+            currents = [self._modbus_ieee[SIX_RT_XYZ_START + i] for i in range(6)]
 
         steps = 5
         for i in range(1, steps + 1):
@@ -503,43 +572,37 @@ class MockController:
                 break
             t = i / steps
             with self._lock:
-                self._vr[VR_OFFSET["CUR_X"].index] = cur_x + (target_x - cur_x) * t
-                self._vr[VR_OFFSET["CUR_Y"].index] = cur_y + (target_y - cur_y) * t
-                self._vr[VR_OFFSET["CUR_Z"].index] = cur_z + (target_z - cur_z) * t
-                self._vr[VR_OFFSET["CUR_RX"].index] = target_rx
-                self._vr[VR_OFFSET["CUR_RY"].index] = target_ry
-                self._vr[VR_OFFSET["CUR_RZ"].index] = target_rz
-                self._sync_realtime_monitor_locked()
-                self._sync_modbus_realtime_locked()
+                for j in range(6):
+                    self._modbus_ieee[SIX_RT_XYZ_START + j] = currents[j] + (targets[j] - currents[j]) * t
+                self._sync_six_realtime_locked()
             time.sleep(0.02)
 
-    def _do_v30_joint_move(self) -> None:
-        self._do_v30_line_move()
+        # 检查安全限位，模拟报警
+        self._check_six_safety_limit()
 
-    def _do_v30_alarm_clear(self) -> None:
+    def _check_six_safety_limit(self) -> None:
+        """检查六轴运动是否超出安全限位，超出则设置报警"""
         with self._lock:
-            self._modbus_bit[MODBUS_ALARM_BIT] = 0
-            self._vr[VR_OFFSET["ALM_CODE"].index] = float(ALM_NORMAL)
-            if self._vr[VR_OFFSET["STATUS"].index] == STATUS_FAULT:
-                self._set_status(STATUS_IDLE)
-            self._sync_modbus_realtime_locked()
-        time.sleep(0.05)
+            alarm_bits = 0
+            # 简化模拟: 检查X(半径)和Z(高度)
+            x = self._modbus_ieee[SIX_RT_XYZ_START]
+            z = self._modbus_ieee[SIX_RT_XYZ_START + 2]
+            r_max = self._modbus_ieee[SIX_SAFE_R_MAX]
+            z_max = self._modbus_ieee[SIX_SAFE_Z_MAX]
+            if r_max > 0 and abs(x) > r_max:
+                alarm_bits |= 1  # Bit0: 半径超限
+            if z_max > 0 and z > z_max:
+                alarm_bits |= 2  # Bit1: 高度超限
+            if alarm_bits:
+                self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM)
 
-    def _do_v30_stop(self) -> None:
-        with self._lock:
-            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(V30_STATUS_COMPLETE)
-            self._set_status(STATUS_IDLE)
-            self._sync_modbus_realtime_locked()
-
-    def _do_v30_status_query(self) -> None:
-        with self._lock:
-            self._sync_modbus_realtime_locked()
-        time.sleep(0.02)
-
-    def _sync_modbus_realtime_locked(self) -> None:
-        self._modbus_ieee[MODBUS_RT_XYZ_START] = self._vr[VR_OFFSET["CUR_X"].index]
-        self._modbus_ieee[MODBUS_RT_XYZ_START + 1] = self._vr[VR_OFFSET["CUR_Y"].index]
-        self._modbus_ieee[MODBUS_RT_XYZ_START + 2] = self._vr[VR_OFFSET["CUR_Z"].index]
-        self._modbus_ieee[MODBUS_RT_XYZ_START + 3] = self._vr[VR_OFFSET["CUR_RX"].index]
-        self._modbus_ieee[MODBUS_RT_XYZ_START + 4] = self._vr[VR_OFFSET["CUR_RY"].index]
-        self._modbus_ieee[MODBUS_RT_XYZ_START + 5] = self._vr[VR_OFFSET["CUR_RZ"].index]
+    def _sync_six_realtime_locked(self) -> None:
+        """同步六轴IEEE位置到VR (GUI兼容)"""
+        self._vr[VR_OFFSET["CUR_X"].index] = self._modbus_ieee[SIX_RT_XYZ_START]
+        self._vr[VR_OFFSET["CUR_Y"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 1]
+        self._vr[VR_OFFSET["CUR_Z"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 2]
+        self._vr[VR_OFFSET["CUR_RX"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 3]
+        self._vr[VR_OFFSET["CUR_RY"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 4]
+        self._vr[VR_OFFSET["CUR_RZ"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 5]
+        self._sync_realtime_monitor_locked()

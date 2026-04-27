@@ -1,0 +1,18 @@
+{
+  "cmd": [
+    "C:\\Users\\a\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\gui_main.py",
+    "--iflytek-worker",
+    "--mode",
+    "audio",
+    "--input",
+    "C:\\Users\\a\\AppData\\Local\\Temp\\tmp81jnruv9.pcm",
+    "--debug-save-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\data\\exported_logs\\voice_debug_20260427_002602.pcm",
+    "--result-path",
+    "C:\\Users\\a\\Desktop\\ai_pipeline_prototype\\新方案_Qt项目副本\\data\\exported_logs\\iflytek_result_20260427_002602.json"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": ""
+}
