@@ -82,7 +82,8 @@
       "Bash(python egg_price_card/generator.py --format png --output-dir egg_price_card)",
       "Bash(/c/Users/a/AppData/Local/Programs/Python/Python310/python.exe -c \"from robot_modbus_lite.qt_gui import RobotQtWindow; print\\('OK'\\)\")",
       "Bash(/c/Users/a/AppData/Local/Programs/Python/Python310/python.exe -m PyInstaller robot_modbus_gui.spec --clean --noconfirm)",
-      "mcp__zai-mcp-server__diagnose_error_screenshot"
+      "mcp__zai-mcp-server__diagnose_error_screenshot",
+      "Bash(/c/Users/a/AppData/Local/Programs/Python/Python310/python.exe -c \"from mock_controller.protocol import *; from mock_controller.controller import MockController; from robot_modbus_lite.qt_gui import RobotQtWindow; print\\('OK'\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\a\\Desktop",

@@ -135,14 +135,6 @@ MODBUS_ALARM_BIT = 243         # BIT(243) 总报警 0=正常 1=有报警
 MODBUS_READY_BIT = 253         # BIT(253) 启动就绪
 MODBUS_ESTOP_BIT = 150         # BIT(150) 急停触发
 
-# 实时数据 IEEE 地址
-MODBUS_RT_J1_START = 1500      # IEEE(1500~1510) J1~J6角度
-MODBUS_RT_XYZ_START = 1512     # IEEE(1512~1522) X/Y/Z/RX/RY/RZ
-MODBUS_RT_XYZ_COUNT = 6
-MODBUS_RT_SAFE_START = 1700    # IEEE(1700~1706) 安全参数
-MODBUS_RT_R3D = 1740           # IEEE(1740) R3d距离
-MODBUS_RT_ZHEIGHT = 1742       # IEEE(1742) Z高度
-
 # ── 六轴机械手协议常量 (VPLC516E) ──────────────────────────────────
 
 # BIT 寄存器地址
@@ -150,11 +142,11 @@ SIX_ALARM_BIT = 151              # BIT(151) 报警复位
 
 # IEEE 寄存器地址
 SIX_ALARM_DETAIL_ADDR = 38       # IEEE(38) 报警详情(位组合)
-SIX_CURR_FUNC_ADDR = 324         # IEEE(324) 当前函数号
+SIX_CURR_FUNC_ADDR = 36          # IEEE(36) 当前函数号
 
 # 实时数据 IEEE 地址
-SIX_RT_J_START = 1500            # IEEE(1500~1510) J1~J6角度
-SIX_RT_XYZ_START = 1512          # IEEE(1512~1522) X/Y/Z/Rx/Ry/Rz
+SIX_RT_J_START = 58             # IEEE(58~68) J1~J6角度
+SIX_RT_XYZ_START = 40           # IEEE(40~50) X/Y/Z/Rx/Ry/Rz
 
 # 安全限位地址
 SIX_SAFE_R_MIN = 1700            # IEEE(1700) 最小半径

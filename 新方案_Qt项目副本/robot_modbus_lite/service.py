@@ -313,8 +313,11 @@ class RobotModbusService:
             speed_pct = float(params["speedPercent"])
             speed = base_speed_mm * speed_pct / 100.0
             acc_pct = float(params["accPercent"])
-            # MOVE_REL(1002): fuzzy_pos=1, registers值是增量偏移量
+            # 默认保持原有 ABS/REL 语义，模板中显式配置时再覆盖。
             fuzzy_pos = 1.0 if standard_code == 1002 else 0.0
+            configured_fuzzy_pos = int(params["fuzzyPos"])
+            if configured_fuzzy_pos in (0, 1):
+                fuzzy_pos = float(configured_fuzzy_pos)
             return SixAxisCommand(
                 func_num=108,
                 desc=record.description or record.query_key,
@@ -327,7 +330,12 @@ class RobotModbusService:
                 spd=speed,
                 acc_v=1000.0 * acc_pct / 100.0,
                 dec_v=1000.0 * acc_pct / 100.0,
+                stop_cmd=int(params["stopCmd"]),
                 fuzzy_pos=fuzzy_pos,
+                fuzzy_spd=float(int(params["fuzzySpd"])),
+                fuzzy_acc=float(int(params["fuzzyAcc"])),
+                fuzzy_dec=float(int(params["fuzzyDec"])),
+                move_type=int(params["moveType"]),
             )
 
         return SixAxisCommand(func_num=func_num, desc=record.query_key)
@@ -360,8 +368,8 @@ class RobotModbusService:
         return SixAxisAlarmDetail.from_value(values[0] if values else 0.0)
 
     def build_six_realtime_xyz_read(self) -> VrReadRequest:
-        """读 IEEE(1512, 6) X/Y/Z/Rx/Ry/Rz 坐标"""
-        return VrReadRequest(start_vr=1512, count=6)
+        """读 IEEE(40, 6) X/Y/Z/Rx/Ry/Rz 坐标"""
+        return VrReadRequest(start_vr=40, count=6)
 
     def parse_six_realtime(self, joint_vals: list[float], xyz_vals: list[float]) -> SixAxisRealtimeData:
         """合并两组读取结果为六轴实时数据"""

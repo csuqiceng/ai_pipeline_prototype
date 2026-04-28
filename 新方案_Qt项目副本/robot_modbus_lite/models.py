@@ -22,6 +22,12 @@ class QueryRecord:
     io_door: int = 0
     ext_p1: float = 0.0
     ext_p2: float = 0.0
+    stop_cmd: int = 0
+    fuzzy_pos: int = -1
+    fuzzy_spd: int = 0
+    fuzzy_acc: int = 0
+    fuzzy_dec: int = 0
+    move_type: int = 0
 
     def payload(self) -> list[float]:
         return [float(self.function_id), *self.registers]
@@ -45,6 +51,12 @@ class QueryRecord:
             "ioDoor": self.io_door,
             "extP1": self.ext_p1,
             "extP2": self.ext_p2,
+            "stopCmd": self.stop_cmd,
+            "fuzzyPos": self.fuzzy_pos,
+            "fuzzySpd": self.fuzzy_spd,
+            "fuzzyAcc": self.fuzzy_acc,
+            "fuzzyDec": self.fuzzy_dec,
+            "moveType": self.move_type,
         }
 
 
@@ -231,6 +243,7 @@ class StandardRealtimeStatus:
 class FlowDefinition:
     name: str
     steps: tuple[str, ...]
+    step_delay_ms: int = 1000
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -381,7 +394,7 @@ class SixAxisAlarmDetail:
 
 @dataclass(frozen=True)
 class SixAxisRealtimeData:
-    """六轴实时坐标 — 分两组读取: IEEE(1500,6) J1~J6 + IEEE(1512,6) X/Y/Z/Rx/Ry/Rz"""
+    """六轴实时坐标 — 分两组读取: IEEE(58,6) J1~J6 + IEEE(40,6) X/Y/Z/Rx/Ry/Rz"""
     j1: float = 0.0
     j2: float = 0.0
     j3: float = 0.0

@@ -35,8 +35,21 @@ from .protocol import (
     SIX_P_TARGET_RZ,
     SIX_RT_J_START,
     SIX_RT_XYZ_START,
+    SIX_SAFE_ACC_MAX,
+    SIX_SAFE_DEC_MAX,
+    SIX_SAFE_R_MIN,
     SIX_108_FUZZY_POS,
+    SIX_108_FUZZY_SPD,
+    SIX_108_FUZZY_ACC,
+    SIX_108_FUZZY_DEC,
+    SIX_108_MOVE_TYPE,
+    SIX_108_SPD,
+    SIX_108_ACC,
+    SIX_108_DEC,
+    SIX_108_STOP_CMD,
     SIX_SAFE_R_MAX,
+    SIX_SAFE_SPD_MAX,
+    SIX_SAFE_Z_MIN,
     SIX_SAFE_Z_MAX,
     SIX_STATUS_COMPLETE,
     SIX_STATUS_COMPLETE_ALARM,
@@ -71,7 +84,7 @@ class MockController:
         z_range: tuple[float, float] | None = None,
     ) -> None:
         self._vr: list[float] = [0.0] * VR_TOTAL
-        # V3.0 Modbus 寄存器
+        # Modbus 寄存器
         self._modbus_ieee: list[float] = [0.0] * 2048
         self._modbus_bit: list[int] = [0] * 24000
         self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
@@ -140,7 +153,7 @@ class MockController:
         with self._lock:
             return {f.name: self._vr[f.index] for f in VR_OFFSET.values()}
 
-    # ── V3.0 Modbus IEEE/BIT 方法 ────────────────────────────────
+    # ── Modbus IEEE/BIT 方法 ──────────────────────────────────────
 
     def write_modbus_float(self, start: int, values: list[float] | tuple[float, ...]) -> None:
         should_dispatch = False
@@ -559,14 +572,38 @@ class MockController:
                 self._modbus_ieee[SIX_P_TARGET_RY],
                 self._modbus_ieee[SIX_P_TARGET_RZ],
             ]
+            stop_cmd = int(self._modbus_ieee[SIX_108_STOP_CMD])
             fuzzy_pos = int(self._modbus_ieee[SIX_108_FUZZY_POS])
+            fuzzy_spd = int(self._modbus_ieee[SIX_108_FUZZY_SPD])
+            fuzzy_acc = int(self._modbus_ieee[SIX_108_FUZZY_ACC])
+            fuzzy_dec = int(self._modbus_ieee[SIX_108_FUZZY_DEC])
+            move_type = int(self._modbus_ieee[SIX_108_MOVE_TYPE])
+            current_speed = self._modbus_ieee[52]
+            speed = self._modbus_ieee[SIX_108_SPD]
+            acc_v = self._modbus_ieee[SIX_108_ACC]
+            dec_v = self._modbus_ieee[SIX_108_DEC]
             if fuzzy_pos == 1:
                 for i in range(6):
                     targets[i] = self._modbus_ieee[SIX_RT_XYZ_START + i] + targets[i]
-
+            if fuzzy_spd == 1:
+                speed += current_speed
+            if fuzzy_acc == 1:
+                acc_v += self._modbus_ieee[16]
+            if fuzzy_dec == 1:
+                dec_v += self._modbus_ieee[18]
             currents = [self._modbus_ieee[SIX_RT_XYZ_START + i] for i in range(6)]
+            targets, speed, acc_v, dec_v, alarm_bits = self._apply_six_func108_limits_locked(
+                targets, speed, acc_v, dec_v
+            )
+            self._modbus_ieee[52] = speed
+            self._modbus_ieee[54] = sum(abs(targets[i] - currents[i]) for i in range(3))
+            self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
 
-        steps = 5
+            if stop_cmd > 0:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM if alarm_bits else SIX_STATUS_COMPLETE)
+                return
+
+        steps = 3 if move_type == 1 else 5
         for i in range(1, steps + 1):
             if not self._running:
                 break
@@ -574,25 +611,75 @@ class MockController:
             with self._lock:
                 for j in range(6):
                     self._modbus_ieee[SIX_RT_XYZ_START + j] = currents[j] + (targets[j] - currents[j]) * t
+                remaining = sum(abs(targets[j] - self._modbus_ieee[SIX_RT_XYZ_START + j]) for j in range(3))
+                self._modbus_ieee[54] = remaining
                 self._sync_six_realtime_locked()
             time.sleep(0.02)
 
         # 检查安全限位，模拟报警
         self._check_six_safety_limit()
 
+    def _apply_six_func108_limits_locked(
+        self,
+        targets: list[float],
+        speed: float,
+        acc_v: float,
+        dec_v: float,
+    ) -> tuple[list[float], float, float, float, int]:
+        alarm_bits = 0
+        target_x, target_y, target_z = targets[0], targets[1], targets[2]
+        min_r = self._modbus_ieee[SIX_SAFE_R_MIN]
+        max_r = self._modbus_ieee[SIX_SAFE_R_MAX]
+        min_z = self._modbus_ieee[SIX_SAFE_Z_MIN]
+        max_z = self._modbus_ieee[SIX_SAFE_Z_MAX]
+        safe_spd = self._modbus_ieee[SIX_SAFE_SPD_MAX]
+        safe_acc = self._modbus_ieee[SIX_SAFE_ACC_MAX]
+        safe_dec = self._modbus_ieee[SIX_SAFE_DEC_MAX]
+
+        radius = abs(target_x)
+        if min_r > 0 and radius < min_r:
+            target_x = min_r if target_x >= 0 else -min_r
+            alarm_bits |= 1
+        if max_r > 0 and radius > max_r:
+            target_x = max_r if target_x >= 0 else -max_r
+            alarm_bits |= 1
+        if min_z or max_z:
+            if min_z and target_z < min_z:
+                target_z = min_z
+                alarm_bits |= 2
+            if max_z and target_z > max_z:
+                target_z = max_z
+                alarm_bits |= 2
+        if safe_spd > 0 and (speed > safe_spd or speed <= 0):
+            speed = safe_spd
+            alarm_bits |= 8
+        if safe_acc > 0 and acc_v > safe_acc:
+            acc_v = safe_acc
+            alarm_bits |= 16
+        if safe_dec > 0 and dec_v > safe_dec:
+            dec_v = safe_dec
+            alarm_bits |= 32
+
+        targets[0] = target_x
+        targets[2] = target_z
+        return targets, speed, acc_v, dec_v, alarm_bits
+
     def _check_six_safety_limit(self) -> None:
         """检查六轴运动是否超出安全限位，超出则设置报警"""
         with self._lock:
-            alarm_bits = 0
-            # 简化模拟: 检查X(半径)和Z(高度)
-            x = self._modbus_ieee[SIX_RT_XYZ_START]
-            z = self._modbus_ieee[SIX_RT_XYZ_START + 2]
-            r_max = self._modbus_ieee[SIX_SAFE_R_MAX]
-            z_max = self._modbus_ieee[SIX_SAFE_Z_MAX]
-            if r_max > 0 and abs(x) > r_max:
-                alarm_bits |= 1  # Bit0: 半径超限
-            if z_max > 0 and z > z_max:
-                alarm_bits |= 2  # Bit1: 高度超限
+            targets = [
+                self._modbus_ieee[SIX_RT_XYZ_START + i]
+                for i in range(6)
+            ]
+            targets, speed, _acc_v, _dec_v, alarm_bits = self._apply_six_func108_limits_locked(
+                targets,
+                self._modbus_ieee[52],
+                self._modbus_ieee[SIX_108_ACC],
+                self._modbus_ieee[SIX_108_DEC],
+            )
+            self._modbus_ieee[SIX_RT_XYZ_START] = targets[0]
+            self._modbus_ieee[SIX_RT_XYZ_START + 2] = targets[2]
+            self._modbus_ieee[52] = speed
             if alarm_bits:
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
                 self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM)

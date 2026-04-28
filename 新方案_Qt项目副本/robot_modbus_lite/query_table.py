@@ -97,6 +97,12 @@ def load_query_table_json(path: str | Path) -> dict[str, QueryRecord]:
             io_door=int(item.get("io_door", 0)),
             ext_p1=float(item.get("ext_p1", 0.0)),
             ext_p2=float(item.get("ext_p2", 0.0)),
+            stop_cmd=int(item.get("stop_cmd", 0)),
+            fuzzy_pos=int(item.get("fuzzy_pos", -1)),
+            fuzzy_spd=int(item.get("fuzzy_spd", 0)),
+            fuzzy_acc=int(item.get("fuzzy_acc", 0)),
+            fuzzy_dec=int(item.get("fuzzy_dec", 0)),
+            move_type=int(item.get("move_type", 0)),
         )
 
     if not table:
@@ -125,6 +131,12 @@ def save_query_table_json(path: str | Path, table: dict[str, QueryRecord]) -> No
                 "io_door": record.io_door,
                 "ext_p1": record.ext_p1,
                 "ext_p2": record.ext_p2,
+                "stop_cmd": record.stop_cmd,
+                "fuzzy_pos": record.fuzzy_pos,
+                "fuzzy_spd": record.fuzzy_spd,
+                "fuzzy_acc": record.fuzzy_acc,
+                "fuzzy_dec": record.fuzzy_dec,
+                "move_type": record.move_type,
                 "registers": list(record.registers),
             }
             for record in sorted(table.values(), key=lambda item: item.query_key)

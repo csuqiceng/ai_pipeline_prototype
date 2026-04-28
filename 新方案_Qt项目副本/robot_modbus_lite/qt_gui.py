@@ -234,8 +234,6 @@ class RobotQtWindow(QMainWindow):
         self._build_message_box(QMessageBox.Critical, title, text).exec()
 
     def _build_ui(self) -> None:
-        self._setup_license_menu()
-
         root = QWidget()
         self.setCentralWidget(root)
         root_layout = QVBoxLayout(root)
@@ -250,7 +248,7 @@ class RobotQtWindow(QMainWindow):
         nav = self._build_nav()
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setContentsMargins(10, 4, 10, 10)
         content_layout.setSpacing(0)
         self.pages = QStackedWidget()
         self.pages.addWidget(self._build_run_page())
@@ -450,7 +448,7 @@ class RobotQtWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
         link_bar = QGroupBox("连接与反馈")
         link_bar.setObjectName("panel")
@@ -539,7 +537,6 @@ class RobotQtWindow(QMainWindow):
 
         self.command_group = QGroupBox("固定指令执行")
         self.command_group.setObjectName("panel")
-        self.command_group.setMinimumHeight(300)
         command_box_layout = QVBoxLayout(self.command_group)
         command_toolbar = QHBoxLayout()
         command_toolbar.addWidget(QLabel("筛选:"))
@@ -632,7 +629,6 @@ class RobotQtWindow(QMainWindow):
         execute_tabs.addTab(self.command_group, "单次执行")
         execute_tabs.addTab(flow_group, "流程执行")
         execute_tabs.addTab(nlp_group, "自然语言执行")
-        layout.addWidget(execute_tabs, 1)
 
         bottom = QWidget()
         bottom_layout = QHBoxLayout(bottom)
@@ -640,10 +636,8 @@ class RobotQtWindow(QMainWindow):
         bottom_layout.setSpacing(10)
         self.robot_info = self._make_info_group("机械手状态")
         self.robot_info.setObjectName("panel")
-        self.robot_info.setMaximumHeight(280)
         self.summary_info = self._make_info_group("执行摘要")
         self.summary_info.setObjectName("panel")
-        self.summary_info.setMaximumHeight(280)
         self.history_table = QTableWidget(0, 5)
         self.history_table.setHorizontalHeaderLabels(["任务ID", "指令码", "名称", "指令类型", "结果"])
         self.history_table.verticalHeader().setVisible(False)
@@ -658,7 +652,6 @@ class RobotQtWindow(QMainWindow):
         history_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         history_group = QGroupBox("最近执行记录")
         history_group.setObjectName("panel")
-        history_group.setMaximumHeight(280)
         hist_layout = QVBoxLayout(history_group)
         hist_layout.addWidget(self.history_table)
 
@@ -670,14 +663,22 @@ class RobotQtWindow(QMainWindow):
         bottom_layout.addWidget(left_stack, 17)
         bottom_layout.addWidget(self.summary_info, 13)
         bottom_layout.addWidget(history_group, 34)
-        layout.addWidget(bottom, 0)
+
+        run_splitter = QSplitter(Qt.Orientation.Vertical)
+        run_splitter.setChildrenCollapsible(False)
+        run_splitter.addWidget(execute_tabs)
+        run_splitter.addWidget(bottom)
+        run_splitter.setStretchFactor(0, 5)
+        run_splitter.setStretchFactor(1, 2)
+        run_splitter.setSizes([760, 220])
+        layout.addWidget(run_splitter, 1)
         return page
 
     def _build_manage_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
         top = QWidget()
         top_layout = QHBoxLayout(top)
@@ -712,10 +713,12 @@ class RobotQtWindow(QMainWindow):
             row = index // 2
             col = index % 2
             action_layout.addWidget(btn, row, col)
+        self.backend_info.setMaximumHeight(170)
+        self.current_info.setMaximumHeight(170)
+        action_box.setMaximumHeight(170)
         top_layout.addWidget(self.backend_info, 2)
         top_layout.addWidget(self.current_info, 2)
         top_layout.addWidget(action_box, 1)
-        layout.addWidget(top)
 
         bottom = QWidget()
         bottom_layout = QHBoxLayout(bottom)
@@ -758,6 +761,15 @@ class RobotQtWindow(QMainWindow):
         self.io_door_edit = QLineEdit("0")
         self.ext_p1_edit = QLineEdit("0")
         self.ext_p2_edit = QLineEdit("0")
+        self.stop_cmd_edit = QLineEdit("0")
+        self.fuzzy_pos_combo = QComboBox()
+        self.fuzzy_pos_combo.addItem("自动", "auto")
+        self.fuzzy_pos_combo.addItem("绝对(0)", 0)
+        self.fuzzy_pos_combo.addItem("增量(1)", 1)
+        self.fuzzy_spd_edit = QLineEdit("0")
+        self.fuzzy_acc_edit = QLineEdit("0")
+        self.fuzzy_dec_edit = QLineEdit("0")
+        self.move_type_edit = QLineEdit("0")
         self.safety_edit = QLineEdit("5")
         self.desc_edit = QLineEdit()
         self.param_widgets = [
@@ -769,6 +781,12 @@ class RobotQtWindow(QMainWindow):
             self.rz_edit,
             self.speed_edit,
             self.acc_edit,
+            self.stop_cmd_edit,
+            self.fuzzy_pos_combo,
+            self.fuzzy_spd_edit,
+            self.fuzzy_acc_edit,
+            self.fuzzy_dec_edit,
+            self.move_type_edit,
         ]
 
         for label, widget in [
@@ -791,12 +809,22 @@ class RobotQtWindow(QMainWindow):
             ("机床门动作", self.io_door_edit),
             ("扩展参数1", self.ext_p1_edit),
             ("扩展参数2", self.ext_p2_edit),
+            ("停止指令", self.stop_cmd_edit),
+            ("位置模式", self.fuzzy_pos_combo),
+            ("速度模式", self.fuzzy_spd_edit),
+            ("加速度模式", self.fuzzy_acc_edit),
+            ("减速度模式", self.fuzzy_dec_edit),
+            ("运动模式", self.move_type_edit),
             ("安全等级", self.safety_edit),
             ("说明", self.desc_edit),
         ]:
             form.addRow(label + ":", widget)
 
-        middle_layout.addWidget(form_widget)
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        form_scroll.setWidget(form_widget)
+        middle_layout.addWidget(form_scroll)
 
         preview_group = QGroupBox("结构化 JSON 预览")
         preview_group.setObjectName("panel")
@@ -814,6 +842,7 @@ class RobotQtWindow(QMainWindow):
         self.range_y_max_edit = QLineEdit()
         self.range_z_min_edit = QLineEdit()
         self.range_z_max_edit = QLineEdit()
+        self.motion_timeout_edit = QLineEdit("30")
         for label, widget in [
             ("X最小", self.range_x_min_edit),
             ("X最大", self.range_x_max_edit),
@@ -821,12 +850,13 @@ class RobotQtWindow(QMainWindow):
             ("Y最大", self.range_y_max_edit),
             ("Z最小", self.range_z_min_edit),
             ("Z最大", self.range_z_max_edit),
+            ("运动超时(s)", self.motion_timeout_edit),
         ]:
             config_layout.addRow(label + ":", widget)
         config_buttons = QHBoxLayout()
-        config_save_btn = QPushButton("保存范围")
+        config_save_btn = QPushButton("保存配置")
         config_save_btn.clicked.connect(self._save_system_config)
-        config_reload_btn = QPushButton("重载范围")
+        config_reload_btn = QPushButton("重载配置")
         config_reload_btn.clicked.connect(self._reload_system_config)
         config_buttons.addWidget(config_save_btn)
         config_buttons.addWidget(config_reload_btn)
@@ -912,7 +942,9 @@ class RobotQtWindow(QMainWindow):
         flow_manage_layout = QVBoxLayout(flow_manage_group)
         flow_name_form = QFormLayout()
         self.flow_manage_name_edit = QLineEdit()
+        self.flow_manage_delay_edit = QLineEdit("1000")
         flow_name_form.addRow("流程名称:", self.flow_manage_name_edit)
+        flow_name_form.addRow("步间延时(ms):", self.flow_manage_delay_edit)
         flow_manage_layout.addLayout(flow_name_form)
 
         flow_manage_split = QWidget()
@@ -988,16 +1020,26 @@ class RobotQtWindow(QMainWindow):
         bottom_layout.addWidget(left, 19)
         bottom_layout.addWidget(middle, 19)
         bottom_layout.addWidget(right_tabs, 26)
-        layout.addWidget(bottom, 1)
+
+        manage_splitter = QSplitter(Qt.Orientation.Vertical)
+        manage_splitter.setChildrenCollapsible(False)
+        manage_splitter.addWidget(top)
+        manage_splitter.addWidget(bottom)
+        manage_splitter.setStretchFactor(0, 1)
+        manage_splitter.setStretchFactor(1, 5)
+        manage_splitter.setSizes([170, 760])
+        layout.addWidget(manage_splitter, 1)
 
         for widget in [
             self.name_edit, self.code_edit, self.keywords_edit, self.pos_id_edit, self.device_id_edit,
             self.x_edit, self.y_edit, self.z_edit, self.rx_edit, self.ry_edit, self.rz_edit,
             self.speed_edit, self.acc_edit, self.io_grip_edit, self.io_door_edit,
-            self.ext_p1_edit, self.ext_p2_edit, self.safety_edit, self.desc_edit,
+            self.ext_p1_edit, self.ext_p2_edit, self.stop_cmd_edit, self.fuzzy_spd_edit,
+            self.fuzzy_acc_edit, self.fuzzy_dec_edit, self.move_type_edit, self.safety_edit, self.desc_edit,
         ]:
             widget.textChanged.connect(self._render_preview)
         self.cmd_combo.currentTextChanged.connect(self._render_preview)
+        self.fuzzy_pos_combo.currentTextChanged.connect(self._render_preview)
         self.template_type_combo.currentTextChanged.connect(self._render_preview)
         self.template_type_combo.currentTextChanged.connect(self._sync_template_type_mode)
         self._load_system_config_into_form()
@@ -1107,15 +1149,16 @@ class RobotQtWindow(QMainWindow):
                 top: -1px;
             }
             QTabBar::tab {
-                min-width: 88px;
-                padding: 7px 12px;
-                margin-right: 4px;
+                min-width: 68px;
+                padding: 5px 8px;
+                margin-right: 2px;
                 background: rgba(255,255,255,0.55);
                 border: 1px solid #4a4a4a;
                 border-bottom: 0;
                 border-top-left-radius: 5px;
                 border-top-right-radius: 5px;
                 font-weight: 600;
+                font-size: 14px;
             }
             QTabBar::tab:selected {
                 background: rgba(255,255,255,0.9);
@@ -1254,11 +1297,12 @@ class RobotQtWindow(QMainWindow):
         self.range_y_max_edit.setText(self._fmt(self.axis_ranges.y[1]))
         self.range_z_min_edit.setText(self._fmt(self.axis_ranges.z[0]))
         self.range_z_max_edit.setText(self._fmt(self.axis_ranges.z[1]))
+        self.motion_timeout_edit.setText(self._fmt(self.axis_ranges.motion_timeout_sec))
 
     def _reload_system_config(self) -> None:
         self._load_system_config_into_form()
-        self.status_label.setText(f"已重载系统范围配置: {self.system_config_path}")
-        self._append_log("后台", "重载范围", "成功", json.dumps(self.axis_ranges.to_dict(), ensure_ascii=False))
+        self.status_label.setText(f"已重载系统配置: {self.system_config_path}")
+        self._append_log("后台", "重载系统配置", "成功", json.dumps(self.axis_ranges.to_dict(), ensure_ascii=False))
 
     def _collect_system_config(self) -> AxisRangeConfig:
         def num(text: str) -> float:
@@ -1268,24 +1312,25 @@ class RobotQtWindow(QMainWindow):
             x=(num(self.range_x_min_edit.text()), num(self.range_x_max_edit.text())),
             y=(num(self.range_y_min_edit.text()), num(self.range_y_max_edit.text())),
             z=(num(self.range_z_min_edit.text()), num(self.range_z_max_edit.text())),
+            motion_timeout_sec=num(self.motion_timeout_edit.text()),
         )
 
     def _save_system_config(self) -> None:
         try:
             config = self._collect_system_config()
         except ValueError:
-            self._show_warning("保存失败", "系统范围必须是数字。")
-            self._append_log("后台", "保存范围", "失败", "系统范围必须是数字")
+            self._show_warning("保存失败", "系统配置必须是数字。")
+            self._append_log("后台", "保存系统配置", "失败", "系统配置必须是数字")
             return
         validation_error = validate_system_config(config)
         if validation_error:
             self._show_warning("保存失败", validation_error)
-            self._append_log("后台", "保存范围", "失败", validation_error)
+            self._append_log("后台", "保存系统配置", "失败", validation_error)
             return
         save_system_config(self.system_config_path, config)
         self.axis_ranges = config
-        self.status_label.setText(f"已保存系统范围配置: {self.system_config_path}")
-        self._append_log("后台", "保存范围", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
+        self.status_label.setText(f"已保存系统配置: {self.system_config_path}")
+        self._append_log("后台", "保存系统配置", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
 
     def _load_avoidance_config_into_form(self) -> None:
         self.avoidance_config = load_avoidance_config(self.avoidance_config_path)
@@ -1477,6 +1522,13 @@ class RobotQtWindow(QMainWindow):
         self.io_door_edit.setText(str(record.io_door))
         self.ext_p1_edit.setText(self._fmt(record.ext_p1))
         self.ext_p2_edit.setText(self._fmt(record.ext_p2))
+        self.stop_cmd_edit.setText(str(record.stop_cmd))
+        fuzzy_pos_value = record.fuzzy_pos if record.fuzzy_pos in (0, 1) else "auto"
+        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(fuzzy_pos_value))
+        self.fuzzy_spd_edit.setText(str(record.fuzzy_spd))
+        self.fuzzy_acc_edit.setText(str(record.fuzzy_acc))
+        self.fuzzy_dec_edit.setText(str(record.fuzzy_dec))
+        self.move_type_edit.setText(str(record.move_type))
         self.safety_edit.setText(str(record.safety_level))
         self.desc_edit.setText(record.description)
         self._sync_template_type_mode(record.template_type)
@@ -1487,6 +1539,8 @@ class RobotQtWindow(QMainWindow):
         def num(text: str) -> float:
             text = text.strip().replace("%", "")
             return float(text) if text else 0.0
+        fuzzy_pos_data = self.fuzzy_pos_combo.currentData()
+        fuzzy_pos = int(fuzzy_pos_data) if fuzzy_pos_data in (0, 1) else -1
         return QueryRecord(
             query_key=self.name_edit.text().strip(),
             function_id=int(float(self.code_edit.text() or "0")),
@@ -1503,6 +1557,12 @@ class RobotQtWindow(QMainWindow):
             io_door=int(float(self.io_door_edit.text() or "0")),
             ext_p1=num(self.ext_p1_edit.text()),
             ext_p2=num(self.ext_p2_edit.text()),
+            stop_cmd=int(float(self.stop_cmd_edit.text() or "0")),
+            fuzzy_pos=fuzzy_pos,
+            fuzzy_spd=int(float(self.fuzzy_spd_edit.text() or "0")),
+            fuzzy_acc=int(float(self.fuzzy_acc_edit.text() or "0")),
+            fuzzy_dec=int(float(self.fuzzy_dec_edit.text() or "0")),
+            move_type=int(float(self.move_type_edit.text() or "0")),
             registers=(
                 num(self.x_edit.text()), num(self.y_edit.text()), num(self.z_edit.text()),
                 num(self.rx_edit.text()), num(self.ry_edit.text()), num(self.rz_edit.text()),
@@ -1511,14 +1571,50 @@ class RobotQtWindow(QMainWindow):
         )
 
     def _render_preview(self) -> None:
-        record = self._collect_record()
-        standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
-        payload = standard_command.to_json_dict()
-        payload["templateType"] = record.template_type
-        payload["queryKey"] = record.query_key
-        payload["keywords"] = record.keywords
-        self.preview_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
-        self._update_current_template_info(record, standard_command.code, standard_command.cmd)
+        try:
+            record = self._collect_record()
+            standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
+            payload = standard_command.to_json_dict()
+            payload["templateType"] = record.template_type
+            payload["queryKey"] = record.query_key
+            payload["keywords"] = record.keywords
+            try:
+                six_command = self.service.build_six_command_from_record(record)
+            except Exception:
+                six_command = None
+            if six_command is not None and six_command.func_num == 108:
+                payload["sixAxisFunc108"] = {
+                    "stopCmd": record.stop_cmd,
+                    "fuzzyPos": "auto" if record.fuzzy_pos not in (0, 1) else record.fuzzy_pos,
+                    "fuzzySpd": record.fuzzy_spd,
+                    "fuzzyAcc": record.fuzzy_acc,
+                    "fuzzyDec": record.fuzzy_dec,
+                    "moveType": record.move_type,
+                }
+            self.preview_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+            self._update_current_template_info(record, standard_command.code, standard_command.cmd)
+        except Exception as exc:
+            fallback_name = self.name_edit.text().strip() or "-"
+            self.preview_edit.setPlainText(
+                json.dumps(
+                    {
+                        "queryKey": fallback_name,
+                        "status": "preview_unavailable",
+                        "reason": str(exc),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            self._update_current_template_info(
+                QueryRecord(
+                    query_key=fallback_name,
+                    function_id=0,
+                    registers=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                ),
+                0,
+                "-",
+            )
 
     def _update_current_template_info(self, record: QueryRecord, code: int, cmd: str) -> None:
         self.current_name_label.setText(record.query_key or "-")
@@ -1635,7 +1731,7 @@ class RobotQtWindow(QMainWindow):
         flow_names = self.service.list_flow_names()
         for flow_name in flow_names:
             flow = self.service.get_flow(flow_name)
-            item = QTreeWidgetItem([flow.name, str(len(flow.steps))])
+            item = QTreeWidgetItem([flow.name, f"{len(flow.steps)} | {flow.step_delay_ms}ms"])
             self.flow_manage_tree.addTopLevelItem(item)
             if self.current_flow_manage_name == flow.name:
                 self.flow_manage_tree.setCurrentItem(item)
@@ -1684,12 +1780,15 @@ class RobotQtWindow(QMainWindow):
 
     def _load_flow_into_manage_form(self, flow) -> None:
         self.flow_manage_name_edit.setText(flow.name)
+        self.flow_manage_delay_edit.setText(str(flow.step_delay_ms))
         self._refresh_flow_step_manage_tree(list(flow.steps))
 
     def _new_flow(self) -> None:
         self.current_flow_manage_name = None
         if hasattr(self, "flow_manage_name_edit"):
             self.flow_manage_name_edit.setText("")
+        if hasattr(self, "flow_manage_delay_edit"):
+            self.flow_manage_delay_edit.setText("1000")
         self._refresh_flow_step_manage_tree([])
         self.status_label.setText("已创建空白流程。")
         self._append_log("后台", "新增流程", "成功", "已创建空白流程")
@@ -1744,6 +1843,12 @@ class RobotQtWindow(QMainWindow):
     def _save_flow(self) -> None:
         flow_name = self.flow_manage_name_edit.text().strip()
         steps = self._collect_flow_steps()
+        try:
+            step_delay_ms = max(0, int(float(self.flow_manage_delay_edit.text().strip() or "1000")))
+        except ValueError:
+            self._show_warning("保存失败", "步间延时必须是数字。")
+            self._append_log("后台", "保存流程", "失败", "步间延时必须是数字")
+            return
         if not flow_name:
             self._show_warning("保存失败", "流程名称不能为空。")
             self._append_log("后台", "保存流程", "失败", "流程名称不能为空")
@@ -1762,14 +1867,14 @@ class RobotQtWindow(QMainWindow):
         if flow and self.current_flow_manage_name != flow_name:
             self.service.delete_flow(self.current_flow_manage_name)
         from .models import FlowDefinition
-        new_flow = FlowDefinition(name=flow_name, steps=tuple(steps))
+        new_flow = FlowDefinition(name=flow_name, steps=tuple(steps), step_delay_ms=step_delay_ms)
         self.service.save_flow(new_flow)
         self.current_flow_manage_name = flow_name
         self.current_flow_name = flow_name if self.current_flow_name in {None, "", flow_name} else self.current_flow_name
         self._refresh_flow_combo()
         self._refresh_flow_manage_tree()
         self.status_label.setText(f"已保存流程: {flow_name}")
-        self._append_log("后台", "保存流程", "成功", f"{flow_name} | {len(steps)} 步")
+        self._append_log("后台", "保存流程", "成功", f"{flow_name} | {len(steps)} 步 | 延时 {step_delay_ms}ms")
 
     def _delete_flow(self) -> None:
         flow_name = self.flow_manage_name_edit.text().strip()
@@ -2624,6 +2729,12 @@ class RobotQtWindow(QMainWindow):
         self.io_door_edit.setText("0")
         self.ext_p1_edit.setText("0")
         self.ext_p2_edit.setText("0")
+        self.stop_cmd_edit.setText("0")
+        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData("auto"))
+        self.fuzzy_spd_edit.setText("0")
+        self.fuzzy_acc_edit.setText("0")
+        self.fuzzy_dec_edit.setText("0")
+        self.move_type_edit.setText("0")
         self.safety_edit.setText("5")
         self.desc_edit.setText("")
         self._sync_template_type_mode("parametric")
@@ -2631,10 +2742,20 @@ class RobotQtWindow(QMainWindow):
         self._append_log("后台", "新增模板", "成功", "已创建空白模板")
 
     def _save_record(self) -> None:
-        record = self._collect_record()
+        try:
+            record = self._collect_record()
+        except ValueError:
+            self._show_warning("输入错误", "模板参数必须是数字。")
+            self._append_log("后台", "保存模板", "失败", "模板参数必须是数字")
+            return
         if not record.query_key:
             self._show_warning("输入错误", "显示名称不能为空。")
             self._append_log("后台", "保存模板", "失败", "显示名称不能为空")
+            return
+        validation_error = self._validate_record(record)
+        if validation_error:
+            self._show_warning("输入错误", validation_error)
+            self._append_log("后台", "保存模板", "失败", validation_error)
             return
         self.table[record.query_key] = record
         save_query_table_json(self.json_path, self.table)
@@ -2667,6 +2788,12 @@ class RobotQtWindow(QMainWindow):
             io_door=record.io_door,
             ext_p1=record.ext_p1,
             ext_p2=record.ext_p2,
+            stop_cmd=record.stop_cmd,
+            fuzzy_pos=record.fuzzy_pos,
+            fuzzy_spd=record.fuzzy_spd,
+            fuzzy_acc=record.fuzzy_acc,
+            fuzzy_dec=record.fuzzy_dec,
+            move_type=record.move_type,
         )
         self.table[clone.query_key] = clone
         save_query_table_json(self.json_path, self.table)
@@ -2756,7 +2883,7 @@ class RobotQtWindow(QMainWindow):
             self._append_log("连接", "检测连接", "成功", f"{mode}连接成功: {host}")
         except Exception as exc:
             self._disconnect_client()
-            self.connection_label.setText(f"连接失败: {exc}")
+            self.connection_label.setText("连接失败")
             self.monitor_label.setText("实时监控离线")
             self._refresh_overall_state_indicator()
             self._append_log("连接", "检测连接", "失败", str(exc))
@@ -3039,15 +3166,15 @@ class RobotQtWindow(QMainWindow):
             client.write_modbus_float(wr)
             self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
-        # 6. 参数回显校验: 读回IEEE(0)和IEEE(2)对比
-        echo_read = client.read_modbus_float(VrReadRequest(start_vr=0, count=3))
-        if echo_read and abs(echo_read[0] - float(six_cmd.func_num)) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(0)期望={six_cmd.func_num}, 实际={echo_read[0]}")
-        # IEEE(2)是第一个参数: Func104=stop_mode, Func108=target_x
-        if six_cmd.func_num == 104 and abs(echo_read[2] - float(six_cmd.stop_mode)) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.stop_mode}, 实际={echo_read[2]}")
-        if six_cmd.func_num == 108 and abs(echo_read[2] - six_cmd.target_x) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.target_x}, 实际={echo_read[2]}")
+        # 6. 参数回显校验: 分别读取IEEE(0)和IEEE(2)对比
+        func_read = client.read_modbus_float(VrReadRequest(start_vr=0, count=1))
+        if func_read and abs(func_read[0] - float(six_cmd.func_num)) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(0)期望={six_cmd.func_num}, 实际={func_read[0]}")
+        param_read = client.read_modbus_float(VrReadRequest(start_vr=2, count=1))
+        if six_cmd.func_num == 104 and abs(param_read[0] - float(six_cmd.stop_mode)) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.stop_mode}, 实际={param_read[0]}")
+        if six_cmd.func_num == 108 and abs(param_read[0] - six_cmd.target_x) > 0.01:
+            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.target_x}, 实际={param_read[0]}")
 
         # 7. 写触发 IEEE(32)=1
         trigger = six_cmd.to_trigger_write()
@@ -3056,8 +3183,11 @@ class RobotQtWindow(QMainWindow):
 
         # 8. 轮询 IEEE(34)
         status_read = self.service.build_six_status_read()
-        for _ in range(100):
-            time.sleep(0.05)
+        poll_interval_sec = 0.05
+        max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
+        max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
+        for _ in range(max_attempts):
+            time.sleep(poll_interval_sec)
             vals = client.read_modbus_float(status_read)
             st = self.service.parse_six_status(vals)
             if st.has_error:
@@ -3074,13 +3204,23 @@ class RobotQtWindow(QMainWindow):
                                  f"IEEE(34)={st.raw}, 详情: {alarm_detail}")
                 break
         else:
-            raise RuntimeError(f"六轴执行超时: {record.query_key}")
+            raise RuntimeError(f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s")
 
-        # 9. 读实时坐标: 两组分别读取
-        xyz_read = self.service.build_six_realtime_xyz_read()
-        xyz_vals = client.read_modbus_float(xyz_read)
-        self._append_log("六轴", "读取实时坐标", "成功",
-                         f"X={xyz_vals[0]:.1f} Y={xyz_vals[1]:.1f} Z={xyz_vals[2]:.1f}")
+        # 9. 读取完整回传数据 (IEEE 40-72)
+        xyz_vals = client.read_modbus_float(VrReadRequest(start_vr=40, count=6))
+        spd_vals = client.read_modbus_float(VrReadRequest(start_vr=52, count=1))
+        dist_vals = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))
+        joint_vals = client.read_modbus_float(VrReadRequest(start_vr=58, count=6))
+        ecat_vals = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))
+        frame_vals = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))
+        self._append_log("六轴", "回传数据", "成功",
+                         f"X={xyz_vals[0]:.1f} Y={xyz_vals[1]:.1f} Z={xyz_vals[2]:.1f} "
+                         f"Rx={xyz_vals[3]:.1f} Ry={xyz_vals[4]:.1f} Rz={xyz_vals[5]:.1f} | "
+                         f"速度={spd_vals[0]:.1f}mm/s 剩余距离={dist_vals[0]:.1f} | "
+                         f"J1={joint_vals[0]:.1f} J2={joint_vals[1]:.1f} J3={joint_vals[2]:.1f} "
+                         f"J4={joint_vals[3]:.1f} J5={joint_vals[4]:.1f} J6={joint_vals[5]:.1f} | "
+                         f"ECAT={int(ecat_vals[0]) if ecat_vals else 0} "
+                         f"FRAME={int(frame_vals[0]) if frame_vals else 0}")
         return xyz_vals
 
     def _read_feedback(self) -> None:
@@ -3264,6 +3404,23 @@ class RobotQtWindow(QMainWindow):
         if not (0 <= record.acc_percent <= 100):
             return "加速度百分比必须在 0 到 100 之间。"
         standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
+        six_command = self.service.build_six_command_from_record(record)
+        if six_command.func_num == 108:
+            if record.stop_cmd not in (0, 1, 2, 3, 4, 5):
+                return "Func108 的停止指令必须在 0 到 5 之间。"
+            for label, value in [
+                ("位置模式", record.fuzzy_pos),
+                ("速度模式", record.fuzzy_spd),
+                ("加速度模式", record.fuzzy_acc),
+                ("减速度模式", record.fuzzy_dec),
+                ("运动模式", record.move_type),
+            ]:
+                if value not in (-1, 0, 1):
+                    return f"{label} 只能是 0 或 1。"
+            if record.move_type not in (0, 1):
+                return "Func108 的运动模式只能是 0 或 1。"
+            if record.stop_cmd == 0 and record.registers[6] <= 0:
+                return "Func108 在正常执行时速度必须大于 0。"
         if standard_command.code == 1001:
             if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
                 return f"X 坐标超出范围 {self.axis_ranges.x}。"
@@ -3417,6 +3574,51 @@ class RobotQtWindow(QMainWindow):
         # 能走到这里的都是成功返回的坐标值。
         return True, ""
 
+    def _wait_controller_ready_for_flow(
+        self,
+        host: str,
+        *,
+        timeout_sec: float = 3.0,
+        poll_interval_sec: float = 0.2,
+        stable_required: int = 3,
+    ) -> tuple[bool, str]:
+        client = self._get_client(host)
+        xyz_read = self.service.build_six_realtime_xyz_read()
+        status_read = self.service.build_six_status_read()
+        last_xyz: tuple[float, ...] | None = None
+        stable_count = 0
+        deadline = time.time() + timeout_sec
+        last_status_raw = 0
+
+        while time.time() < deadline:
+            xyz_vals = tuple(float(value) for value in client.read_modbus_float(xyz_read))
+            status_vals = client.read_modbus_float(status_read)
+            status = self.service.parse_six_status(status_vals)
+            last_status_raw = status.raw
+
+            if status.has_error:
+                return False, f"控制器存在错误状态 IEEE(34)={status.raw}"
+            if status.has_alarm:
+                alarm_read = self.service.build_six_alarm_detail_read()
+                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
+                return False, f"控制器存在报警 IEEE(34)={status.raw} | {alarm_detail}"
+
+            if last_xyz is not None and self._values_equal(last_xyz, xyz_vals, tolerance=0.5):
+                stable_count += 1
+            else:
+                stable_count = 1
+            last_xyz = xyz_vals
+
+            if stable_count >= stable_required and status.can_send:
+                return True, f"控制器已就绪 | IEEE(34)={status.raw} | 坐标稳定{stable_count}次"
+            if stable_count >= stable_required + 2:
+                return True, f"控制器坐标稳定，放行流程启动 | IEEE(34)={status.raw}"
+
+            time.sleep(poll_interval_sec)
+
+        return False, f"等待控制器就绪超时 | IEEE(34)={last_status_raw}"
+
     def _start_flow(self, *, on_done: Callable[[bool], None] | None = None) -> None:
         if self.flow_running:
             self._show_info("流程已运行", "当前流程正在执行。")
@@ -3448,12 +3650,69 @@ class RobotQtWindow(QMainWindow):
             self.flow_step_index = 0
         self._flow_done_callback = on_done
         self.flow_running = True
-        self.flow_status = "运行中"
+        self.flow_status = "等待控制器就绪"
         self.flow_current_step = "-"
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
-        self._append_log("流程", f"开始流程 {flow.name}", "成功", f"共 {len(flow.steps)} 步")
-        QTimer.singleShot(0, self._run_next_flow_step)
+        host = self.host_edit.text().strip()
+        if not host:
+            self.flow_running = False
+            self.flow_status = "失败"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._show_warning("地址为空", "请输入控制器地址。")
+            self._append_log("流程", f"流程预检查 {flow.name}", "失败", "地址为空")
+            callback = self._flow_done_callback
+            self._flow_done_callback = None
+            if callback:
+                callback(False)
+            return
+
+        self._append_log("流程", f"流程启动等待 {flow.name}", "成功", "开始等待控制器就绪")
+        self._pause_polling()
+
+        def work():
+            return self._wait_controller_ready_for_flow(host)
+
+        def on_result(result) -> None:
+            self._resume_polling()
+            if not self.flow_running:
+                return
+            if isinstance(result, Exception):
+                self._disconnect_client()
+                self.flow_running = False
+                self.flow_status = "失败"
+                self._refresh_flow_steps()
+                self._refresh_flow_status_panel()
+                self._show_critical("流程启动失败", str(result))
+                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", str(result))
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(False)
+                return
+
+            ready, detail = result
+            if not ready:
+                self.flow_running = False
+                self.flow_status = "失败"
+                self._refresh_flow_steps()
+                self._refresh_flow_status_panel()
+                self._show_warning("流程启动失败", detail)
+                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", detail)
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(False)
+                return
+
+            self.flow_status = "运行中"
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            self._append_log("流程", f"开始流程 {flow.name}", "成功", f"共 {len(flow.steps)} 步 | {detail}")
+            QTimer.singleShot(0, self._run_next_flow_step)
+
+        self._run_in_background(work, on_result)
 
     def _step_flow(self) -> None:
         if self.flow_running:
@@ -3586,7 +3845,19 @@ class RobotQtWindow(QMainWindow):
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
             if auto_continue and self.flow_running:
-                QTimer.singleShot(0, self._run_next_flow_step)
+                delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
+                if delay_ms > 0:
+                    self.flow_status = f"步间等待({delay_ms}ms)"
+                    self._refresh_flow_status_panel()
+                    self._append_log(
+                        "流程",
+                        f"流程步间等待 {flow.name}",
+                        "成功",
+                        f"第{current_step_index + 1}步后等待 {delay_ms}ms，再执行 {current_flow.steps[self.flow_step_index]}",
+                    )
+                    QTimer.singleShot(delay_ms, self._run_next_flow_step)
+                else:
+                    QTimer.singleShot(0, self._run_next_flow_step)
 
         self._execute_query_key(step_name, on_done=on_step_done)
 

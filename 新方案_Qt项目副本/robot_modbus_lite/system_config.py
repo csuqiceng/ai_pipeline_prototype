@@ -9,6 +9,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "x": [-3000.0, 3000.0],
     "y": [-3000.0, 3000.0],
     "z": [0.0, 3000.0],
+    "motion_timeout_sec": 30.0,
 }
 
 
@@ -17,6 +18,7 @@ class AxisRangeConfig:
     x: tuple[float, float]
     y: tuple[float, float]
     z: tuple[float, float]
+    motion_timeout_sec: float = 30.0
 
     @classmethod
     def from_dict(cls, data: dict) -> "AxisRangeConfig":
@@ -24,6 +26,7 @@ class AxisRangeConfig:
             x=_pair(data.get("x"), DEFAULT_SYSTEM_CONFIG["x"]),
             y=_pair(data.get("y"), DEFAULT_SYSTEM_CONFIG["y"]),
             z=_pair(data.get("z"), DEFAULT_SYSTEM_CONFIG["z"]),
+            motion_timeout_sec=float(data.get("motion_timeout_sec", DEFAULT_SYSTEM_CONFIG["motion_timeout_sec"])),
         )
 
     def to_dict(self) -> dict[str, list[float]]:
@@ -31,6 +34,7 @@ class AxisRangeConfig:
             "x": [float(self.x[0]), float(self.x[1])],
             "y": [float(self.y[0]), float(self.y[1])],
             "z": [float(self.z[0]), float(self.z[1])],
+            "motion_timeout_sec": float(self.motion_timeout_sec),
         }
 
 
@@ -56,6 +60,8 @@ def validate_system_config(config: AxisRangeConfig) -> str | None:
     for axis_name, axis_range in [("X", config.x), ("Y", config.y), ("Z", config.z)]:
         if axis_range[0] > axis_range[1]:
             return f"{axis_name} 范围最小值不能大于最大值。"
+    if config.motion_timeout_sec <= 0:
+        return "运动超时时间必须大于 0 秒。"
     return None
 
 

@@ -30,7 +30,11 @@ def load_flows_json(path: str | Path) -> dict[str, FlowDefinition]:
             raise FlowStoreError("流程记录缺少 name。")
         if not isinstance(raw_steps, list):
             raise FlowStoreError(f"流程 steps 非法: {item!r}")
-        flows[name] = FlowDefinition(name=name, steps=tuple(str(step).strip() for step in raw_steps if str(step).strip()))
+        flows[name] = FlowDefinition(
+            name=name,
+            steps=tuple(str(step).strip() for step in raw_steps if str(step).strip()),
+            step_delay_ms=max(0, int(item.get("step_delay_ms", 1000))),
+        )
     return flows
 
 
@@ -42,6 +46,7 @@ def save_flows_json(path: str | Path, flows: dict[str, FlowDefinition]) -> None:
             {
                 "name": flow.name,
                 "steps": list(flow.steps),
+                "step_delay_ms": int(flow.step_delay_ms),
             }
             for flow in sorted(flows.values(), key=lambda item: item.name)
         ]
