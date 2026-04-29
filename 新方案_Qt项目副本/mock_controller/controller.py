@@ -775,10 +775,14 @@ class MockController:
     def _apply_six_stop_cmd_locked(self, stop_cmd: int, alarm_bits: int) -> int | None:
         if stop_cmd <= 0:
             return None
-        if stop_cmd == 4:
-            self._set_status(STATUS_PAUSED)
+        self._modbus_ieee[56] = 0.0
+        self._modbus_ieee[54] = 0.0
+        if stop_cmd in (1, 2):
+            self._set_status(STATUS_IDLE)
+        elif stop_cmd in (3, 4):
+            self._set_status(STATUS_IDLE)
         elif stop_cmd == 5:
-            self._set_status(STATUS_RUNNING)
+            self._set_status(STATUS_PAUSED)
         else:
             self._set_status(STATUS_IDLE)
         return SIX_STATUS_COMPLETE_ALARM if alarm_bits else SIX_STATUS_COMPLETE

@@ -77,6 +77,18 @@ FUNC_OPTIONS = {
     "Func108 直线插补/PTP": 108,
 }
 FUNC_LABELS = {value: key for key, value in FUNC_OPTIONS.items()}
+STOP_CMD_LABELS = {
+    0: "正常执行",
+    1: "RAPIDSTOP(2) 急停",
+    2: "RAPIDSTOP(1) 快速停止",
+    3: "CANCEL 取消当前运动",
+    4: "CANCEL 取消当前运动",
+    5: "MOVEABS(DPOS) 等效暂停",
+}
+MOVE_TYPE_LABELS = {
+    0: "直线插补",
+    1: "PTP关节",
+}
 SYSTEM_COMMANDS = {
     "上电": ("power_on", "系统已上电"),
     "启动": ("auto_start", "系统启动"),
@@ -696,6 +708,9 @@ class RobotQtWindow(QMainWindow):
             ("支持", "Func104 停止"),
             ("支持", "Func106/107 点动"),
             ("支持", "Func108 直线/PTP"),
+            ("stop_cmd", "0正常 1急停 2快停 3/4取消 5等效暂停"),
+            ("fuzzy", "0绝对 1叠加当前值"),
+            ("move_type", "0直线插补 1PTP关节"),
         ])
         self.backend_info.setObjectName("panel")
         self.current_info = self._make_info_group("当前选中模板")
@@ -734,6 +749,8 @@ class RobotQtWindow(QMainWindow):
 
         left = QGroupBox("指令模板列表")
         left.setObjectName("panel")
+        left.setMinimumWidth(240)
+        left.setMaximumWidth(300)
         left_layout = QVBoxLayout(left)
         self.template_tree = QTreeWidget()
         self.template_tree.setHeaderLabels(["显示名称", "函数号"])
@@ -742,6 +759,7 @@ class RobotQtWindow(QMainWindow):
 
         middle = QGroupBox("模板编辑")
         middle.setObjectName("panel")
+        middle.setMinimumWidth(430)
         middle_layout = QVBoxLayout(middle)
         form_widget = QWidget()
         form = QFormLayout(form_widget)
@@ -752,6 +770,8 @@ class RobotQtWindow(QMainWindow):
             self.func_num_combo.addItem(label, func_num)
         self.keywords_edit = QLineEdit()
         self.safety_edit = QLineEdit("5")
+        self.func_name_edit = QLineEdit()
+        self.func_name_edit.setReadOnly(True)
         self.desc_edit = QLineEdit()
         self.stop_mode_combo = QComboBox()
         self.stop_mode_combo.addItem("急停(0)", 0)
@@ -761,13 +781,21 @@ class RobotQtWindow(QMainWindow):
         self.spd_edit = QLineEdit("300")
         self.acc_v_edit = QLineEdit("60")
         self.dec_v_edit = QLineEdit("60")
-        self.stop_cmd_edit = QLineEdit("0")
+        self.stop_cmd_combo = QComboBox()
+        for value, label in STOP_CMD_LABELS.items():
+            self.stop_cmd_combo.addItem(f"{label}({value})", value)
         self.fuzzy_pos_combo = QComboBox()
         self.fuzzy_pos_combo.addItem("绝对(0)", 0)
         self.fuzzy_pos_combo.addItem("增量(1)", 1)
-        self.fuzzy_spd_edit = QLineEdit("0")
-        self.fuzzy_acc_edit = QLineEdit("0")
-        self.fuzzy_dec_edit = QLineEdit("0")
+        self.fuzzy_spd_combo = QComboBox()
+        self.fuzzy_spd_combo.addItem("绝对值(0)", 0)
+        self.fuzzy_spd_combo.addItem("叠加当前值(1)", 1)
+        self.fuzzy_acc_combo = QComboBox()
+        self.fuzzy_acc_combo.addItem("绝对值(0)", 0)
+        self.fuzzy_acc_combo.addItem("叠加当前值(1)", 1)
+        self.fuzzy_dec_combo = QComboBox()
+        self.fuzzy_dec_combo.addItem("绝对值(0)", 0)
+        self.fuzzy_dec_combo.addItem("叠加当前值(1)", 1)
         self.x_edit = QLineEdit("0")
         self.y_edit = QLineEdit("0")
         self.z_edit = QLineEdit("0")
@@ -785,29 +813,30 @@ class RobotQtWindow(QMainWindow):
             form.addRow(row_label, widget)
             self.record_form_rows[key] = (row_label, widget)
 
-        add_record_row("name", "显示名称", self.name_edit)
-        add_record_row("func_num", "函数号", self.func_num_combo)
-        add_record_row("keywords", "自然语言关键词", self.keywords_edit)
-        add_record_row("safety", "安全等级", self.safety_edit)
-        add_record_row("desc", "说明", self.desc_edit)
-        add_record_row("stop_mode", "停止模式", self.stop_mode_combo)
-        add_record_row("axis_no", "轴号", self.axis_no_edit)
-        add_record_row("pos_val", "目标值", self.pos_val_edit)
-        add_record_row("spd", "速度", self.spd_edit)
-        add_record_row("acc_v", "加速度", self.acc_v_edit)
-        add_record_row("dec_v", "减速度", self.dec_v_edit)
-        add_record_row("stop_cmd", "停止指令", self.stop_cmd_edit)
-        add_record_row("fuzzy_pos", "位置模式", self.fuzzy_pos_combo)
-        add_record_row("fuzzy_spd", "速度模式", self.fuzzy_spd_edit)
-        add_record_row("fuzzy_acc", "加速度模式", self.fuzzy_acc_edit)
-        add_record_row("fuzzy_dec", "减速度模式", self.fuzzy_dec_edit)
-        add_record_row("target_x", "目标X", self.x_edit)
-        add_record_row("target_y", "目标Y", self.y_edit)
-        add_record_row("target_z", "目标Z", self.z_edit)
-        add_record_row("target_rx", "目标Rx", self.rx_edit)
-        add_record_row("target_ry", "目标Ry", self.ry_edit)
-        add_record_row("target_rz", "目标Rz", self.rz_edit)
-        add_record_row("move_type", "运动模式", self.move_type_combo)
+        add_record_row("name", "显示名称 (query_key)", self.name_edit)
+        add_record_row("func_num", "函数号 (func_id)", self.func_num_combo)
+        add_record_row("func_name", "函数名 (func_name)", self.func_name_edit)
+        add_record_row("keywords", "自然语言关键词 (keywords)", self.keywords_edit)
+        add_record_row("safety", "安全等级 (safety_level)", self.safety_edit)
+        add_record_row("desc", "说明 (description)", self.desc_edit)
+        add_record_row("stop_mode", "停止模式 (stop_mode)", self.stop_mode_combo)
+        add_record_row("axis_no", "轴号 (axis_no)", self.axis_no_edit)
+        add_record_row("pos_val", "目标值 (pos_val)", self.pos_val_edit)
+        add_record_row("spd", "速度 (spd)", self.spd_edit)
+        add_record_row("acc_v", "加速度 (acc_v)", self.acc_v_edit)
+        add_record_row("dec_v", "减速度 (dec_v)", self.dec_v_edit)
+        add_record_row("stop_cmd", "停止指令 (stop_cmd)", self.stop_cmd_combo)
+        add_record_row("fuzzy_pos", "位置模式 (fuzzy_pos)", self.fuzzy_pos_combo)
+        add_record_row("fuzzy_spd", "速度模式 (fuzzy_spd)", self.fuzzy_spd_combo)
+        add_record_row("fuzzy_acc", "加速度模式 (fuzzy_acc)", self.fuzzy_acc_combo)
+        add_record_row("fuzzy_dec", "减速度模式 (fuzzy_dec)", self.fuzzy_dec_combo)
+        add_record_row("target_x", "目标X (target_x)", self.x_edit)
+        add_record_row("target_y", "目标Y (target_y)", self.y_edit)
+        add_record_row("target_z", "目标Z (target_z)", self.z_edit)
+        add_record_row("target_rx", "目标Rx (target_rx)", self.rx_edit)
+        add_record_row("target_ry", "目标Ry (target_ry)", self.ry_edit)
+        add_record_row("target_rz", "目标Rz (target_rz)", self.rz_edit)
+        add_record_row("move_type", "运动模式 (move_type)", self.move_type_combo)
 
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
@@ -1023,9 +1052,9 @@ class RobotQtWindow(QMainWindow):
         right_tabs.addTab(avoidance_group, "安全中间点")
         right_tabs.addTab(flow_manage_group, "流程管理")
 
-        bottom_layout.addWidget(left, 19)
-        bottom_layout.addWidget(middle, 19)
-        bottom_layout.addWidget(right_tabs, 26)
+        bottom_layout.addWidget(left, 14)
+        bottom_layout.addWidget(middle, 24)
+        bottom_layout.addWidget(right_tabs, 22)
 
         manage_splitter = QSplitter(Qt.Orientation.Vertical)
         manage_splitter.setChildrenCollapsible(False)
@@ -1046,10 +1075,6 @@ class RobotQtWindow(QMainWindow):
             self.spd_edit,
             self.acc_v_edit,
             self.dec_v_edit,
-            self.stop_cmd_edit,
-            self.fuzzy_spd_edit,
-            self.fuzzy_acc_edit,
-            self.fuzzy_dec_edit,
             self.x_edit,
             self.y_edit,
             self.z_edit,
@@ -1059,12 +1084,18 @@ class RobotQtWindow(QMainWindow):
         ]:
             widget.textChanged.connect(self._render_preview)
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_form_mode)
+        self.func_num_combo.currentIndexChanged.connect(self._sync_func_name_display)
         self.func_num_combo.currentIndexChanged.connect(self._render_preview)
         self.stop_mode_combo.currentIndexChanged.connect(self._render_preview)
-        self.fuzzy_pos_combo.currentTextChanged.connect(self._render_preview)
+        self.stop_cmd_combo.currentIndexChanged.connect(self._render_preview)
+        self.fuzzy_pos_combo.currentIndexChanged.connect(self._render_preview)
+        self.fuzzy_spd_combo.currentIndexChanged.connect(self._render_preview)
+        self.fuzzy_acc_combo.currentIndexChanged.connect(self._render_preview)
+        self.fuzzy_dec_combo.currentIndexChanged.connect(self._render_preview)
         self.move_type_combo.currentIndexChanged.connect(self._render_preview)
         self._load_system_config_into_form()
         self._load_avoidance_config_into_form()
+        self._sync_func_name_display()
         self._sync_func_form_mode()
 
         return page
@@ -1284,9 +1315,12 @@ class RobotQtWindow(QMainWindow):
             self.current_code_label = QLabel("-")
             self.current_cmd_label = QLabel("-")
             self.current_type_label = QLabel("-")
+            self.current_options_label = QLabel("-")
+            self.current_options_label.setWordWrap(True)
             for label, widget in [
                 ("显示名称", self.current_name_label), ("指令码", self.current_code_label),
                 ("指令类型", self.current_cmd_label), ("模板分类", self.current_type_label),
+                ("参数说明", self.current_options_label),
             ]:
                 layout.addRow(label + ":", widget)
         elif title == "日志摘要":
@@ -1597,6 +1631,7 @@ class RobotQtWindow(QMainWindow):
     def _load_record_into_form(self, record: QueryRecord) -> None:
         self.name_edit.setText(record.query_key)
         self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(record.func_num))
+        self._sync_func_name_display()
         self.keywords_edit.setText(record.keywords)
         self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(record.int_param("stop_mode")))
         self.axis_no_edit.setText(str(record.int_param("axis_no")))
@@ -1604,11 +1639,11 @@ class RobotQtWindow(QMainWindow):
         self.spd_edit.setText(self._fmt(record.float_param("spd")))
         self.acc_v_edit.setText(self._fmt(record.float_param("acc_v")))
         self.dec_v_edit.setText(self._fmt(record.float_param("dec_v")))
-        self.stop_cmd_edit.setText(str(record.int_param("stop_cmd")))
+        self.stop_cmd_combo.setCurrentIndex(self.stop_cmd_combo.findData(record.int_param("stop_cmd")))
         self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(record.int_param("fuzzy_pos")))
-        self.fuzzy_spd_edit.setText(str(record.int_param("fuzzy_spd")))
-        self.fuzzy_acc_edit.setText(str(record.int_param("fuzzy_acc")))
-        self.fuzzy_dec_edit.setText(str(record.int_param("fuzzy_dec")))
+        self.fuzzy_spd_combo.setCurrentIndex(self.fuzzy_spd_combo.findData(record.int_param("fuzzy_spd")))
+        self.fuzzy_acc_combo.setCurrentIndex(self.fuzzy_acc_combo.findData(record.int_param("fuzzy_acc")))
+        self.fuzzy_dec_combo.setCurrentIndex(self.fuzzy_dec_combo.findData(record.int_param("fuzzy_dec")))
         self.x_edit.setText(self._fmt(record.float_param("target_x")))
         self.y_edit.setText(self._fmt(record.float_param("target_y")))
         self.z_edit.setText(self._fmt(record.float_param("target_z")))
@@ -1640,10 +1675,10 @@ class RobotQtWindow(QMainWindow):
                 "acc_v": num(self.acc_v_edit.text()),
                 "dec_v": num(self.dec_v_edit.text()),
                 "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
-                "fuzzy_spd": int(float(self.fuzzy_spd_edit.text() or "0")),
-                "fuzzy_acc": int(float(self.fuzzy_acc_edit.text() or "0")),
-                "fuzzy_dec": int(float(self.fuzzy_dec_edit.text() or "0")),
-                "stop_cmd": int(float(self.stop_cmd_edit.text() or "0")),
+                "fuzzy_spd": int(self.fuzzy_spd_combo.currentData()),
+                "fuzzy_acc": int(self.fuzzy_acc_combo.currentData()),
+                "fuzzy_dec": int(self.fuzzy_dec_combo.currentData()),
+                "stop_cmd": int(self.stop_cmd_combo.currentData()),
             }
         else:
             params = {
@@ -1656,11 +1691,11 @@ class RobotQtWindow(QMainWindow):
                 "spd": num(self.spd_edit.text()),
                 "acc_v": num(self.acc_v_edit.text()),
                 "dec_v": num(self.dec_v_edit.text()),
-                "stop_cmd": int(float(self.stop_cmd_edit.text() or "0")),
+                "stop_cmd": int(self.stop_cmd_combo.currentData()),
                 "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
-                "fuzzy_spd": int(float(self.fuzzy_spd_edit.text() or "0")),
-                "fuzzy_acc": int(float(self.fuzzy_acc_edit.text() or "0")),
-                "fuzzy_dec": int(float(self.fuzzy_dec_edit.text() or "0")),
+                "fuzzy_spd": int(self.fuzzy_spd_combo.currentData()),
+                "fuzzy_acc": int(self.fuzzy_acc_combo.currentData()),
+                "fuzzy_dec": int(self.fuzzy_dec_combo.currentData()),
                 "move_type": int(self.move_type_combo.currentData()),
             }
         return QueryRecord(
@@ -1720,6 +1755,17 @@ class RobotQtWindow(QMainWindow):
         self.current_code_label.setText(str(record.func_num) if record.func_num else "-")
         self.current_cmd_label.setText(FUNC_LABELS.get(record.func_num, "-"))
         self.current_type_label.setText("函数号参数模板")
+        try:
+            six_cmd = self.service.build_six_command_from_record(record)
+            if six_cmd.func_num in (106, 107, 108):
+                self.current_options_label.setText(self._describe_six_motion_options(six_cmd))
+            elif six_cmd.func_num == 104:
+                stop_mode = int(six_cmd.stop_mode)
+                self.current_options_label.setText(f"stop_mode={stop_mode}({'急停' if stop_mode == 0 else '慢停'})")
+            else:
+                self.current_options_label.setText("-")
+        except Exception:
+            self.current_options_label.setText("-")
 
     def _refresh_all(self) -> None:
         self._refresh_command_cards()
@@ -2822,11 +2868,11 @@ class RobotQtWindow(QMainWindow):
         self.rx_edit.setText("0")
         self.ry_edit.setText("0")
         self.rz_edit.setText("0")
-        self.stop_cmd_edit.setText("0")
+        self.stop_cmd_combo.setCurrentIndex(self.stop_cmd_combo.findData(0))
         self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(0))
-        self.fuzzy_spd_edit.setText("0")
-        self.fuzzy_acc_edit.setText("0")
-        self.fuzzy_dec_edit.setText("0")
+        self.fuzzy_spd_combo.setCurrentIndex(self.fuzzy_spd_combo.findData(0))
+        self.fuzzy_acc_combo.setCurrentIndex(self.fuzzy_acc_combo.findData(0))
+        self.fuzzy_dec_combo.setCurrentIndex(self.fuzzy_dec_combo.findData(0))
         self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(0))
         self.safety_edit.setText("5")
         self.desc_edit.setText("")
@@ -3242,6 +3288,13 @@ class RobotQtWindow(QMainWindow):
             return client.read_modbus_float(pose_read)
 
         # 5. 写参数
+        if six_cmd.func_num in (106, 107, 108):
+            self._append_log(
+                "六轴",
+                f"Func{six_cmd.func_num} 参数说明 {record.query_key}",
+                "成功",
+                self._describe_six_motion_options(six_cmd),
+            )
         for wr in six_cmd.to_func_writes():
             client.write_modbus_float(wr)
             self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
@@ -3568,7 +3621,7 @@ class RobotQtWindow(QMainWindow):
 
     def _sync_func_form_mode(self, *_) -> None:
         func_num = int(self.func_num_combo.currentData() or 108)
-        visible_keys = {"name", "func_num", "keywords", "safety", "desc"}
+        visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
             visible_keys |= {"stop_mode"}
         elif func_num in (106, 107):
@@ -3606,6 +3659,26 @@ class RobotQtWindow(QMainWindow):
             is_visible = key in visible_keys
             label.setVisible(is_visible)
             widget.setVisible(is_visible)
+
+    def _sync_func_name_display(self, *_) -> None:
+        func_num = int(self.func_num_combo.currentData() or 108)
+        self.func_name_edit.setText(FUNC_LABELS.get(func_num, f"Func{func_num}"))
+
+    def _describe_six_motion_options(self, six_cmd: SixAxisCommand) -> str:
+        stop_cmd = int(six_cmd.stop_cmd)
+        stop_desc = STOP_CMD_LABELS.get(stop_cmd, f"stop_cmd={stop_cmd}")
+        detail = (
+            f"stop_cmd={stop_cmd}({stop_desc}) | "
+            f"fuzzy_pos={int(six_cmd.fuzzy_pos)} "
+            f"fuzzy_spd={int(six_cmd.fuzzy_spd)} "
+            f"fuzzy_acc={int(six_cmd.fuzzy_acc)} "
+            f"fuzzy_dec={int(six_cmd.fuzzy_dec)}"
+        )
+        if six_cmd.func_num == 108:
+            move_type = int(six_cmd.move_type)
+            move_desc = MOVE_TYPE_LABELS.get(move_type, f"move_type={move_type}")
+            detail += f" | move_type={move_type}({move_desc})"
+        return detail
 
     def _make_client(self, host: str):
         if self.controller_combo.currentText() == "模拟控制器":
