@@ -25,35 +25,11 @@ from .query_table import load_query_table
 
 
 class RobotModbusService:
-    STANDARD_CMD_NAMES = {
-        1001: "MOVE_ABS",
-        1002: "MOVE_REL",
-        1003: "HOME",
-        1004: "GRIP_SET",
-        1005: "DOOR_CTRL",
-        1006: "WAIT_MS",
-        1007: "CHECK_IN",
-        1008: "EMG_RESET",
-        4001: "SYS_RESET",
-        4002: "SYS_ESTOP",
-        4003: "SYS_PAUSE",
-        4004: "SYS_RESUME",
-        5001: "FIXED_FUNC",
-        6001: "AUTO_START",
-        6002: "AUTO_STOP",
-    }
-    LEGACY_FUNCTION_ID_TO_STANDARD = {
-        1: 1003,
-        2: 1003,
-        3: 1001,
-        4: 1001,
-        5: 1001,
-        6: 1001,
-        7: 1001,
-        8: 1002,
-        9: 1004,
-        10: 1004,
-        11: 1006,
+    FUNC_LABELS = {
+        104: "Func104 停止",
+        106: "Func106 关节点动",
+        107: "Func107 虚拟轴点动",
+        108: "Func108 直线插补/PTP",
     }
 
     def __init__(
@@ -81,6 +57,7 @@ class RobotModbusService:
         self.standard_monitor_vr_start = 700
 
     def reload(self) -> None:
+        self.table = load_query_table(self.csv_path)
         if self.flows_path:
             self.flows = load_flows_json(self.flows_path)
 
@@ -147,10 +124,10 @@ class RobotModbusService:
     ) -> StandardProtocolCommand:
         return StandardProtocolCommand(
             task_id=task_id,
-            cmd=self.STANDARD_CMD_NAMES.get(code, f"CMD_{code}"),
+            cmd=self.FUNC_LABELS.get(code, f"FUNC_{code}"),
             code=code,
             safety_level=5,
-            desc=desc or self.STANDARD_CMD_NAMES.get(code, f"CMD_{code}"),
+            desc=desc or self.FUNC_LABELS.get(code, f"FUNC_{code}"),
         )
 
     def list_flow_names(self) -> list[str]:
@@ -176,184 +153,88 @@ class RobotModbusService:
         *,
         task_id: int,
     ) -> StandardProtocolCommand:
-        params = record.to_standard_params()
-        standard_code = self._resolve_standard_code(record)
-        speed_percent = self._resolve_speed_percent(record, params, standard_code)
-        acc_percent = self._resolve_acc_percent(record, params, standard_code)
+        pose = record.pose_tuple() or (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         return StandardProtocolCommand(
             task_id=task_id,
-            cmd=self._resolve_standard_cmd_name(record, standard_code),
-            code=standard_code,
-            x=float(params["x"]),
-            y=float(params["y"]),
-            z=float(params["z"]),
-            rx=float(params["rx"]),
-            ry=float(params["ry"]),
-            rz=float(params["rz"]),
-            speed_percent=speed_percent,
-            acc_percent=acc_percent,
-            pos_id=int(params["posId"]),
-            device_id=int(params["deviceId"]),
-            io_grip=self._resolve_io_grip(record, params),
-            io_door=self._resolve_io_door(record, params),
-            ext_p1=self._resolve_ext_p1(record, params, standard_code),
-            ext_p2=float(params["extP2"]),
+            cmd=self.FUNC_LABELS.get(record.func_num, f"FUNC_{record.func_num}"),
+            code=record.func_num,
+            x=pose[0],
+            y=pose[1],
+            z=pose[2],
+            rx=pose[3],
+            ry=pose[4],
+            rz=pose[5],
+            speed_percent=int(round(record.speed_value())),
+            acc_percent=int(round(record.acc_value())),
             safety_level=record.safety_level,
             desc=record.description or record.query_key,
         )
 
-    def _resolve_standard_code(self, record: QueryRecord) -> int:
-        if record.function_id >= 1000:
-            return record.function_id
-        return self.LEGACY_FUNCTION_ID_TO_STANDARD.get(record.function_id, record.function_id)
-
-    def _resolve_standard_cmd_name(self, record: QueryRecord, standard_code: int) -> str:
-        if standard_code in self.STANDARD_CMD_NAMES:
-            return self.STANDARD_CMD_NAMES[standard_code]
-        return record.function_name.upper()
-
-    def _resolve_io_grip(self, record: QueryRecord, params: dict[str, float | int]) -> int:
-        if record.io_grip:
-            return int(params["ioGrip"])
-        if record.function_id == 9:
-            return 1
-        if record.function_id == 10:
-            return 0
-        return int(params["ioGrip"])
-
-    def _resolve_io_door(self, record: QueryRecord, params: dict[str, float | int]) -> int:
-        if record.io_door:
-            return int(params["ioDoor"])
-        if record.function_id == 1005:
-            return 1
-        return int(params["ioDoor"])
-
-    def _resolve_speed_percent(
-        self,
-        record: QueryRecord,
-        params: dict[str, float | int],
-        standard_code: int,
-    ) -> int:
-        if standard_code == 1003:
-            return 30
-        return int(round(float(params["speedPercent"])))
-
-    def _resolve_acc_percent(
-        self,
-        record: QueryRecord,
-        params: dict[str, float | int],
-        standard_code: int,
-    ) -> int:
-        return int(round(float(params["accPercent"])))
-
-    def _resolve_ext_p1(
-        self,
-        record: QueryRecord,
-        params: dict[str, float | int],
-        standard_code: int,
-    ) -> float:
-        if record.ext_p1:
-            return float(params["extP1"])
-        if standard_code == 1006:
-            return float(record.registers[0])
-        return float(params["extP1"])
-
-    # ── Modbus TCP 协议方法 (V2.2) ────────────────────────────────
-
-    # VR命令码 → 函数号映射
-    VR_TO_SIX_MAP = {
-        1001: 108,   # MOVE_ABS → 直线插补(绝对模式 fuzzy_pos=0)
-        1002: 108,   # MOVE_REL → 直线插补(增量模式 fuzzy_pos=1)
-        1003: 108,   # HOME → 直线插补到原点
-        1004: -1,    # GRIP_SET → 上位机写BIT口
-        1005: -3,    # DOOR_CTRL → 上位机写BIT口
-        1006: -2,    # WAIT_MS → 上位机本地延时
-        1007: -4,    # CHECK_IN → 上位机本地无操作
-        1008: -10,   # EMG_RESET → BIT(151)=1 报警复位
-        4001: -10,   # SYS_RESET → BIT(151)=1 报警复位
-        4002: 104,   # SYS_ESTOP → 停止(急停)
-        4003: 104,   # SYS_PAUSE → 停止(慢停)
-        4004: -5,    # SYS_RESUME → 上位机本地状态切换
-        5001: -6,    # FIXED_FUNC → 上位机本地无操作
-        6001: -5,    # AUTO_START → 上位机本地状态切换
-        6002: -5,    # AUTO_STOP → 上位机本地状态切换
-    }
-
     def build_six_command_from_record(
         self,
         record: QueryRecord,
-        base_speed_mm: float = 3000.0,
     ) -> SixAxisCommand:
-        """将查询表记录转为六轴命令"""
-        standard_code = self._resolve_standard_code(record)
-        params = record.to_standard_params()
-        func_num = self.VR_TO_SIX_MAP.get(standard_code)
-        if func_num is None:
-            raise ValueError(f"命令码 {standard_code} 无六轴映射，查询键={record.query_key}")
-
-        if func_num == -10:
-            return SixAxisCommand(func_num=-10, desc="ALARM_RESET")
-        if func_num == -1:
-            return SixAxisCommand(func_num=-1, desc="GRIP_SET",
-                                  io_grip=int(params["ioGrip"]))
-        if func_num == -2:
-            return SixAxisCommand(func_num=-2, desc="WAIT_MS",
-                                  ext_p1=float(params["extP1"]))
-        if func_num == -3:
-            return SixAxisCommand(func_num=-3, desc="DOOR_CTRL",
-                                  io_door=int(params["ioDoor"]))
-        if func_num < 0:
-            return SixAxisCommand(func_num=func_num, desc="LOCAL")
+        """将模板记录转为六轴命令，仅支持 Func104/106/107/108。"""
+        params = record.params
+        func_num = record.func_num
 
         if func_num == 104:
-            stop_mode = 0 if standard_code == 4002 else 1
-            return SixAxisCommand(func_num=104, desc="STOP", stop_mode=stop_mode)
+            return SixAxisCommand(
+                func_num=104,
+                desc=record.description or record.query_key,
+                stop_mode=int(float(params.get("stop_mode", 0))),
+            )
+
+        if func_num in (106, 107):
+            return SixAxisCommand(
+                func_num=func_num,
+                desc=record.description or record.query_key,
+                axis_no=int(float(params.get("axis_no", 0))),
+                pos_val=float(params.get("pos_val", 0.0)),
+                spd=float(params.get("spd", 0.0)),
+                acc_v=float(params.get("acc_v", 0.0)),
+                dec_v=float(params.get("dec_v", 0.0)),
+                fuzzy_pos=float(int(float(params.get("fuzzy_pos", 0)))),
+                fuzzy_spd=float(int(float(params.get("fuzzy_spd", 0)))),
+                fuzzy_acc=float(int(float(params.get("fuzzy_acc", 0)))),
+                fuzzy_dec=float(int(float(params.get("fuzzy_dec", 0)))),
+                stop_cmd=int(float(params.get("stop_cmd", 0))),
+            )
 
         if func_num == 108:
-            speed_pct = float(params["speedPercent"])
-            speed = base_speed_mm * speed_pct / 100.0
-            acc_pct = float(params["accPercent"])
-            # 默认保持原有 ABS/REL 语义，模板中显式配置时再覆盖。
-            fuzzy_pos = 1.0 if standard_code == 1002 else 0.0
-            configured_fuzzy_pos = int(params["fuzzyPos"])
-            if configured_fuzzy_pos in (0, 1):
-                fuzzy_pos = float(configured_fuzzy_pos)
             return SixAxisCommand(
                 func_num=108,
                 desc=record.description or record.query_key,
-                target_x=float(params["x"]),
-                target_y=float(params["y"]),
-                target_z=float(params["z"]),
-                target_rx=float(params["rx"]),
-                target_ry=float(params["ry"]),
-                target_rz=float(params["rz"]),
-                spd=speed,
-                acc_v=1000.0 * acc_pct / 100.0,
-                dec_v=1000.0 * acc_pct / 100.0,
-                stop_cmd=int(params["stopCmd"]),
-                fuzzy_pos=fuzzy_pos,
-                fuzzy_spd=float(int(params["fuzzySpd"])),
-                fuzzy_acc=float(int(params["fuzzyAcc"])),
-                fuzzy_dec=float(int(params["fuzzyDec"])),
-                move_type=int(params["moveType"]),
+                target_x=float(params.get("target_x", 0.0)),
+                target_y=float(params.get("target_y", 0.0)),
+                target_z=float(params.get("target_z", 0.0)),
+                target_rx=float(params.get("target_rx", 0.0)),
+                target_ry=float(params.get("target_ry", 0.0)),
+                target_rz=float(params.get("target_rz", 0.0)),
+                spd=float(params.get("spd", 0.0)),
+                acc_v=float(params.get("acc_v", 0.0)),
+                dec_v=float(params.get("dec_v", 0.0)),
+                stop_cmd=int(float(params.get("stop_cmd", 0))),
+                fuzzy_pos=float(int(float(params.get("fuzzy_pos", 0)))),
+                fuzzy_spd=float(int(float(params.get("fuzzy_spd", 0)))),
+                fuzzy_acc=float(int(float(params.get("fuzzy_acc", 0)))),
+                fuzzy_dec=float(int(float(params.get("fuzzy_dec", 0)))),
+                move_type=int(float(params.get("move_type", 0))),
             )
 
-        return SixAxisCommand(func_num=func_num, desc=record.query_key)
+        raise ValueError(f"仅支持 Func104/106/107/108，查询键={record.query_key}，实际={func_num}")
 
     def build_six_system_command(self, code: int) -> SixAxisCommand:
         """构建六轴系统命令"""
-        func_num = self.VR_TO_SIX_MAP.get(code)
-        if func_num is None:
-            raise ValueError(f"系统命令码 {code} 无六轴映射")
-        if func_num == -10:
+        if code == 4002:
+            return SixAxisCommand(func_num=104, desc="SYS_ESTOP", stop_mode=0)
+        if code == 4003:
+            return SixAxisCommand(func_num=104, desc="SYS_PAUSE", stop_mode=1)
+        if code in (1008, 4001):
             return SixAxisCommand(func_num=-10, desc="ALARM_RESET")
-        if func_num == 104:
-            stop_mode = 0 if code == 4002 else 1
-            return SixAxisCommand(func_num=104, desc=self.STANDARD_CMD_NAMES.get(code, ""),
-                                  stop_mode=stop_mode)
-        if func_num < 0:
-            return SixAxisCommand(func_num=func_num, desc=self.STANDARD_CMD_NAMES.get(code, ""))
-        return SixAxisCommand(func_num=func_num, desc=self.STANDARD_CMD_NAMES.get(code, ""))
+        if code in (4004, 6001, 6002):
+            return SixAxisCommand(func_num=-5, desc=f"LOCAL_{code}")
+        raise ValueError(f"系统命令码 {code} 当前未实现")
 
     def build_six_status_read(self) -> VrReadRequest:
         return VrReadRequest(start_vr=34, count=1)
@@ -367,8 +248,57 @@ class RobotModbusService:
     def parse_six_alarm_detail(self, values: list[float]) -> SixAxisAlarmDetail:
         return SixAxisAlarmDetail.from_value(values[0] if values else 0.0)
 
+    def build_six_current_func_read(self) -> VrReadRequest:
+        return VrReadRequest(start_vr=36, count=1)
+
+    def parse_six_current_func(self, values: list[float]) -> int:
+        return int(values[0] if values else 0.0)
+
+    def build_six_motion_state_read(self) -> VrReadRequest:
+        return VrReadRequest(start_vr=56, count=1)
+
+    def parse_six_motion_state(self, values: list[float]) -> int:
+        return int(values[0] if values else 0.0)
+
+    def build_six_joint_feedback_read(self) -> VrReadRequest:
+        """读 IEEE(1500~1510) 实际关节角度。"""
+        return VrReadRequest(start_vr=1500, count=6)
+
+    def build_six_pose_feedback_read(self) -> VrReadRequest:
+        """读 IEEE(1512~1522) 实际笛卡尔位姿。"""
+        return VrReadRequest(start_vr=1512, count=6)
+
+    def build_six_safety_limits_read(self) -> VrReadRequest:
+        return VrReadRequest(start_vr=1700, count=7)
+
+    def build_six_safety_limits_write(self, config) -> VrWriteRequest:
+        return VrWriteRequest(
+            start_vr=1700,
+            values=(
+                float(config.safe_r_min),
+                float(config.safe_r_max),
+                float(config.safe_z_min),
+                float(config.safe_z_max),
+                float(config.safe_speed_max),
+                float(config.safe_acc_max),
+                float(config.safe_dec_max),
+            ),
+        )
+
+    def parse_six_safety_limits(self, values: list[float]) -> dict[str, float]:
+        padded = list(values[:7]) + [0.0] * max(0, 7 - len(values))
+        return {
+            "safe_r_min": float(padded[0]),
+            "safe_r_max": float(padded[1]),
+            "safe_z_min": float(padded[2]),
+            "safe_z_max": float(padded[3]),
+            "safe_speed_max": float(padded[4]),
+            "safe_acc_max": float(padded[5]),
+            "safe_dec_max": float(padded[6]),
+        }
+
     def build_six_realtime_xyz_read(self) -> VrReadRequest:
-        """读 IEEE(40, 6) X/Y/Z/Rx/Ry/Rz 坐标"""
+        """读 IEEE(40~50) Func108 运行态回传位姿。"""
         return VrReadRequest(start_vr=40, count=6)
 
     def parse_six_realtime(self, joint_vals: list[float], xyz_vals: list[float]) -> SixAxisRealtimeData:

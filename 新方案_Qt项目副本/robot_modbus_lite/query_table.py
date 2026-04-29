@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 from pathlib import Path
 
 from .models import QueryRecord
+
+
+SUPPORTED_FUNC_NUMS = {104, 106, 107, 108}
 
 
 class QueryTableError(ValueError):
@@ -25,34 +27,56 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
         raise QueryTableError(f"未找到地址表文件: {path}")
 
     lines = path.read_text(encoding="utf-8").splitlines()
-    header_index = _find_effective_header(lines)
-    rows = csv.reader(lines[header_index:], delimiter="\t")
-
-    try:
-        next(rows)
-    except StopIteration as exc:
-        raise QueryTableError("有效数据表为空。") from exc
-
+    rows = csv.reader(lines, delimiter="\t")
     table: dict[str, QueryRecord] = {}
     for row in rows:
         cleaned = [item.strip() for item in row]
-        if not any(cleaned):
+        if len(cleaned) < 10 or cleaned[0] in {"", "query_key"}:
             continue
-        if len(cleaned) < 9:
-            raise QueryTableError(f"有效数据行字段不足: {cleaned}")
-
         query_key = cleaned[0]
-        function_id = _parse_int_prefix(cleaned[1])
-        registers = tuple(_parse_numeric(value) for value in cleaned[2:9])
-        if len(registers) != 7:
-            raise QueryTableError(f"寄存器数量非法: {cleaned}")
-
-        table[query_key] = QueryRecord(
-            query_key=query_key,
-            function_id=function_id,
-            registers=registers,  # type: ignore[arg-type]
-            template_type="fixed" if function_id >= 5000 else "parametric",
-        )
+        func_num = int(float(cleaned[1]))
+        if func_num not in SUPPORTED_FUNC_NUMS:
+            continue
+        params = _default_params_for_func(func_num)
+        values = [float(item or 0) for item in cleaned[2:]]
+        if func_num == 104:
+            params["stop_mode"] = values[0] if values else 0
+        elif func_num in (106, 107):
+            keys = [
+                "axis_no",
+                "pos_val",
+                "spd",
+                "acc_v",
+                "dec_v",
+                "fuzzy_pos",
+                "fuzzy_spd",
+                "fuzzy_acc",
+                "fuzzy_dec",
+                "stop_cmd",
+            ]
+            for key, value in zip(keys, values):
+                params[key] = value
+        elif func_num == 108:
+            keys = [
+                "target_x",
+                "target_y",
+                "target_z",
+                "target_rx",
+                "target_ry",
+                "target_rz",
+                "spd",
+                "acc_v",
+                "dec_v",
+                "stop_cmd",
+                "fuzzy_pos",
+                "fuzzy_spd",
+                "fuzzy_acc",
+                "fuzzy_dec",
+                "move_type",
+            ]
+            for key, value in zip(keys, values):
+                params[key] = value
+        table[query_key] = QueryRecord(query_key=query_key, func_num=func_num, params=params)
 
     if not table:
         raise QueryTableError("未解析到任何有效数据记录。")
@@ -75,34 +99,23 @@ def load_query_table_json(path: str | Path) -> dict[str, QueryRecord]:
         query_key = str(item.get("query_key", "")).strip()
         if not query_key:
             raise QueryTableError("JSON 记录缺少 query_key。")
-        function_id = int(item.get("function_id"))
-        registers_raw = item.get("registers")
-        if not isinstance(registers_raw, list) or len(registers_raw) != 7:
-            raise QueryTableError(f"JSON 记录寄存器数量非法: {item!r}")
-        registers = tuple(float(value) for value in registers_raw)
+        func_num = int(item.get("func_num"))
+        if func_num not in SUPPORTED_FUNC_NUMS:
+            raise QueryTableError(f"仅支持 Func104/106/107/108，实际={func_num}")
+        params_raw = item.get("params")
+        if not isinstance(params_raw, dict):
+            raise QueryTableError(f"JSON 记录缺少 params: {item!r}")
+        params = _default_params_for_func(func_num)
+        for key in params:
+            if key in params_raw:
+                params[key] = params_raw[key]
         table[query_key] = QueryRecord(
             query_key=query_key,
-            function_id=function_id,
-            registers=registers,  # type: ignore[arg-type]
-            function_name=str(item.get("function_name", "movabs")),
-            data_format=str(item.get("data_format", "IEE")),
-            template_type=str(item.get("template_type", "parametric")),
+            func_num=func_num,
+            params=params,
             keywords=str(item.get("keywords", "")),
             description=str(item.get("description", "")),
-            pos_id=int(item.get("pos_id", 0)),
-            device_id=int(item.get("device_id", 1)),
-            acc_percent=float(item.get("acc_percent", 40.0)),
             safety_level=int(item.get("safety_level", 5)),
-            io_grip=int(item.get("io_grip", 0)),
-            io_door=int(item.get("io_door", 0)),
-            ext_p1=float(item.get("ext_p1", 0.0)),
-            ext_p2=float(item.get("ext_p2", 0.0)),
-            stop_cmd=int(item.get("stop_cmd", 0)),
-            fuzzy_pos=int(item.get("fuzzy_pos", -1)),
-            fuzzy_spd=int(item.get("fuzzy_spd", 0)),
-            fuzzy_acc=int(item.get("fuzzy_acc", 0)),
-            fuzzy_dec=int(item.get("fuzzy_dec", 0)),
-            move_type=int(item.get("move_type", 0)),
         )
 
     if not table:
@@ -117,27 +130,11 @@ def save_query_table_json(path: str | Path, table: dict[str, QueryRecord]) -> No
         "records": [
             {
                 "query_key": record.query_key,
-                "function_id": record.function_id,
-                "function_name": record.function_name,
-                "data_format": record.data_format,
-                "template_type": record.template_type,
+                "func_num": record.func_num,
                 "keywords": record.keywords,
                 "description": record.description,
-                "pos_id": record.pos_id,
-                "device_id": record.device_id,
-                "acc_percent": record.acc_percent,
                 "safety_level": record.safety_level,
-                "io_grip": record.io_grip,
-                "io_door": record.io_door,
-                "ext_p1": record.ext_p1,
-                "ext_p2": record.ext_p2,
-                "stop_cmd": record.stop_cmd,
-                "fuzzy_pos": record.fuzzy_pos,
-                "fuzzy_spd": record.fuzzy_spd,
-                "fuzzy_acc": record.fuzzy_acc,
-                "fuzzy_dec": record.fuzzy_dec,
-                "move_type": record.move_type,
-                "registers": list(record.registers),
+                "params": record.params,
             }
             for record in sorted(table.values(), key=lambda item: item.query_key)
         ]
@@ -154,22 +151,38 @@ def bootstrap_query_table_json(json_path: str | Path, csv_path: str | Path) -> P
     return json_file
 
 
-def _find_effective_header(lines: list[str]) -> int:
-    for index, line in enumerate(lines):
-        if line.strip().startswith("AI解析数据表"):
-            return index
-    raise QueryTableError("未找到“AI解析数据表”表头。")
-
-
-def _parse_int_prefix(value: str) -> int:
-    match = re.match(r"\s*(-?\d+)", value)
-    if not match:
-        raise QueryTableError(f"函数序号无法解析: {value!r}")
-    return int(match.group(1))
-
-
-def _parse_numeric(value: str) -> float:
-    normalized = value.strip().replace("%", "")
-    if normalized in {"", "无"}:
-        return 0.0
-    return float(normalized)
+def _default_params_for_func(func_num: int) -> dict[str, float | int]:
+    if func_num == 104:
+        return {"stop_mode": 0}
+    if func_num in (106, 107):
+        return {
+            "axis_no": 0,
+            "pos_val": 0.0,
+            "spd": 300.0,
+            "acc_v": 60.0,
+            "dec_v": 60.0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "stop_cmd": 0,
+        }
+    if func_num == 108:
+        return {
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd": 300.0,
+            "acc_v": 400.0,
+            "dec_v": 400.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0,
+        }
+    raise QueryTableError(f"不支持的函数号: {func_num}")

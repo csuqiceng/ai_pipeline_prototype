@@ -26,6 +26,14 @@ from .protocol import (
     SIX_ALARM_DETAIL_ADDR,
     SIX_CURR_FUNC_ADDR,
     SIX_P_AXIS_NO,
+    SIX_P_SPD,
+    SIX_P_ACC_V,
+    SIX_P_DEC_V,
+    SIX_P_FUZZY_POS,
+    SIX_P_FUZZY_SPD,
+    SIX_P_FUZZY_ACC,
+    SIX_P_FUZZY_DEC,
+    SIX_P_STOP_CMD,
     SIX_P_POS_VAL,
     SIX_P_TARGET_X,
     SIX_P_TARGET_Y,
@@ -54,6 +62,7 @@ from .protocol import (
     SIX_STATUS_COMPLETE,
     SIX_STATUS_COMPLETE_ALARM,
     SIX_STATUS_ERROR,
+    SIX_STATUS_ERROR_ALARM,
     SIX_STATUS_EXECUTING,
     SIX_STATUS_RECEIVED,
     SPEED_MAX_AUTO,
@@ -522,14 +531,46 @@ class MockController:
 
     def _do_six_stop(self) -> None:
         with self._lock:
+            self._modbus_ieee[56] = 0.0
             self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE)
             self._set_status(STATUS_IDLE)
 
     def _do_six_joint_jog(self) -> None:
         with self._lock:
             axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
-            target_pos = self._modbus_ieee[SIX_P_POS_VAL]
+            pos_val = self._modbus_ieee[SIX_P_POS_VAL]
+            spd = self._modbus_ieee[SIX_P_SPD]
+            acc_v = self._modbus_ieee[SIX_P_ACC_V]
+            dec_v = self._modbus_ieee[SIX_P_DEC_V]
+            fuzzy_pos = int(self._modbus_ieee[SIX_P_FUZZY_POS])
+            fuzzy_spd = int(self._modbus_ieee[SIX_P_FUZZY_SPD])
+            fuzzy_acc = int(self._modbus_ieee[SIX_P_FUZZY_ACC])
+            fuzzy_dec = int(self._modbus_ieee[SIX_P_FUZZY_DEC])
+            stop_cmd = int(self._modbus_ieee[SIX_P_STOP_CMD])
             current = self._modbus_ieee[SIX_RT_J_START + axis_no]
+            current_speed = self._modbus_ieee[52]
+
+            if fuzzy_pos == 1:
+                target_pos = current + pos_val
+            else:
+                target_pos = pos_val
+            if fuzzy_spd == 1:
+                spd += current_speed
+            if fuzzy_acc == 1:
+                acc_v += self._modbus_ieee[SIX_P_ACC_V]
+            if fuzzy_dec == 1:
+                dec_v += self._modbus_ieee[SIX_P_DEC_V]
+            spd, acc_v, dec_v, alarm_bits = self._clamp_six_motion_values_locked(spd, acc_v, dec_v)
+            self._modbus_ieee[52] = spd
+            self._modbus_ieee[56] = 0.0
+            self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+            if spd <= 0:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR_ALARM if alarm_bits else SIX_STATUS_ERROR)
+                return
+            stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
+            if stop_status is not None:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
+                return
 
         steps = 3
         for i in range(1, steps + 1):
@@ -537,17 +578,51 @@ class MockController:
                 break
             t = i / steps
             with self._lock:
+                self._modbus_ieee[56] = 1.0
                 self._modbus_ieee[SIX_RT_J_START + axis_no] = current + (target_pos - current) * t
                 self._sync_six_realtime_locked()
             time.sleep(0.02)
+        with self._lock:
+            self._modbus_ieee[56] = 0.0
 
     def _do_six_virtual_jog(self) -> None:
         with self._lock:
             axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
-            target_pos = self._modbus_ieee[SIX_P_POS_VAL]
+            pos_val = self._modbus_ieee[SIX_P_POS_VAL]
+            spd = self._modbus_ieee[SIX_P_SPD]
+            acc_v = self._modbus_ieee[SIX_P_ACC_V]
+            dec_v = self._modbus_ieee[SIX_P_DEC_V]
+            fuzzy_pos = int(self._modbus_ieee[SIX_P_FUZZY_POS])
+            fuzzy_spd = int(self._modbus_ieee[SIX_P_FUZZY_SPD])
+            fuzzy_acc = int(self._modbus_ieee[SIX_P_FUZZY_ACC])
+            fuzzy_dec = int(self._modbus_ieee[SIX_P_FUZZY_DEC])
+            stop_cmd = int(self._modbus_ieee[SIX_P_STOP_CMD])
             # 虚拟轴6~11映射到IEEE(1512+): 6→1512, 7→1513, ...
             target_idx = SIX_RT_XYZ_START + (axis_no - 6)
             current = self._modbus_ieee[target_idx]
+            current_speed = self._modbus_ieee[52]
+
+            if fuzzy_pos == 1:
+                target_pos = current + pos_val
+            else:
+                target_pos = pos_val
+            if fuzzy_spd == 1:
+                spd += current_speed
+            if fuzzy_acc == 1:
+                acc_v += self._modbus_ieee[SIX_P_ACC_V]
+            if fuzzy_dec == 1:
+                dec_v += self._modbus_ieee[SIX_P_DEC_V]
+            spd, acc_v, dec_v, alarm_bits = self._clamp_six_motion_values_locked(spd, acc_v, dec_v)
+            self._modbus_ieee[52] = spd
+            self._modbus_ieee[56] = 0.0
+            self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+            if spd <= 0:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR_ALARM if alarm_bits else SIX_STATUS_ERROR)
+                return
+            stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
+            if stop_status is not None:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
+                return
 
         steps = 3
         for i in range(1, steps + 1):
@@ -555,9 +630,12 @@ class MockController:
                 break
             t = i / steps
             with self._lock:
+                self._modbus_ieee[56] = 1.0
                 self._modbus_ieee[target_idx] = current + (target_pos - current) * t
                 self._sync_six_realtime_locked()
             time.sleep(0.02)
+        with self._lock:
+            self._modbus_ieee[56] = 0.0
 
         # 检查安全限位，模拟报警
         self._check_six_safety_limit()
@@ -597,10 +675,12 @@ class MockController:
             )
             self._modbus_ieee[52] = speed
             self._modbus_ieee[54] = sum(abs(targets[i] - currents[i]) for i in range(3))
+            self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
 
-            if stop_cmd > 0:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM if alarm_bits else SIX_STATUS_COMPLETE)
+            stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
+            if stop_status is not None:
+                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
                 return
 
         steps = 3 if move_type == 1 else 5
@@ -609,12 +689,15 @@ class MockController:
                 break
             t = i / steps
             with self._lock:
+                self._modbus_ieee[56] = 1.0
                 for j in range(6):
                     self._modbus_ieee[SIX_RT_XYZ_START + j] = currents[j] + (targets[j] - currents[j]) * t
                 remaining = sum(abs(targets[j] - self._modbus_ieee[SIX_RT_XYZ_START + j]) for j in range(3))
                 self._modbus_ieee[54] = remaining
                 self._sync_six_realtime_locked()
             time.sleep(0.02)
+        with self._lock:
+            self._modbus_ieee[56] = 0.0
 
         # 检查安全限位，模拟报警
         self._check_six_safety_limit()
@@ -664,6 +747,42 @@ class MockController:
         targets[2] = target_z
         return targets, speed, acc_v, dec_v, alarm_bits
 
+    def _clamp_six_motion_values_locked(
+        self,
+        speed: float,
+        acc_v: float,
+        dec_v: float,
+    ) -> tuple[float, float, float, int]:
+        alarm_bits = 0
+        safe_spd = self._modbus_ieee[SIX_SAFE_SPD_MAX]
+        safe_acc = self._modbus_ieee[SIX_SAFE_ACC_MAX]
+        safe_dec = self._modbus_ieee[SIX_SAFE_DEC_MAX]
+
+        if speed <= 0:
+            alarm_bits |= 8
+            return speed, acc_v, dec_v, alarm_bits
+        if safe_spd > 0 and speed > safe_spd:
+            speed = safe_spd
+            alarm_bits |= 8
+        if safe_acc > 0 and acc_v > safe_acc:
+            acc_v = safe_acc
+            alarm_bits |= 16
+        if safe_dec > 0 and dec_v > safe_dec:
+            dec_v = safe_dec
+            alarm_bits |= 32
+        return speed, acc_v, dec_v, alarm_bits
+
+    def _apply_six_stop_cmd_locked(self, stop_cmd: int, alarm_bits: int) -> int | None:
+        if stop_cmd <= 0:
+            return None
+        if stop_cmd == 4:
+            self._set_status(STATUS_PAUSED)
+        elif stop_cmd == 5:
+            self._set_status(STATUS_RUNNING)
+        else:
+            self._set_status(STATUS_IDLE)
+        return SIX_STATUS_COMPLETE_ALARM if alarm_bits else SIX_STATUS_COMPLETE
+
     def _check_six_safety_limit(self) -> None:
         """检查六轴运动是否超出安全限位，超出则设置报警"""
         with self._lock:
@@ -685,7 +804,10 @@ class MockController:
                 self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM)
 
     def _sync_six_realtime_locked(self) -> None:
-        """同步六轴IEEE位置到VR (GUI兼容)"""
+        """同步六轴实时位姿到 VR 与文档反馈地址。"""
+        for i in range(6):
+            self._modbus_ieee[1500 + i * 2] = self._modbus_ieee[SIX_RT_J_START + i]
+            self._modbus_ieee[1512 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
         self._vr[VR_OFFSET["CUR_X"].index] = self._modbus_ieee[SIX_RT_XYZ_START]
         self._vr[VR_OFFSET["CUR_Y"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 1]
         self._vr[VR_OFFSET["CUR_Z"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 2]

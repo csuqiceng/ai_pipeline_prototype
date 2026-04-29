@@ -124,7 +124,7 @@ class VoiceNlpAdapter:
         try:
             client = self._external_deepseek_client or DeepSeekClient.from_env()
             prompt = self._build_deepseek_prompt(text)
-            payload = client.parse_json(prompt, model="deepseek-chat")
+            payload = client.parse_json(prompt)
             if not payload:
                 return None
             reason = str(payload.get("reason", "")).strip() or "DeepSeek解析"

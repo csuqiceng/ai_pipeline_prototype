@@ -70,7 +70,13 @@ from .license_manager import LicenseManager
 from .license_dialog import LicenseDialog
 
 
-COMMAND_TYPES = ["MOVE_ABS", "MOVE_REL", "HOME", "GRIP_SET", "DOOR_CTRL", "WAIT_MS", "CHECK_IN", "EMG_RESET", "FIXED_FUNC"]
+FUNC_OPTIONS = {
+    "Func104 急停/慢停": 104,
+    "Func106 关节轴点动": 106,
+    "Func107 虚拟轴点动": 107,
+    "Func108 直线插补/PTP": 108,
+}
+FUNC_LABELS = {value: key for key, value in FUNC_OPTIONS.items()}
 SYSTEM_COMMANDS = {
     "上电": ("power_on", "系统已上电"),
     "启动": ("auto_start", "系统启动"),
@@ -115,6 +121,7 @@ class RobotQtWindow(QMainWindow):
         self.table = load_query_table(self.json_path)
         self.service = RobotModbusService(self.json_path, flows_path=self.flows_path, table=self.table)
         self._client_factory = client_factory or (lambda host, repo_root: ZMotionVrClient(host=host, repo_root=repo_root))
+        self._updating_command_fields = False
         self.history: list[dict[str, str | int]] = []
         self.logs: list[dict[str, str]] = []
         self.task_id = 1001
@@ -546,7 +553,7 @@ class RobotQtWindow(QMainWindow):
         command_toolbar.addWidget(self.command_filter_edit, 1)
         command_toolbar.addWidget(QLabel("类型:"))
         self.command_type_combo = QComboBox()
-        self.command_type_combo.addItems(["全部", "参数型", "固定型"])
+        self.command_type_combo.addItems(["全部", "Func104", "Func106", "Func107", "Func108"])
         self.command_type_combo.currentIndexChanged.connect(self._refresh_command_cards)
         command_toolbar.addWidget(self.command_type_combo)
         self.command_count_label = QLabel("0 项")
@@ -685,10 +692,10 @@ class RobotQtWindow(QMainWindow):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(10)
         self.backend_info = self._make_static_group("功能说明", [
-            ("用途", "维护按钮与模板映射"),
-            ("支持", "参数型指令"),
-            ("支持", "固定函数型无参数"),
-            ("示例", "5001 固定函数"),
+            ("用途", "维护函数号与参数模板"),
+            ("支持", "Func104 停止"),
+            ("支持", "Func106/107 点动"),
+            ("支持", "Func108 直线/PTP"),
         ])
         self.backend_info.setObjectName("panel")
         self.current_info = self._make_info_group("当前选中模板")
@@ -729,7 +736,7 @@ class RobotQtWindow(QMainWindow):
         left.setObjectName("panel")
         left_layout = QVBoxLayout(left)
         self.template_tree = QTreeWidget()
-        self.template_tree.setHeaderLabels(["显示名称", "模板分类"])
+        self.template_tree.setHeaderLabels(["显示名称", "函数号"])
         self.template_tree.itemSelectionChanged.connect(self._on_template_selected)
         left_layout.addWidget(self.template_tree)
 
@@ -740,85 +747,67 @@ class RobotQtWindow(QMainWindow):
         form = QFormLayout(form_widget)
 
         self.name_edit = QLineEdit()
-        self.code_edit = QLineEdit()
-        self.cmd_combo = QComboBox()
-        self.cmd_combo.addItems(COMMAND_TYPES)
-        self.template_type_combo = QComboBox()
-        self.template_type_combo.addItem("参数型", "parametric")
-        self.template_type_combo.addItem("固定型", "fixed")
+        self.func_num_combo = QComboBox()
+        for label, func_num in FUNC_OPTIONS.items():
+            self.func_num_combo.addItem(label, func_num)
         self.keywords_edit = QLineEdit()
-        self.pos_id_edit = QLineEdit("0")
-        self.device_id_edit = QLineEdit("1")
+        self.safety_edit = QLineEdit("5")
+        self.desc_edit = QLineEdit()
+        self.stop_mode_combo = QComboBox()
+        self.stop_mode_combo.addItem("急停(0)", 0)
+        self.stop_mode_combo.addItem("慢停(1)", 1)
+        self.axis_no_edit = QLineEdit("0")
+        self.pos_val_edit = QLineEdit("0")
+        self.spd_edit = QLineEdit("300")
+        self.acc_v_edit = QLineEdit("60")
+        self.dec_v_edit = QLineEdit("60")
+        self.stop_cmd_edit = QLineEdit("0")
+        self.fuzzy_pos_combo = QComboBox()
+        self.fuzzy_pos_combo.addItem("绝对(0)", 0)
+        self.fuzzy_pos_combo.addItem("增量(1)", 1)
+        self.fuzzy_spd_edit = QLineEdit("0")
+        self.fuzzy_acc_edit = QLineEdit("0")
+        self.fuzzy_dec_edit = QLineEdit("0")
         self.x_edit = QLineEdit("0")
         self.y_edit = QLineEdit("0")
         self.z_edit = QLineEdit("0")
         self.rx_edit = QLineEdit("0")
         self.ry_edit = QLineEdit("0")
         self.rz_edit = QLineEdit("0")
-        self.speed_edit = QLineEdit("30")
-        self.acc_edit = QLineEdit("40")
-        self.io_grip_edit = QLineEdit("0")
-        self.io_door_edit = QLineEdit("0")
-        self.ext_p1_edit = QLineEdit("0")
-        self.ext_p2_edit = QLineEdit("0")
-        self.stop_cmd_edit = QLineEdit("0")
-        self.fuzzy_pos_combo = QComboBox()
-        self.fuzzy_pos_combo.addItem("自动", "auto")
-        self.fuzzy_pos_combo.addItem("绝对(0)", 0)
-        self.fuzzy_pos_combo.addItem("增量(1)", 1)
-        self.fuzzy_spd_edit = QLineEdit("0")
-        self.fuzzy_acc_edit = QLineEdit("0")
-        self.fuzzy_dec_edit = QLineEdit("0")
-        self.move_type_edit = QLineEdit("0")
-        self.safety_edit = QLineEdit("5")
-        self.desc_edit = QLineEdit()
-        self.param_widgets = [
-            self.x_edit,
-            self.y_edit,
-            self.z_edit,
-            self.rx_edit,
-            self.ry_edit,
-            self.rz_edit,
-            self.speed_edit,
-            self.acc_edit,
-            self.stop_cmd_edit,
-            self.fuzzy_pos_combo,
-            self.fuzzy_spd_edit,
-            self.fuzzy_acc_edit,
-            self.fuzzy_dec_edit,
-            self.move_type_edit,
-        ]
+        self.move_type_combo = QComboBox()
+        self.move_type_combo.addItem("直线插补(0)", 0)
+        self.move_type_combo.addItem("PTP(1)", 1)
 
-        for label, widget in [
-            ("显示名称", self.name_edit),
-            ("指令码", self.code_edit),
-            ("指令类型", self.cmd_combo),
-            ("模板分类", self.template_type_combo),
-            ("自然语言关键词", self.keywords_edit),
-            ("工位ID", self.pos_id_edit),
-            ("设备ID", self.device_id_edit),
-            ("X", self.x_edit),
-            ("Y", self.y_edit),
-            ("Z", self.z_edit),
-            ("RX", self.rx_edit),
-            ("RY", self.ry_edit),
-            ("RZ", self.rz_edit),
-            ("速度%", self.speed_edit),
-            ("加速度%", self.acc_edit),
-            ("夹爪动作", self.io_grip_edit),
-            ("机床门动作", self.io_door_edit),
-            ("扩展参数1", self.ext_p1_edit),
-            ("扩展参数2", self.ext_p2_edit),
-            ("停止指令", self.stop_cmd_edit),
-            ("位置模式", self.fuzzy_pos_combo),
-            ("速度模式", self.fuzzy_spd_edit),
-            ("加速度模式", self.fuzzy_acc_edit),
-            ("减速度模式", self.fuzzy_dec_edit),
-            ("运动模式", self.move_type_edit),
-            ("安全等级", self.safety_edit),
-            ("说明", self.desc_edit),
-        ]:
-            form.addRow(label + ":", widget)
+        self.record_form_rows: dict[str, tuple[QLabel, QWidget]] = {}
+
+        def add_record_row(key: str, label: str, widget: QWidget) -> None:
+            row_label = QLabel(label + ":")
+            form.addRow(row_label, widget)
+            self.record_form_rows[key] = (row_label, widget)
+
+        add_record_row("name", "显示名称", self.name_edit)
+        add_record_row("func_num", "函数号", self.func_num_combo)
+        add_record_row("keywords", "自然语言关键词", self.keywords_edit)
+        add_record_row("safety", "安全等级", self.safety_edit)
+        add_record_row("desc", "说明", self.desc_edit)
+        add_record_row("stop_mode", "停止模式", self.stop_mode_combo)
+        add_record_row("axis_no", "轴号", self.axis_no_edit)
+        add_record_row("pos_val", "目标值", self.pos_val_edit)
+        add_record_row("spd", "速度", self.spd_edit)
+        add_record_row("acc_v", "加速度", self.acc_v_edit)
+        add_record_row("dec_v", "减速度", self.dec_v_edit)
+        add_record_row("stop_cmd", "停止指令", self.stop_cmd_edit)
+        add_record_row("fuzzy_pos", "位置模式", self.fuzzy_pos_combo)
+        add_record_row("fuzzy_spd", "速度模式", self.fuzzy_spd_edit)
+        add_record_row("fuzzy_acc", "加速度模式", self.fuzzy_acc_edit)
+        add_record_row("fuzzy_dec", "减速度模式", self.fuzzy_dec_edit)
+        add_record_row("target_x", "目标X", self.x_edit)
+        add_record_row("target_y", "目标Y", self.y_edit)
+        add_record_row("target_z", "目标Z", self.z_edit)
+        add_record_row("target_rx", "目标Rx", self.rx_edit)
+        add_record_row("target_ry", "目标Ry", self.ry_edit)
+        add_record_row("target_rz", "目标Rz", self.rz_edit)
+        add_record_row("move_type", "运动模式", self.move_type_combo)
 
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
@@ -842,6 +831,13 @@ class RobotQtWindow(QMainWindow):
         self.range_y_max_edit = QLineEdit()
         self.range_z_min_edit = QLineEdit()
         self.range_z_max_edit = QLineEdit()
+        self.safe_r_min_edit = QLineEdit("0")
+        self.safe_r_max_edit = QLineEdit("0")
+        self.safe_z_min_edit = QLineEdit("0")
+        self.safe_z_max_edit = QLineEdit("0")
+        self.safe_speed_max_edit = QLineEdit("0")
+        self.safe_acc_max_edit = QLineEdit("0")
+        self.safe_dec_max_edit = QLineEdit("0")
         self.motion_timeout_edit = QLineEdit("30")
         for label, widget in [
             ("X最小", self.range_x_min_edit),
@@ -850,6 +846,13 @@ class RobotQtWindow(QMainWindow):
             ("Y最大", self.range_y_max_edit),
             ("Z最小", self.range_z_min_edit),
             ("Z最大", self.range_z_max_edit),
+            ("最小半径", self.safe_r_min_edit),
+            ("最大半径", self.safe_r_max_edit),
+            ("最低高度", self.safe_z_min_edit),
+            ("最高高度", self.safe_z_max_edit),
+            ("最大速度", self.safe_speed_max_edit),
+            ("最大加速度", self.safe_acc_max_edit),
+            ("最大减速度", self.safe_dec_max_edit),
             ("运动超时(s)", self.motion_timeout_edit),
         ]:
             config_layout.addRow(label + ":", widget)
@@ -858,8 +861,11 @@ class RobotQtWindow(QMainWindow):
         config_save_btn.clicked.connect(self._save_system_config)
         config_reload_btn = QPushButton("重载配置")
         config_reload_btn.clicked.connect(self._reload_system_config)
+        config_read_ctrl_btn = QPushButton("读取控制器限位")
+        config_read_ctrl_btn.clicked.connect(self._read_controller_safety_limits)
         config_buttons.addWidget(config_save_btn)
         config_buttons.addWidget(config_reload_btn)
+        config_buttons.addWidget(config_read_ctrl_btn)
         config_layout.addRow(config_buttons)
         avoidance_group = QGroupBox("安全中间点")
         avoidance_group.setObjectName("subPanel")
@@ -993,7 +999,7 @@ class RobotQtWindow(QMainWindow):
         flow_right_layout.setSpacing(6)
         flow_right_layout.addWidget(QLabel("可选模板"))
         self.flow_available_tree = QTreeWidget()
-        self.flow_available_tree.setHeaderLabels(["模板名称", "类型"])
+        self.flow_available_tree.setHeaderLabels(["模板名称", "函数号"])
         flow_right_layout.addWidget(self.flow_available_tree)
         flow_action_layout = QGridLayout()
         new_flow_btn = QPushButton("新增流程")
@@ -1031,19 +1037,35 @@ class RobotQtWindow(QMainWindow):
         layout.addWidget(manage_splitter, 1)
 
         for widget in [
-            self.name_edit, self.code_edit, self.keywords_edit, self.pos_id_edit, self.device_id_edit,
-            self.x_edit, self.y_edit, self.z_edit, self.rx_edit, self.ry_edit, self.rz_edit,
-            self.speed_edit, self.acc_edit, self.io_grip_edit, self.io_door_edit,
-            self.ext_p1_edit, self.ext_p2_edit, self.stop_cmd_edit, self.fuzzy_spd_edit,
-            self.fuzzy_acc_edit, self.fuzzy_dec_edit, self.move_type_edit, self.safety_edit, self.desc_edit,
+            self.name_edit,
+            self.keywords_edit,
+            self.safety_edit,
+            self.desc_edit,
+            self.axis_no_edit,
+            self.pos_val_edit,
+            self.spd_edit,
+            self.acc_v_edit,
+            self.dec_v_edit,
+            self.stop_cmd_edit,
+            self.fuzzy_spd_edit,
+            self.fuzzy_acc_edit,
+            self.fuzzy_dec_edit,
+            self.x_edit,
+            self.y_edit,
+            self.z_edit,
+            self.rx_edit,
+            self.ry_edit,
+            self.rz_edit,
         ]:
             widget.textChanged.connect(self._render_preview)
-        self.cmd_combo.currentTextChanged.connect(self._render_preview)
+        self.func_num_combo.currentIndexChanged.connect(self._sync_func_form_mode)
+        self.func_num_combo.currentIndexChanged.connect(self._render_preview)
+        self.stop_mode_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_pos_combo.currentTextChanged.connect(self._render_preview)
-        self.template_type_combo.currentTextChanged.connect(self._render_preview)
-        self.template_type_combo.currentTextChanged.connect(self._sync_template_type_mode)
+        self.move_type_combo.currentIndexChanged.connect(self._render_preview)
         self._load_system_config_into_form()
         self._load_avoidance_config_into_form()
+        self._sync_func_form_mode()
 
         return page
 
@@ -1297,6 +1319,13 @@ class RobotQtWindow(QMainWindow):
         self.range_y_max_edit.setText(self._fmt(self.axis_ranges.y[1]))
         self.range_z_min_edit.setText(self._fmt(self.axis_ranges.z[0]))
         self.range_z_max_edit.setText(self._fmt(self.axis_ranges.z[1]))
+        self.safe_r_min_edit.setText(self._fmt(self.axis_ranges.safe_r_min))
+        self.safe_r_max_edit.setText(self._fmt(self.axis_ranges.safe_r_max))
+        self.safe_z_min_edit.setText(self._fmt(self.axis_ranges.safe_z_min))
+        self.safe_z_max_edit.setText(self._fmt(self.axis_ranges.safe_z_max))
+        self.safe_speed_max_edit.setText(self._fmt(self.axis_ranges.safe_speed_max))
+        self.safe_acc_max_edit.setText(self._fmt(self.axis_ranges.safe_acc_max))
+        self.safe_dec_max_edit.setText(self._fmt(self.axis_ranges.safe_dec_max))
         self.motion_timeout_edit.setText(self._fmt(self.axis_ranges.motion_timeout_sec))
 
     def _reload_system_config(self) -> None:
@@ -1312,6 +1341,13 @@ class RobotQtWindow(QMainWindow):
             x=(num(self.range_x_min_edit.text()), num(self.range_x_max_edit.text())),
             y=(num(self.range_y_min_edit.text()), num(self.range_y_max_edit.text())),
             z=(num(self.range_z_min_edit.text()), num(self.range_z_max_edit.text())),
+            safe_r_min=num(self.safe_r_min_edit.text()),
+            safe_r_max=num(self.safe_r_max_edit.text()),
+            safe_z_min=num(self.safe_z_min_edit.text()),
+            safe_z_max=num(self.safe_z_max_edit.text()),
+            safe_speed_max=num(self.safe_speed_max_edit.text()),
+            safe_acc_max=num(self.safe_acc_max_edit.text()),
+            safe_dec_max=num(self.safe_dec_max_edit.text()),
             motion_timeout_sec=num(self.motion_timeout_edit.text()),
         )
 
@@ -1329,8 +1365,65 @@ class RobotQtWindow(QMainWindow):
             return
         save_system_config(self.system_config_path, config)
         self.axis_ranges = config
-        self.status_label.setText(f"已保存系统配置: {self.system_config_path}")
+        controller_sync_error = ""
+        host = self.host_edit.text().strip() if hasattr(self, "host_edit") else ""
+        if host:
+            try:
+                client = self._get_client(host)
+                client.write_modbus_float(self.service.build_six_safety_limits_write(config))
+                self._append_log(
+                    "后台",
+                    "下发安全限位",
+                    "成功",
+                    json.dumps(self.service.parse_six_safety_limits(list(self.service.build_six_safety_limits_write(config).values)), ensure_ascii=False),
+                )
+            except Exception as exc:
+                controller_sync_error = str(exc)
+                self._append_log("后台", "下发安全限位", "失败", str(exc))
+        if controller_sync_error:
+            self.status_label.setText(f"已保存本地系统配置，但控制器限位下发失败: {controller_sync_error}")
+            self._show_warning("部分成功", f"本地配置已保存，但控制器 1700~1712 下发失败：\n{controller_sync_error}")
+        else:
+            self.status_label.setText(f"已保存系统配置: {self.system_config_path}")
         self._append_log("后台", "保存系统配置", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
+
+    def _read_controller_safety_limits(self) -> None:
+        host = self.host_edit.text().strip()
+        if not host:
+            self._show_warning("读取失败", "请输入控制器地址。")
+            self._append_log("后台", "读取控制器限位", "失败", "地址为空")
+            return
+        try:
+            client = self._get_client(host)
+            values = client.read_modbus_float(self.service.build_six_safety_limits_read())
+            limits = self.service.parse_six_safety_limits(values)
+        except Exception as exc:
+            self._show_warning("读取失败", str(exc))
+            self._append_log("后台", "读取控制器限位", "失败", str(exc))
+            return
+
+        self.safe_r_min_edit.setText(self._fmt(limits["safe_r_min"]))
+        self.safe_r_max_edit.setText(self._fmt(limits["safe_r_max"]))
+        self.safe_z_min_edit.setText(self._fmt(limits["safe_z_min"]))
+        self.safe_z_max_edit.setText(self._fmt(limits["safe_z_max"]))
+        self.safe_speed_max_edit.setText(self._fmt(limits["safe_speed_max"]))
+        self.safe_acc_max_edit.setText(self._fmt(limits["safe_acc_max"]))
+        self.safe_dec_max_edit.setText(self._fmt(limits["safe_dec_max"]))
+        self.axis_ranges = AxisRangeConfig(
+            x=self.axis_ranges.x,
+            y=self.axis_ranges.y,
+            z=self.axis_ranges.z,
+            safe_r_min=limits["safe_r_min"],
+            safe_r_max=limits["safe_r_max"],
+            safe_z_min=limits["safe_z_min"],
+            safe_z_max=limits["safe_z_max"],
+            safe_speed_max=limits["safe_speed_max"],
+            safe_acc_max=limits["safe_acc_max"],
+            safe_dec_max=limits["safe_dec_max"],
+            motion_timeout_sec=self.axis_ranges.motion_timeout_sec,
+        )
+        self.status_label.setText("已读取控制器安全限位。")
+        self._append_log("后台", "读取控制器限位", "成功", json.dumps(limits, ensure_ascii=False))
 
     def _load_avoidance_config_into_form(self) -> None:
         self.avoidance_config = load_avoidance_config(self.avoidance_config_path)
@@ -1502,97 +1595,105 @@ class RobotQtWindow(QMainWindow):
             self._load_safe_point_into_form(self.avoidance_config.safe_points[key])
 
     def _load_record_into_form(self, record: QueryRecord) -> None:
-        standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
         self.name_edit.setText(record.query_key)
-        self.code_edit.setText(str(standard_command.code))
-        self.cmd_combo.setCurrentText(standard_command.cmd)
-        self.template_type_combo.setCurrentIndex(self.template_type_combo.findData(record.template_type))
+        self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(record.func_num))
         self.keywords_edit.setText(record.keywords)
-        self.pos_id_edit.setText(str(record.pos_id))
-        self.device_id_edit.setText(str(record.device_id))
-        self.x_edit.setText(self._fmt(record.registers[0]))
-        self.y_edit.setText(self._fmt(record.registers[1]))
-        self.z_edit.setText(self._fmt(record.registers[2]))
-        self.rx_edit.setText(self._fmt(record.registers[3]))
-        self.ry_edit.setText(self._fmt(record.registers[4]))
-        self.rz_edit.setText(self._fmt(record.registers[5]))
-        self.speed_edit.setText(self._fmt(record.registers[6]))
-        self.acc_edit.setText(self._fmt(record.acc_percent))
-        self.io_grip_edit.setText(str(record.io_grip))
-        self.io_door_edit.setText(str(record.io_door))
-        self.ext_p1_edit.setText(self._fmt(record.ext_p1))
-        self.ext_p2_edit.setText(self._fmt(record.ext_p2))
-        self.stop_cmd_edit.setText(str(record.stop_cmd))
-        fuzzy_pos_value = record.fuzzy_pos if record.fuzzy_pos in (0, 1) else "auto"
-        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(fuzzy_pos_value))
-        self.fuzzy_spd_edit.setText(str(record.fuzzy_spd))
-        self.fuzzy_acc_edit.setText(str(record.fuzzy_acc))
-        self.fuzzy_dec_edit.setText(str(record.fuzzy_dec))
-        self.move_type_edit.setText(str(record.move_type))
+        self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(record.int_param("stop_mode")))
+        self.axis_no_edit.setText(str(record.int_param("axis_no")))
+        self.pos_val_edit.setText(self._fmt(record.float_param("pos_val")))
+        self.spd_edit.setText(self._fmt(record.float_param("spd")))
+        self.acc_v_edit.setText(self._fmt(record.float_param("acc_v")))
+        self.dec_v_edit.setText(self._fmt(record.float_param("dec_v")))
+        self.stop_cmd_edit.setText(str(record.int_param("stop_cmd")))
+        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(record.int_param("fuzzy_pos")))
+        self.fuzzy_spd_edit.setText(str(record.int_param("fuzzy_spd")))
+        self.fuzzy_acc_edit.setText(str(record.int_param("fuzzy_acc")))
+        self.fuzzy_dec_edit.setText(str(record.int_param("fuzzy_dec")))
+        self.x_edit.setText(self._fmt(record.float_param("target_x")))
+        self.y_edit.setText(self._fmt(record.float_param("target_y")))
+        self.z_edit.setText(self._fmt(record.float_param("target_z")))
+        self.rx_edit.setText(self._fmt(record.float_param("target_rx")))
+        self.ry_edit.setText(self._fmt(record.float_param("target_ry")))
+        self.rz_edit.setText(self._fmt(record.float_param("target_rz")))
+        self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(record.int_param("move_type")))
         self.safety_edit.setText(str(record.safety_level))
         self.desc_edit.setText(record.description)
-        self._sync_template_type_mode(record.template_type)
-        self._update_current_template_info(record, standard_command.code, standard_command.cmd)
+        self._sync_func_form_mode()
+        self._update_current_template_info(record)
         self._render_preview()
 
     def _collect_record(self) -> QueryRecord:
         def num(text: str) -> float:
             text = text.strip().replace("%", "")
             return float(text) if text else 0.0
-        fuzzy_pos_data = self.fuzzy_pos_combo.currentData()
-        fuzzy_pos = int(fuzzy_pos_data) if fuzzy_pos_data in (0, 1) else -1
+        func_num = int(self.func_num_combo.currentData())
+        params: dict[str, float | int]
+        if func_num == 104:
+            params = {
+                "stop_mode": int(self.stop_mode_combo.currentData()),
+            }
+        elif func_num in (106, 107):
+            params = {
+                "axis_no": int(float(self.axis_no_edit.text() or "0")),
+                "pos_val": num(self.pos_val_edit.text()),
+                "spd": num(self.spd_edit.text()),
+                "acc_v": num(self.acc_v_edit.text()),
+                "dec_v": num(self.dec_v_edit.text()),
+                "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
+                "fuzzy_spd": int(float(self.fuzzy_spd_edit.text() or "0")),
+                "fuzzy_acc": int(float(self.fuzzy_acc_edit.text() or "0")),
+                "fuzzy_dec": int(float(self.fuzzy_dec_edit.text() or "0")),
+                "stop_cmd": int(float(self.stop_cmd_edit.text() or "0")),
+            }
+        else:
+            params = {
+                "target_x": num(self.x_edit.text()),
+                "target_y": num(self.y_edit.text()),
+                "target_z": num(self.z_edit.text()),
+                "target_rx": num(self.rx_edit.text()),
+                "target_ry": num(self.ry_edit.text()),
+                "target_rz": num(self.rz_edit.text()),
+                "spd": num(self.spd_edit.text()),
+                "acc_v": num(self.acc_v_edit.text()),
+                "dec_v": num(self.dec_v_edit.text()),
+                "stop_cmd": int(float(self.stop_cmd_edit.text() or "0")),
+                "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
+                "fuzzy_spd": int(float(self.fuzzy_spd_edit.text() or "0")),
+                "fuzzy_acc": int(float(self.fuzzy_acc_edit.text() or "0")),
+                "fuzzy_dec": int(float(self.fuzzy_dec_edit.text() or "0")),
+                "move_type": int(self.move_type_combo.currentData()),
+            }
         return QueryRecord(
             query_key=self.name_edit.text().strip(),
-            function_id=int(float(self.code_edit.text() or "0")),
-            function_name=self.cmd_combo.currentText(),
-            data_format="IEE",
-            template_type=self.template_type_combo.currentData(),
+            func_num=func_num,
+            params=params,
             keywords=self.keywords_edit.text().strip(),
             description=self.desc_edit.text().strip(),
-            pos_id=int(float(self.pos_id_edit.text() or "0")),
-            device_id=int(float(self.device_id_edit.text() or "1")),
-            acc_percent=num(self.acc_edit.text()),
             safety_level=int(float(self.safety_edit.text() or "5")),
-            io_grip=int(float(self.io_grip_edit.text() or "0")),
-            io_door=int(float(self.io_door_edit.text() or "0")),
-            ext_p1=num(self.ext_p1_edit.text()),
-            ext_p2=num(self.ext_p2_edit.text()),
-            stop_cmd=int(float(self.stop_cmd_edit.text() or "0")),
-            fuzzy_pos=fuzzy_pos,
-            fuzzy_spd=int(float(self.fuzzy_spd_edit.text() or "0")),
-            fuzzy_acc=int(float(self.fuzzy_acc_edit.text() or "0")),
-            fuzzy_dec=int(float(self.fuzzy_dec_edit.text() or "0")),
-            move_type=int(float(self.move_type_edit.text() or "0")),
-            registers=(
-                num(self.x_edit.text()), num(self.y_edit.text()), num(self.z_edit.text()),
-                num(self.rx_edit.text()), num(self.ry_edit.text()), num(self.rz_edit.text()),
-                num(self.speed_edit.text()),
-            ),
         )
 
     def _render_preview(self) -> None:
         try:
             record = self._collect_record()
-            standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
-            payload = standard_command.to_json_dict()
-            payload["templateType"] = record.template_type
-            payload["queryKey"] = record.query_key
-            payload["keywords"] = record.keywords
-            try:
-                six_command = self.service.build_six_command_from_record(record)
-            except Exception:
-                six_command = None
-            if six_command is not None and six_command.func_num == 108:
-                payload["sixAxisFunc108"] = {
-                    "stopCmd": record.stop_cmd,
-                    "fuzzyPos": "auto" if record.fuzzy_pos not in (0, 1) else record.fuzzy_pos,
-                    "fuzzySpd": record.fuzzy_spd,
-                    "fuzzyAcc": record.fuzzy_acc,
-                    "fuzzyDec": record.fuzzy_dec,
-                    "moveType": record.move_type,
-                }
+            six_command = self.service.build_six_command_from_record(record)
+            payload = {
+                "queryKey": record.query_key,
+                "funcNum": record.func_num,
+                "funcName": FUNC_LABELS.get(record.func_num, f"Func{record.func_num}"),
+                "keywords": record.keywords,
+                "description": record.description,
+                "safetyLevel": record.safety_level,
+                "params": record.params,
+                "writes": [
+                    {
+                        "start_vr": req.start_vr,
+                        "values": list(req.values),
+                    }
+                    for req in [*six_command.to_func_writes(), six_command.to_trigger_write()]
+                ],
+            }
             self.preview_edit.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
-            self._update_current_template_info(record, standard_command.code, standard_command.cmd)
+            self._update_current_template_info(record)
         except Exception as exc:
             fallback_name = self.name_edit.text().strip() or "-"
             self.preview_edit.setPlainText(
@@ -1609,18 +1710,16 @@ class RobotQtWindow(QMainWindow):
             self._update_current_template_info(
                 QueryRecord(
                     query_key=fallback_name,
-                    function_id=0,
-                    registers=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                    func_num=0,
+                    params={},
                 ),
-                0,
-                "-",
             )
 
-    def _update_current_template_info(self, record: QueryRecord, code: int, cmd: str) -> None:
+    def _update_current_template_info(self, record: QueryRecord) -> None:
         self.current_name_label.setText(record.query_key or "-")
-        self.current_code_label.setText(str(code) if record.query_key else "-")
-        self.current_cmd_label.setText(cmd or "-")
-        self.current_type_label.setText("固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令")
+        self.current_code_label.setText(str(record.func_num) if record.func_num else "-")
+        self.current_cmd_label.setText(FUNC_LABELS.get(record.func_num, "-"))
+        self.current_type_label.setText("函数号参数模板")
 
     def _refresh_all(self) -> None:
         self._refresh_command_cards()
@@ -1644,9 +1743,7 @@ class RobotQtWindow(QMainWindow):
 
         visible_records: list[QueryRecord] = []
         for record in sorted(self.table.values(), key=lambda r: r.query_key):
-            if type_filter == "参数型" and record.template_type != "parametric":
-                continue
-            if type_filter == "固定型" and record.template_type != "fixed":
+            if type_filter != "全部" and type_filter != f"Func{record.func_num}":
                 continue
             haystack = " ".join([record.query_key, record.keywords, record.description, record.function_name]).lower()
             if filter_text and filter_text not in haystack:
@@ -1657,31 +1754,31 @@ class RobotQtWindow(QMainWindow):
             self.command_count_label.setText(f"{len(visible_records)} 项")
 
         for idx, record in enumerate(visible_records):
-            standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
             card = QGroupBox(record.query_key)
             card.setObjectName("subPanel")
             card.setMinimumWidth(170)
             layout = QVBoxLayout(card)
             layout.setContentsMargins(6, 6, 6, 6)
             layout.setSpacing(3)
-            meta_top = QLabel(f"{standard_command.cmd} | {standard_command.code}")
+            meta_top = QLabel(f"Func{record.func_num} | {FUNC_LABELS.get(record.func_num, '-')}")
             meta_top.setWordWrap(True)
             layout.addWidget(meta_top)
-            meta_kind = QLabel("固定型" if record.template_type == "fixed" else "参数型")
+            meta_kind = QLabel(record.summary_text())
             meta_kind.setObjectName("tip")
             layout.addWidget(meta_kind)
-            if record.template_type == "parametric":
+            pose = record.pose_tuple()
+            if pose is not None:
                 pos_text = (
-                    f"X {self._fmt(record.registers[0])}  "
-                    f"Y {self._fmt(record.registers[1])}\n"
-                    f"Z {self._fmt(record.registers[2])}"
+                    f"X {self._fmt(pose[0])}  "
+                    f"Y {self._fmt(pose[1])}\n"
+                    f"Z {self._fmt(pose[2])}"
                 )
                 pos_label = QLabel(pos_text)
                 pos_label.setObjectName("tip")
                 pos_label.setWordWrap(True)
                 layout.addWidget(pos_label)
             btn = QPushButton("执行")
-            btn.setProperty("klass", "yellow" if record.template_type == "fixed" else "green")
+            btn.setProperty("klass", "green")
             btn.setMinimumHeight(28)
             btn.clicked.connect(lambda _=False, key=record.query_key: self._send_record(key))
             layout.addWidget(btn)
@@ -1690,7 +1787,7 @@ class RobotQtWindow(QMainWindow):
     def _refresh_template_tree(self) -> None:
         self.template_tree.clear()
         for record in sorted(self.table.values(), key=lambda r: r.query_key):
-            kind = "固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令"
+            kind = f"Func{record.func_num}"
             item = QTreeWidgetItem([record.query_key, kind])
             self.template_tree.addTopLevelItem(item)
             if self.current_key == record.query_key:
@@ -1749,7 +1846,7 @@ class RobotQtWindow(QMainWindow):
             return
         self.flow_available_tree.clear()
         for record in sorted(self.table.values(), key=lambda r: r.query_key):
-            kind = "固定" if record.template_type == "fixed" else "参数"
+            kind = f"Func{record.func_num}"
             self.flow_available_tree.addTopLevelItem(QTreeWidgetItem([record.query_key, kind]))
 
     def _refresh_flow_step_manage_tree(self, steps: list[str] | None = None) -> None:
@@ -2711,33 +2808,29 @@ class RobotQtWindow(QMainWindow):
     def _new_record(self) -> None:
         self.current_key = None
         self.name_edit.setText("")
-        self.code_edit.setText("1001")
-        self.cmd_combo.setCurrentText("MOVE_ABS")
-        self.template_type_combo.setCurrentIndex(self.template_type_combo.findData("parametric"))
+        self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(108))
         self.keywords_edit.setText("")
-        self.pos_id_edit.setText("0")
-        self.device_id_edit.setText("1")
+        self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(0))
+        self.axis_no_edit.setText("0")
+        self.pos_val_edit.setText("0")
+        self.spd_edit.setText("300")
+        self.acc_v_edit.setText("400")
+        self.dec_v_edit.setText("400")
         self.x_edit.setText("0")
         self.y_edit.setText("0")
         self.z_edit.setText("0")
         self.rx_edit.setText("0")
         self.ry_edit.setText("0")
         self.rz_edit.setText("0")
-        self.speed_edit.setText("30")
-        self.acc_edit.setText("40")
-        self.io_grip_edit.setText("0")
-        self.io_door_edit.setText("0")
-        self.ext_p1_edit.setText("0")
-        self.ext_p2_edit.setText("0")
         self.stop_cmd_edit.setText("0")
-        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData("auto"))
+        self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(0))
         self.fuzzy_spd_edit.setText("0")
         self.fuzzy_acc_edit.setText("0")
         self.fuzzy_dec_edit.setText("0")
-        self.move_type_edit.setText("0")
+        self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(0))
         self.safety_edit.setText("5")
         self.desc_edit.setText("")
-        self._sync_template_type_mode("parametric")
+        self._sync_func_form_mode()
         self.status_label.setText("已创建空白模板。")
         self._append_log("后台", "新增模板", "成功", "已创建空白模板")
 
@@ -2773,27 +2866,11 @@ class RobotQtWindow(QMainWindow):
             return
         clone = QueryRecord(
             query_key=f"{record.query_key} - 副本",
-            function_id=record.function_id,
-            registers=record.registers,
-            function_name=record.function_name,
-            data_format=record.data_format,
-            template_type=record.template_type,
+            func_num=record.func_num,
+            params=dict(record.params),
             keywords=record.keywords,
             description=record.description,
-            pos_id=record.pos_id,
-            device_id=record.device_id,
-            acc_percent=record.acc_percent,
             safety_level=record.safety_level,
-            io_grip=record.io_grip,
-            io_door=record.io_door,
-            ext_p1=record.ext_p1,
-            ext_p2=record.ext_p2,
-            stop_cmd=record.stop_cmd,
-            fuzzy_pos=record.fuzzy_pos,
-            fuzzy_spd=record.fuzzy_spd,
-            fuzzy_acc=record.fuzzy_acc,
-            fuzzy_dec=record.fuzzy_dec,
-            move_type=record.move_type,
         )
         self.table[clone.query_key] = clone
         save_query_table_json(self.json_path, self.table)
@@ -2965,9 +3042,9 @@ class RobotQtWindow(QMainWindow):
     def _after_send(self, record: QueryRecord, ok: bool, error: str, feedback: list[float] | None = None) -> None:
         self.history.insert(0, {
             "task": self.task_id,
-            "code": self.service.build_standard_command_from_record(record, task_id=self.task_id).code,
+            "code": record.func_num,
             "name": record.query_key,
-            "type": "固定函数型无参数指令" if record.template_type == "fixed" else "参数型指令",
+            "type": FUNC_LABELS.get(record.func_num, f"Func{record.func_num}"),
             "result": "成功" if ok else "失败",
         })
         if ok:
@@ -2977,12 +3054,14 @@ class RobotQtWindow(QMainWindow):
             self.alarm_text = "系统正常"
             if feedback:
                 self._apply_feedback_values(record, feedback)
-            elif record.template_type != "fixed":
-                self.robot_x = self._fmt(record.registers[0])
-                self.robot_y = self._fmt(record.registers[1])
-                self.robot_z = self._fmt(record.registers[2])
-                self.robot_r = f"{self._fmt(record.registers[3])} / {self._fmt(record.registers[4])} / {self._fmt(record.registers[5])}"
-                self.robot_speed = f"{self._fmt(record.registers[6])}% / {self.acc_edit.text()}%"
+            elif record.func_num == 108:
+                pose = record.pose_tuple()
+                if pose is not None:
+                    self.robot_x = self._fmt(pose[0])
+                    self.robot_y = self._fmt(pose[1])
+                    self.robot_z = self._fmt(pose[2])
+                    self.robot_r = f"{self._fmt(pose[3])} / {self._fmt(pose[4])} / {self._fmt(pose[5])}"
+                    self.robot_speed = f"{self._fmt(record.speed_value())} / {self._fmt(record.acc_value())}"
             self.task_id += 1
             self.status_label.setText(f"已执行: {record.query_key}")
             self._append_log("执行", f"发送指令 {record.query_key}", "成功", f"任务{self.task_id - 1}")
@@ -3014,7 +3093,7 @@ class RobotQtWindow(QMainWindow):
         self.avoidance_config = self._build_avoidance_config(dict(self.avoidance_config.safe_points))
         if self.avoidance_config.mode == "off":
             return None, "规避模式=关闭"
-        if record.function_name.upper() not in {"MOVE_ABS", "MOVE_REL"}:
+        if record.func_num != 108:
             return None, "当前指令不是运动类指令"
         safe_point = self._get_active_safe_point()
         if safe_point is None:
@@ -3023,7 +3102,10 @@ class RobotQtWindow(QMainWindow):
             return safe_point, f"规避模式=每次都经过中间点，使用 {safe_point.name}"
 
         current_rx, current_ry, current_rz = self._current_robot_r_components()
-        target_x, target_y, target_z, target_rx, target_ry, target_rz, _ = record.registers
+        pose = record.pose_tuple()
+        if pose is None:
+            return None, "当前指令不是位姿运动"
+        target_x, target_y, target_z, target_rx, target_ry, target_rz = pose
         if (
             abs(target_rx - current_rx) >= self.avoidance_config.rx_threshold
             or abs(target_ry - current_ry) >= self.avoidance_config.ry_threshold
@@ -3059,29 +3141,27 @@ class RobotQtWindow(QMainWindow):
     def _build_safe_point_record(self, point: SafePoint, target_record: QueryRecord) -> QueryRecord:
         return QueryRecord(
             query_key=f"中间点-{point.name}",
-            function_id=1001,
-            function_name="MOVE_ABS",
-            data_format="IEE",
-            template_type="parametric",
+            func_num=108,
+            params={
+                "target_x": point.x,
+                "target_y": point.y,
+                "target_z": point.z,
+                "target_rx": point.rx,
+                "target_ry": point.ry,
+                "target_rz": point.rz,
+                "spd": point.speed_percent,
+                "acc_v": point.acc_percent,
+                "dec_v": point.acc_percent,
+                "stop_cmd": 0,
+                "fuzzy_pos": 0,
+                "fuzzy_spd": 0,
+                "fuzzy_acc": 0,
+                "fuzzy_dec": 0,
+                "move_type": 0,
+            },
             keywords=point.name,
             description=f"规避中间点：{point.name}",
-            pos_id=target_record.pos_id,
-            device_id=target_record.device_id,
-            acc_percent=point.acc_percent,
             safety_level=target_record.safety_level,
-            io_grip=0,
-            io_door=0,
-            ext_p1=0.0,
-            ext_p2=0.0,
-            registers=(
-                point.x,
-                point.y,
-                point.z,
-                point.rx,
-                point.ry,
-                point.rz,
-                point.speed_percent,
-            ),
         )
 
     def _current_robot_xyz(self) -> tuple[float, float, float]:
@@ -3131,71 +3211,104 @@ class RobotQtWindow(QMainWindow):
                     break
             client.write_modbus_bit(151, [0])
             self._append_log("六轴", f"报警复位 {record.query_key}", "成功", "BIT(151)=0 恢复")
-            xyz_read = self.service.build_six_realtime_xyz_read()
-            return client.read_modbus_float(xyz_read)
+            pose_read = self.service.build_six_pose_feedback_read()
+            return client.read_modbus_float(pose_read)
 
         if six_cmd.func_num == -1:
             client.write_modbus_bit(20000, [six_cmd.io_grip])
             self._append_log("六轴", f"夹爪控制 {record.query_key}", "成功", f"BIT(20000)={six_cmd.io_grip}")
             time.sleep(0.1)
-            xyz_read = self.service.build_six_realtime_xyz_read()
-            return client.read_modbus_float(xyz_read)
+            pose_read = self.service.build_six_pose_feedback_read()
+            return client.read_modbus_float(pose_read)
 
         if six_cmd.func_num == -2:
             delay_ms = six_cmd.ext_p1
             self._append_log("六轴", f"等待 {record.query_key}", "成功", f"延时{delay_ms}ms")
             time.sleep(min(delay_ms / 1000.0, 2.0))
-            xyz_read = self.service.build_six_realtime_xyz_read()
-            return client.read_modbus_float(xyz_read)
+            pose_read = self.service.build_six_pose_feedback_read()
+            return client.read_modbus_float(pose_read)
 
         if six_cmd.func_num == -3:
             client.write_modbus_bit(20001, [six_cmd.io_door])
             self._append_log("六轴", f"门控制 {record.query_key}", "成功", f"BIT(20001)={six_cmd.io_door}")
             time.sleep(0.1)
-            xyz_read = self.service.build_six_realtime_xyz_read()
-            return client.read_modbus_float(xyz_read)
+            pose_read = self.service.build_six_pose_feedback_read()
+            return client.read_modbus_float(pose_read)
 
         if six_cmd.func_num < 0:
             self._append_log("六轴", f"本地操作 {record.query_key}", "成功", f"func={six_cmd.func_num}")
             time.sleep(0.05)
-            xyz_read = self.service.build_six_realtime_xyz_read()
-            return client.read_modbus_float(xyz_read)
+            pose_read = self.service.build_six_pose_feedback_read()
+            return client.read_modbus_float(pose_read)
 
         # 5. 写参数
         for wr in six_cmd.to_func_writes():
             client.write_modbus_float(wr)
             self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
-        # 6. 参数回显校验: 分别读取IEEE(0)和IEEE(2)对比
-        func_read = client.read_modbus_float(VrReadRequest(start_vr=0, count=1))
-        if func_read and abs(func_read[0] - float(six_cmd.func_num)) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(0)期望={six_cmd.func_num}, 实际={func_read[0]}")
-        param_read = client.read_modbus_float(VrReadRequest(start_vr=2, count=1))
-        if six_cmd.func_num == 104 and abs(param_read[0] - float(six_cmd.stop_mode)) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.stop_mode}, 实际={param_read[0]}")
-        if six_cmd.func_num == 108 and abs(param_read[0] - six_cmd.target_x) > 0.01:
-            raise RuntimeError(f"六轴参数回显失败: IEEE(2)期望={six_cmd.target_x}, 实际={param_read[0]}")
+        # 6. 参数回显校验: 对已写入的全部参数点位逐项确认
+        for addr, expected in six_cmd.expected_echo_points():
+            echo_vals = client.read_modbus_float(VrReadRequest(start_vr=addr, count=1))
+            actual = echo_vals[0] if echo_vals else 0.0
+            if abs(actual - expected) > 0.01:
+                raise RuntimeError(
+                    f"六轴参数回显失败: IEEE({addr})期望={self._fmt(expected)}, 实际={self._fmt(actual)}"
+                )
 
         # 7. 写触发 IEEE(32)=1
         trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
 
-        # 8. 轮询 IEEE(34)
+        # 8. 轮询 IEEE(34) + IEEE(36) + IEEE(56) 执行确认
         status_read = self.service.build_six_status_read()
+        curr_func_read = self.service.build_six_current_func_read()
+        motion_state_read = self.service.build_six_motion_state_read()
         poll_interval_sec = 0.05
         max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
         max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
+        saw_received = False
+        saw_executing = False
+        last_motion_state = 0
         for _ in range(max_attempts):
             time.sleep(poll_interval_sec)
             vals = client.read_modbus_float(status_read)
             st = self.service.parse_six_status(vals)
+            curr_func_vals = client.read_modbus_float(curr_func_read)
+            curr_func = self.service.parse_six_current_func(curr_func_vals)
+            motion_state_vals = client.read_modbus_float(motion_state_read)
+            motion_state = self.service.parse_six_motion_state(motion_state_vals)
+            last_motion_state = motion_state
+
+            if (st.is_received or st.is_executing or st.is_complete) and curr_func == six_cmd.func_num:
+                if st.is_received and not saw_received:
+                    saw_received = True
+                    self._append_log("六轴", f"收到确认 {record.query_key}", "成功", f"IEEE(34)={st.raw}, IEEE(36)={curr_func}")
+                if st.is_executing and not saw_executing:
+                    saw_executing = True
+                    self._append_log(
+                        "六轴",
+                        f"执行中确认 {record.query_key}",
+                        "成功",
+                        f"IEEE(34)={st.raw}, IEEE(36)={curr_func}, IEEE(56)={motion_state}",
+                    )
+
             if st.has_error:
-                raise RuntimeError(f"六轴执行错误: IEEE(34)={st.raw}")
+                raise RuntimeError(f"六轴执行错误: IEEE(34)={st.raw}, IEEE(36)={curr_func}, IEEE(56)={motion_state}")
             if st.is_complete and not st.has_alarm:
+                if curr_func != six_cmd.func_num:
+                    raise RuntimeError(
+                        f"六轴函数号回传不一致: 期望={six_cmd.func_num}, IEEE(36)={curr_func}"
+                    )
+                if not saw_received and not saw_executing:
+                    self._append_log("六轴", f"快速完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}, IEEE(36)={curr_func}")
                 self._append_log("六轴", f"执行完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}")
                 break
             if st.is_complete and st.has_alarm:
+                if curr_func != six_cmd.func_num:
+                    raise RuntimeError(
+                        f"六轴函数号回传不一致: 期望={six_cmd.func_num}, IEEE(36)={curr_func}"
+                    )
                 # 68=完成+报警: 运动已结束，读IEEE(38)记录警告，不中断
                 alarm_read = self.service.build_six_alarm_detail_read()
                 alarm_vals = client.read_modbus_float(alarm_read)
@@ -3204,23 +3317,28 @@ class RobotQtWindow(QMainWindow):
                                  f"IEEE(34)={st.raw}, 详情: {alarm_detail}")
                 break
         else:
-            raise RuntimeError(f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s")
+            raise RuntimeError(
+                f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | IEEE(56)={last_motion_state}"
+            )
 
         # 9. 读取完整回传数据 (IEEE 40-72)
         xyz_vals = client.read_modbus_float(VrReadRequest(start_vr=40, count=6))
         spd_vals = client.read_modbus_float(VrReadRequest(start_vr=52, count=1))
         dist_vals = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))
+        motion_state_vals = client.read_modbus_float(motion_state_read)
         joint_vals = client.read_modbus_float(VrReadRequest(start_vr=58, count=6))
         ecat_vals = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))
         frame_vals = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))
+        motion_state = self.service.parse_six_motion_state(motion_state_vals)
         self._append_log("六轴", "回传数据", "成功",
                          f"X={xyz_vals[0]:.1f} Y={xyz_vals[1]:.1f} Z={xyz_vals[2]:.1f} "
                          f"Rx={xyz_vals[3]:.1f} Ry={xyz_vals[4]:.1f} Rz={xyz_vals[5]:.1f} | "
-                         f"速度={spd_vals[0]:.1f}mm/s 剩余距离={dist_vals[0]:.1f} | "
+                         f"速度={spd_vals[0]:.1f}mm/s 剩余距离={dist_vals[0]:.1f} 运动状态={motion_state} | "
                          f"J1={joint_vals[0]:.1f} J2={joint_vals[1]:.1f} J3={joint_vals[2]:.1f} "
                          f"J4={joint_vals[3]:.1f} J5={joint_vals[4]:.1f} J6={joint_vals[5]:.1f} | "
                          f"ECAT={int(ecat_vals[0]) if ecat_vals else 0} "
                          f"FRAME={int(frame_vals[0]) if frame_vals else 0}")
+        self.motion_percent = "运动中" if motion_state == 1 else "空闲"
         return xyz_vals
 
     def _read_feedback(self) -> None:
@@ -3384,49 +3502,58 @@ class RobotQtWindow(QMainWindow):
             self.robot_x = self._fmt(values[2])
             self.robot_y = self._fmt(values[3])
             self.robot_z = self._fmt(values[4])
-        elif record and record.template_type != "fixed":
-            self.robot_x = self._fmt(record.registers[0])
-            self.robot_y = self._fmt(record.registers[1])
-            self.robot_z = self._fmt(record.registers[2])
-        if record and record.template_type != "fixed":
-            self.robot_r = f"{self._fmt(record.registers[3])} / {self._fmt(record.registers[4])} / {self._fmt(record.registers[5])}"
-            self.robot_speed = f"{self._fmt(record.registers[6])}% / {self._fmt(record.acc_percent)}%"
+        elif record and record.func_num == 108:
+            pose = record.pose_tuple()
+            if pose is not None:
+                self.robot_x = self._fmt(pose[0])
+                self.robot_y = self._fmt(pose[1])
+                self.robot_z = self._fmt(pose[2])
+        if record and record.func_num == 108:
+            pose = record.pose_tuple()
+            if pose is not None:
+                self.robot_r = f"{self._fmt(pose[3])} / {self._fmt(pose[4])} / {self._fmt(pose[5])}"
+                self.robot_speed = f"{self._fmt(record.speed_value())} / {self._fmt(record.acc_value())}"
 
     def _validate_record(self, record: QueryRecord) -> str | None:
-        if record.function_id <= 0:
-            return "指令码必须大于0。"
+        if record.func_num not in (104, 106, 107, 108):
+            return "当前仅支持 Func104 / Func106 / Func107 / Func108。"
         if not (1 <= record.safety_level <= 5):
             return "安全等级必须在 1 到 5 之间。"
-        if record.template_type == "fixed":
+        if record.func_num == 104:
+            if record.int_param("stop_mode") not in (0, 1):
+                return "Func104 的停止模式只能是 0 或 1。"
             return None
-        if not (0 <= record.registers[6] <= 100):
-            return "速度百分比必须在 0 到 100 之间。"
-        if not (0 <= record.acc_percent <= 100):
-            return "加速度百分比必须在 0 到 100 之间。"
-        standard_command = self.service.build_standard_command_from_record(record, task_id=self.task_id)
-        six_command = self.service.build_six_command_from_record(record)
-        if six_command.func_num == 108:
-            if record.stop_cmd not in (0, 1, 2, 3, 4, 5):
-                return "Func108 的停止指令必须在 0 到 5 之间。"
-            for label, value in [
-                ("位置模式", record.fuzzy_pos),
-                ("速度模式", record.fuzzy_spd),
-                ("加速度模式", record.fuzzy_acc),
-                ("减速度模式", record.fuzzy_dec),
-                ("运动模式", record.move_type),
-            ]:
-                if value not in (-1, 0, 1):
-                    return f"{label} 只能是 0 或 1。"
-            if record.move_type not in (0, 1):
+        if record.int_param("stop_cmd") not in (0, 1, 2, 3, 4, 5):
+            return "停止指令必须在 0 到 5 之间。"
+        for label, value in [
+            ("位置模式", record.int_param("fuzzy_pos")),
+            ("速度模式", record.int_param("fuzzy_spd")),
+            ("加速度模式", record.int_param("fuzzy_acc")),
+            ("减速度模式", record.int_param("fuzzy_dec")),
+        ]:
+            if value not in (0, 1):
+                return f"{label} 只能是 0 或 1。"
+        if record.speed_value() <= 0 and record.int_param("stop_cmd") == 0:
+            return "正常执行时速度必须大于 0。"
+        if record.acc_value() < 0 or record.float_param("dec_v") < 0:
+            return "加速度和减速度不能小于 0。"
+        if record.func_num == 106:
+            if not (0 <= record.int_param("axis_no") <= 5):
+                return "Func106 的轴号只能是 0 到 5。"
+        if record.func_num == 107:
+            if not (6 <= record.int_param("axis_no") <= 11):
+                return "Func107 的轴号只能是 6 到 11。"
+        if record.func_num == 108:
+            if record.int_param("move_type") not in (0, 1):
                 return "Func108 的运动模式只能是 0 或 1。"
-            if record.stop_cmd == 0 and record.registers[6] <= 0:
-                return "Func108 在正常执行时速度必须大于 0。"
-        if standard_command.code == 1001:
-            if not (self.axis_ranges.x[0] <= record.registers[0] <= self.axis_ranges.x[1]):
+            pose = record.pose_tuple()
+            if pose is None:
+                return "Func108 缺少目标位姿参数。"
+            if not (self.axis_ranges.x[0] <= pose[0] <= self.axis_ranges.x[1]):
                 return f"X 坐标超出范围 {self.axis_ranges.x}。"
-            if not (self.axis_ranges.y[0] <= record.registers[1] <= self.axis_ranges.y[1]):
+            if not (self.axis_ranges.y[0] <= pose[1] <= self.axis_ranges.y[1]):
                 return f"Y 坐标超出范围 {self.axis_ranges.y}。"
-            if not (self.axis_ranges.z[0] <= record.registers[2] <= self.axis_ranges.z[1]):
+            if not (self.axis_ranges.z[0] <= pose[2] <= self.axis_ranges.z[1]):
                 return f"Z 坐标超出范围 {self.axis_ranges.z}。"
         return None
 
@@ -3439,10 +3566,46 @@ class RobotQtWindow(QMainWindow):
             3: "故障",
         }.get(status_code, f"状态{status_code}")
 
-    def _sync_template_type_mode(self, *_) -> None:
-        is_fixed = self.template_type_combo.currentData() == "fixed"
-        for widget in self.param_widgets:
-            widget.setDisabled(is_fixed)
+    def _sync_func_form_mode(self, *_) -> None:
+        func_num = int(self.func_num_combo.currentData() or 108)
+        visible_keys = {"name", "func_num", "keywords", "safety", "desc"}
+        if func_num == 104:
+            visible_keys |= {"stop_mode"}
+        elif func_num in (106, 107):
+            visible_keys |= {
+                "axis_no",
+                "pos_val",
+                "spd",
+                "acc_v",
+                "dec_v",
+                "stop_cmd",
+                "fuzzy_pos",
+                "fuzzy_spd",
+                "fuzzy_acc",
+                "fuzzy_dec",
+            }
+        else:
+            visible_keys |= {
+                "target_x",
+                "target_y",
+                "target_z",
+                "target_rx",
+                "target_ry",
+                "target_rz",
+                "spd",
+                "acc_v",
+                "dec_v",
+                "stop_cmd",
+                "fuzzy_pos",
+                "fuzzy_spd",
+                "fuzzy_acc",
+                "fuzzy_dec",
+                "move_type",
+            }
+        for key, (label, widget) in self.record_form_rows.items():
+            is_visible = key in visible_keys
+            label.setVisible(is_visible)
+            widget.setVisible(is_visible)
 
     def _make_client(self, host: str):
         if self.controller_combo.currentText() == "模拟控制器":
@@ -3524,14 +3687,21 @@ class RobotQtWindow(QMainWindow):
             return
         self._polling_feedback = True
         try:
-            xyz_read = self.service.build_six_realtime_xyz_read()
             client = self._get_client(host)
-            xyz_vals = client.read_modbus_float(xyz_read)
-            self._apply_feedback_values(None, xyz_vals)
+            joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
+            pose_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
+            rt = self.service.parse_six_realtime(joint_vals, pose_vals)
+            self.robot_x = self._fmt(rt.x)
+            self.robot_y = self._fmt(rt.y)
+            self.robot_z = self._fmt(rt.z)
+            self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
             st_read = self.service.build_six_status_read()
             st_vals = client.read_modbus_float(st_read)
             six_status = self.service.parse_six_status(st_vals)
             self.busy = "空闲" if six_status.can_send else "运行中"
+            motion_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
+            motion_state = self.service.parse_six_motion_state(motion_vals)
+            self.motion_percent = "运动中" if motion_state == 1 else "空闲"
             if six_status.has_alarm:
                 alarm_read = self.service.build_six_alarm_detail_read()
                 alarm_vals = client.read_modbus_float(alarm_read)
@@ -3565,7 +3735,7 @@ class RobotQtWindow(QMainWindow):
     def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
         host = self.host_edit.text().strip()
         client = self._get_client(host)
-        read_request = self.service.build_six_status_read()
+        read_request = self.service.build_six_pose_feedback_read()
         values = client.read_modbus_float(read_request)
         return values, read_request
 
@@ -3583,7 +3753,7 @@ class RobotQtWindow(QMainWindow):
         stable_required: int = 3,
     ) -> tuple[bool, str]:
         client = self._get_client(host)
-        xyz_read = self.service.build_six_realtime_xyz_read()
+        xyz_read = self.service.build_six_pose_feedback_read()
         status_read = self.service.build_six_status_read()
         last_xyz: tuple[float, ...] | None = None
         stable_count = 0

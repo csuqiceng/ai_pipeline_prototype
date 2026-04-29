@@ -4,60 +4,112 @@ from dataclasses import asdict, dataclass
 from typing import Protocol, runtime_checkable
 
 
+FUNC_NAME_MAP = {
+    104: "FUNC104_STOP",
+    106: "FUNC106_JOINT_JOG",
+    107: "FUNC107_VIRTUAL_JOG",
+    108: "FUNC108_LINEAR_MOVE",
+}
+
+
 @dataclass(frozen=True)
 class QueryRecord:
     query_key: str
-    function_id: int
-    registers: tuple[float, float, float, float, float, float, float]
-    function_name: str = "movabs"
-    data_format: str = "IEE"
-    template_type: str = "parametric"
+    func_num: int
+    params: dict[str, float | int]
     keywords: str = ""
     description: str = ""
-    pos_id: int = 0
-    device_id: int = 1
-    acc_percent: float = 40.0
     safety_level: int = 5
-    io_grip: int = 0
-    io_door: int = 0
-    ext_p1: float = 0.0
-    ext_p2: float = 0.0
-    stop_cmd: int = 0
-    fuzzy_pos: int = -1
-    fuzzy_spd: int = 0
-    fuzzy_acc: int = 0
-    fuzzy_dec: int = 0
-    move_type: int = 0
 
     def payload(self) -> list[float]:
-        return [float(self.function_id), *self.registers]
+        return [float(self.func_num)]
 
     def to_dict(self) -> dict:
         return asdict(self)
 
-    def to_standard_params(self) -> dict[str, float | int]:
-        return {
-            "x": self.registers[0],
-            "y": self.registers[1],
-            "z": self.registers[2],
-            "rx": self.registers[3],
-            "ry": self.registers[4],
-            "rz": self.registers[5],
-            "speedPercent": self.registers[6],
-            "accPercent": self.acc_percent,
-            "deviceId": self.device_id,
-            "posId": self.pos_id,
-            "ioGrip": self.io_grip,
-            "ioDoor": self.io_door,
-            "extP1": self.ext_p1,
-            "extP2": self.ext_p2,
-            "stopCmd": self.stop_cmd,
-            "fuzzyPos": self.fuzzy_pos,
-            "fuzzySpd": self.fuzzy_spd,
-            "fuzzyAcc": self.fuzzy_acc,
-            "fuzzyDec": self.fuzzy_dec,
-            "moveType": self.move_type,
-        }
+    @property
+    def function_id(self) -> int:
+        return self.func_num
+
+    @property
+    def function_name(self) -> str:
+        return FUNC_NAME_MAP.get(self.func_num, f"FUNC{self.func_num}")
+
+    @property
+    def template_type(self) -> str:
+        return "parametric"
+
+    @property
+    def registers(self) -> tuple[float, float, float, float, float, float, float]:
+        if self.func_num == 108:
+            return (
+                self.float_param("target_x"),
+                self.float_param("target_y"),
+                self.float_param("target_z"),
+                self.float_param("target_rx"),
+                self.float_param("target_ry"),
+                self.float_param("target_rz"),
+                self.float_param("spd"),
+            )
+        if self.func_num in (106, 107):
+            return (
+                self.float_param("axis_no"),
+                self.float_param("pos_val"),
+                self.float_param("spd"),
+                self.float_param("acc_v"),
+                self.float_param("dec_v"),
+                self.float_param("fuzzy_pos"),
+                self.float_param("stop_cmd"),
+            )
+        return (
+            self.float_param("stop_mode"),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+
+    def float_param(self, key: str, default: float = 0.0) -> float:
+        return float(self.params.get(key, default))
+
+    def int_param(self, key: str, default: int = 0) -> int:
+        return int(float(self.params.get(key, default)))
+
+    def pose_tuple(self) -> tuple[float, float, float, float, float, float] | None:
+        if self.func_num != 108:
+            return None
+        return (
+            self.float_param("target_x"),
+            self.float_param("target_y"),
+            self.float_param("target_z"),
+            self.float_param("target_rx"),
+            self.float_param("target_ry"),
+            self.float_param("target_rz"),
+        )
+
+    def speed_value(self) -> float:
+        return self.float_param("spd")
+
+    def acc_value(self) -> float:
+        return self.float_param("acc_v")
+
+    def summary_text(self) -> str:
+        if self.func_num == 104:
+            return f"stop_mode={self.int_param('stop_mode')}"
+        if self.func_num in (106, 107):
+            axis_label = "关节轴" if self.func_num == 106 else "虚拟轴"
+            return (
+                f"{axis_label} {self.int_param('axis_no')}  "
+                f"目标 {self.float_param('pos_val')}  "
+                f"速度 {self.float_param('spd')}"
+            )
+        pose = self.pose_tuple()
+        if pose is None:
+            return "-"
+        x, y, z, _, _, _ = pose
+        return f"X {x}  Y {y}  Z {z}"
 
 
 @dataclass(frozen=True)
@@ -328,6 +380,13 @@ class SixAxisCommand:
     def to_trigger_write(self) -> VrWriteRequest:
         return VrWriteRequest(start_vr=32, values=(1.0,))
 
+    def expected_echo_points(self) -> list[tuple[int, float]]:
+        points: list[tuple[int, float]] = []
+        for request in self.to_func_writes():
+            for index, value in enumerate(request.values):
+                points.append((request.start_vr + index * 2, float(value)))
+        return points
+
 
 @dataclass(frozen=True)
 class SixAxisStatus:
@@ -341,6 +400,14 @@ class SixAxisStatus:
     @property
     def is_complete(self) -> bool:
         return (self.raw & 4) != 0
+
+    @property
+    def is_received(self) -> bool:
+        return (self.raw & 1) != 0
+
+    @property
+    def is_executing(self) -> bool:
+        return (self.raw & 2) != 0
 
     @property
     def has_error(self) -> bool:
