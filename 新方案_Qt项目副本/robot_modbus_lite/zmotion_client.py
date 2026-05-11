@@ -107,6 +107,27 @@ class ZMotionVrClient:
             self._ensure_ok(ret, "ZAux_Modbus_Get4x_Float")
             return [float(item) for item in values]
 
+    def write_modbus_long(self, request: VrWriteRequest) -> None:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret = self._device.ZAux_Modbus_Set4x_Long(
+                request.start_vr,
+                len(request.values),
+                [int(item) for item in request.values],
+            )
+            self._ensure_ok(ret, "ZAux_Modbus_Set4x_Long")
+
+    def read_modbus_long(self, request: VrReadRequest) -> list[int]:
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret, values = self._device.ZAux_Modbus_Get4x_Long(
+                request.start_vr, request.count,
+            )
+            self._ensure_ok(ret, "ZAux_Modbus_Get4x_Long")
+            return [int(item) for item in values]
+
     def write_modbus_bit(self, start: int, values: list[int]) -> None:
         with self._lock:
             if not self.connected:

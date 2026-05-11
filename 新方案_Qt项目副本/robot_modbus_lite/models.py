@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 
 FUNC_NAME_MAP = {
@@ -9,6 +9,10 @@ FUNC_NAME_MAP = {
     106: "FUNC106_JOINT_JOG",
     107: "FUNC107_VIRTUAL_JOG",
     108: "FUNC108_LINEAR_MOVE",
+    11: "FUNC11_MULTI_POINT_INTERP",
+    109: "FUNC109_TIMER_CHECK",
+    110: "FUNC110_DELAY",
+    120: "FUNC120_IO",
 }
 
 
@@ -16,7 +20,7 @@ FUNC_NAME_MAP = {
 class QueryRecord:
     query_key: str
     func_num: int
-    params: dict[str, float | int]
+    params: dict[str, Any]
     keywords: str = ""
     description: str = ""
     safety_level: int = 5
@@ -97,7 +101,12 @@ class QueryRecord:
 
     def summary_text(self) -> str:
         if self.func_num == 104:
-            return f"stop_mode={self.int_param('stop_mode')}"
+            return (
+                f"estop={self.int_param('estop_ctrl')} "
+                f"pause={self.int_param('pause_ctrl')} "
+                f"cancel={self.int_param('cancel_ctrl')} "
+                f"reset={self.int_param('reset_ctrl')}"
+            )
         if self.func_num in (106, 107):
             axis_label = "关节轴" if self.func_num == 106 else "虚拟轴"
             return (
@@ -107,6 +116,14 @@ class QueryRecord:
             )
         pose = self.pose_tuple()
         if pose is None:
+            if self.func_num == 11:
+                return f"points={self.int_param('point_count')} speed={self.float_param('spd')}"
+            if self.func_num == 109:
+                return f"check={self.int_param('check_value')} delay={self.float_param('delay_sec')}s"
+            if self.func_num == 110:
+                return f"delay={self.float_param('delay_sec')}s"
+            if self.func_num == 120:
+                return f"io={self.int_param('io_no')} action={self.int_param('io_action')}"
             return "-"
         x, y, z, _, _, _ = pose
         return f"X {x}  Y {y}  Z {z}"
@@ -310,18 +327,22 @@ class SixAxisCommand:
     """六轴机械手协议命令 (Func 104/106/107/108)"""
     func_num: int
     desc: str = ""
-    # Func 104: 停止
-    stop_mode: int = 0           # 0=急停 1=慢停
+    # Func 104: 系统控制字
+    stop_mode: int = 0           # deprecated: 仅兼容旧 Func104 stop_mode 模板
+    estop_ctrl: int = 0          # 0=无操作 1=急停 2=解除急停
+    pause_ctrl: int = 0          # 0=无操作 1=暂停 2=继续
+    cancel_ctrl: int = 0         # 0=无操作 1=取消/结束 2=保留
+    reset_ctrl: int = 0          # 0=无操作 1=报警复位
     # Func 106/107: 点动参数
     axis_no: int = 0
     pos_val: float = 0.0
     spd: float = 0.0
     acc_v: float = 0.0
     dec_v: float = 0.0
-    fuzzy_pos: float = 0.0
-    fuzzy_spd: float = 0.0
-    fuzzy_acc: float = 0.0
-    fuzzy_dec: float = 0.0
+    fuzzy_pos: int = 0
+    fuzzy_spd: int = 0
+    fuzzy_acc: int = 0
+    fuzzy_dec: int = 0
     stop_cmd: int = 0
     # Func 108: 直线插补/PTP
     target_x: float = 0.0
@@ -331,16 +352,26 @@ class SixAxisCommand:
     target_ry: float = 0.0
     target_rz: float = 0.0
     move_type: int = 0           # 0=直线插补 1=PTP
+    point_count: int = 0
+    interp_points: tuple[tuple[float, float, float, float, float, float], ...] = ()
     # 特殊命令参数
     io_grip: int = 0
     io_door: int = 0
     ext_p1: float = 0.0
+    # Func 109/110/120
+    check_value: int = 0
+    delay_sec: float = 0.0
+    io_no: int = 0
+    io_action: int = 0
 
     def to_func_writes(self) -> list[VrWriteRequest]:
         if self.func_num == 104:
             return [
                 VrWriteRequest(start_vr=0, values=(104.0,)),
-                VrWriteRequest(start_vr=2, values=(float(self.stop_mode),)),
+                VrWriteRequest(start_vr=2, values=(float(self.estop_ctrl),)),
+                VrWriteRequest(start_vr=4, values=(float(self.pause_ctrl),)),
+                VrWriteRequest(start_vr=6, values=(float(self.cancel_ctrl),)),
+                VrWriteRequest(start_vr=8, values=(float(self.reset_ctrl),)),
             ]
         if self.func_num in (106, 107):
             return [
@@ -375,87 +406,185 @@ class SixAxisCommand:
                 VrWriteRequest(start_vr=28, values=(self.fuzzy_dec,)),
                 VrWriteRequest(start_vr=30, values=(float(self.move_type),)),
             ]
+        if self.func_num == 11:
+            writes = [
+                VrWriteRequest(start_vr=0, values=(11.0,)),
+                VrWriteRequest(start_vr=2, values=(float(self.point_count),)),
+                VrWriteRequest(start_vr=14, values=(self.spd,)),
+                VrWriteRequest(start_vr=16, values=(self.acc_v,)),
+                VrWriteRequest(start_vr=18, values=(self.dec_v,)),
+            ]
+            for idx, point in enumerate(self.interp_points[: self.point_count]):
+                base = 400 + idx * 12
+                writes.extend(
+                    VrWriteRequest(start_vr=base + offset * 2, values=(float(value),))
+                    for offset, value in enumerate(point)
+                )
+            return writes
+        if self.func_num == 109:
+            return [
+                VrWriteRequest(start_vr=0, values=(109.0,)),
+                VrWriteRequest(start_vr=2, values=(float(self.check_value),)),
+                VrWriteRequest(start_vr=4, values=(self.delay_sec,)),
+            ]
+        if self.func_num == 110:
+            return [
+                VrWriteRequest(start_vr=0, values=(110.0,)),
+                VrWriteRequest(start_vr=6, values=(self.delay_sec,)),
+            ]
+        if self.func_num == 120:
+            return [
+                VrWriteRequest(start_vr=0, values=(120.0,)),
+                VrWriteRequest(start_vr=2, values=(float(self.io_no),)),
+                VrWriteRequest(start_vr=4, values=(float(self.io_action),)),
+            ]
         return []
 
     def to_trigger_write(self) -> VrWriteRequest:
         return VrWriteRequest(start_vr=32, values=(1.0,))
 
     def expected_echo_points(self) -> list[tuple[int, float]]:
-        points: list[tuple[int, float]] = []
+        values_by_addr: dict[int, float] = {}
         for request in self.to_func_writes():
             for index, value in enumerate(request.values):
-                points.append((request.start_vr + index * 2, float(value)))
+                values_by_addr[request.start_vr + index * 2] = float(value)
+        points: list[tuple[int, float]] = []
+        for src_addr in range(0, 34, 2):
+            if src_addr in values_by_addr:
+                points.append((280 + src_addr, values_by_addr[src_addr]))
         return points
 
 
 @dataclass(frozen=True)
 class SixAxisStatus:
-    """六轴 IEEE(34) 状态解析 — 错误和报警是两个独立概念
-
-    Bit2=完成(4), Bit3=错误(8), Bit6=报警(64)
-    68=完成+报警(运动已结束,记录警告,不中断), 72=错误+报警(严重,raise)
-    """
+    """六轴 V4.3 LONG(34) 状态解析。"""
     raw: int
+    func_num: int | None = None
+
+    FUNC_STATE_FIELDS: ClassVar[dict[int, tuple[int, int]]] = {
+        104: (0, 0x00000003),
+        106: (2, 0x0000000C),
+        107: (4, 0x00000030),
+        108: (6, 0x000000C0),
+        109: (8, 0x00000300),
+        110: (10, 0x00000C00),
+        11: (14, 0x0000C000),
+        120: (18, 0x000C0000),
+    }
+    STATE_IDLE = 0
+    STATE_EXEC = 1
+    STATE_DONE = 2
+    STATE_ERR = 3
+
+    def function_state(self, func_num: int | None = None) -> int:
+        target = self.func_num if func_num is None else func_num
+        if target not in self.FUNC_STATE_FIELDS:
+            return self.STATE_IDLE
+        shift, mask = self.FUNC_STATE_FIELDS[target]
+        return (self.raw & mask) >> shift
+
+    def _active_states(self) -> list[int]:
+        if self.func_num in self.FUNC_STATE_FIELDS:
+            return [self.function_state(self.func_num)]
+        return [
+            (self.raw & mask) >> shift
+            for shift, mask in self.FUNC_STATE_FIELDS.values()
+        ]
 
     @property
     def is_complete(self) -> bool:
-        return (self.raw & 4) != 0
+        return self.STATE_DONE in self._active_states()
 
     @property
     def is_received(self) -> bool:
-        return (self.raw & 1) != 0
+        return self.is_executing or self.is_complete or self.has_error
 
     @property
     def is_executing(self) -> bool:
-        return (self.raw & 2) != 0
+        return self.STATE_EXEC in self._active_states()
 
     @property
     def has_error(self) -> bool:
-        return (self.raw & 8) != 0
+        return self.STATE_ERR in self._active_states()
 
     @property
     def has_alarm(self) -> bool:
-        return (self.raw & 64) != 0
+        return (self.raw & (1 << 24)) != 0
+
+    @property
+    def is_estop(self) -> bool:
+        return (self.raw & (1 << 25)) != 0
+
+    @property
+    def is_paused(self) -> bool:
+        return (self.raw & (1 << 26)) != 0
+
+    @property
+    def is_cancelled(self) -> bool:
+        return (self.raw & (1 << 27)) != 0
+
+    @property
+    def is_ready(self) -> bool:
+        return (self.raw & (1 << 28)) != 0
 
     @property
     def can_send(self) -> bool:
-        return self.raw in (0, 4)
+        if self.has_alarm or self.is_estop or not self.is_ready:
+            return False
+        return all(state != self.STATE_EXEC for state in self._active_states())
+
+    def can_send_for(self, func_num: int) -> bool:
+        if self.has_alarm or self.is_estop or not self.is_ready:
+            return False
+        return self.function_state(func_num) == self.STATE_IDLE
 
     @classmethod
-    def from_value(cls, val: float) -> "SixAxisStatus":
-        return cls(raw=int(val))
+    def from_value(cls, val: float | int, func_num: int | None = None) -> "SixAxisStatus":
+        return cls(raw=int(val), func_num=func_num)
 
 
 @dataclass(frozen=True)
 class SixAxisAlarmDetail:
-    """六轴 IEEE(38) 报警详情 — 位组合"""
+    """六轴 V4.3 LONG(38) 报警详情。"""
     radius: bool = False      # Bit0: 半径超限
     height: bool = False      # Bit1: 高度超限
+    cmd_busy: bool = False    # Bit2: 指令忙（重复触发）
     speed: bool = False       # Bit3: 速度超限
     accel: bool = False       # Bit4: 加速度超限
     decel: bool = False       # Bit5: 减速度超限
     ecat_exceeded: bool = False  # Bit6: ECAT通讯异常
+    drive_alarm: bool = False       # Bit7: 驱动器报警
+    func_id_invalid: bool = False   # Bit8: 函数号非法
+    param_invalid: bool = False     # Bit9: 参数非法
 
     @classmethod
-    def from_value(cls, val: float) -> "SixAxisAlarmDetail":
+    def from_value(cls, val: float | int) -> "SixAxisAlarmDetail":
         raw = int(val)
         return cls(
             radius=(raw & 1) != 0,
             height=(raw & 2) != 0,
+            cmd_busy=(raw & 4) != 0,
             speed=(raw & 8) != 0,
             accel=(raw & 16) != 0,
             decel=(raw & 32) != 0,
             ecat_exceeded=(raw & 64) != 0,
+            drive_alarm=(raw & 128) != 0,
+            func_id_invalid=(raw & 256) != 0,
+            param_invalid=(raw & 512) != 0,
         )
 
     def __str__(self) -> str:
         parts = []
         if self.radius: parts.append("半径超限")
         if self.height: parts.append("高度超限")
+        if self.cmd_busy: parts.append("指令忙")
         if self.speed: parts.append("速度超限")
         if self.accel: parts.append("加速度超限")
         if self.decel: parts.append("减速度超限")
         if self.ecat_exceeded: parts.append("ECAT异常")
+        if self.drive_alarm: parts.append("驱动器报警")
+        if self.func_id_invalid: parts.append("函数号非法")
+        if self.param_invalid: parts.append("参数非法")
         return "、".join(parts) if parts else "无报警详情"
 
 
@@ -495,5 +624,7 @@ class ControllerClient(Protocol):
     def read_vr(self, request: VrReadRequest) -> list[float]: ...
     def write_modbus_float(self, request: VrWriteRequest) -> None: ...
     def read_modbus_float(self, request: VrReadRequest) -> list[float]: ...
+    def write_modbus_long(self, request: VrWriteRequest) -> None: ...
+    def read_modbus_long(self, request: VrReadRequest) -> list[int]: ...
     def write_modbus_bit(self, start: int, values: list[int]) -> None: ...
     def read_modbus_bit(self, start: int, count: int) -> list[int]: ...

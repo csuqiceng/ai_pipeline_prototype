@@ -26,10 +26,14 @@ from .query_table import load_query_table
 
 class RobotModbusService:
     FUNC_LABELS = {
+        11: "Func11 多点插补",
         104: "Func104 停止",
         106: "Func106 关节点动",
         107: "Func107 虚拟轴点动",
         108: "Func108 直线插补/PTP",
+        109: "Func109 定时检测",
+        110: "Func110 延时",
+        120: "Func120 IO控制",
     }
 
     def __init__(
@@ -174,15 +178,28 @@ class RobotModbusService:
         self,
         record: QueryRecord,
     ) -> SixAxisCommand:
-        """将模板记录转为六轴命令，仅支持 Func104/106/107/108。"""
+        """将模板记录转为六轴 V4.3 命令。"""
         params = record.params
         func_num = record.func_num
 
         if func_num == 104:
+            estop_ctrl = int(float(params.get("estop_ctrl", 0)))
+            pause_ctrl = int(float(params.get("pause_ctrl", 0)))
+            cancel_ctrl = int(float(params.get("cancel_ctrl", 0)))
+            reset_ctrl = int(float(params.get("reset_ctrl", 0)))
+            if not any((estop_ctrl, pause_ctrl, cancel_ctrl, reset_ctrl)) and "stop_mode" in params:
+                if int(float(params.get("stop_mode", 0))) == 0:
+                    estop_ctrl = 1
+                else:
+                    pause_ctrl = 1
             return SixAxisCommand(
                 func_num=104,
                 desc=record.description or record.query_key,
                 stop_mode=int(float(params.get("stop_mode", 0))),
+                estop_ctrl=estop_ctrl,
+                pause_ctrl=pause_ctrl,
+                cancel_ctrl=cancel_ctrl,
+                reset_ctrl=reset_ctrl,
             )
 
         if func_num in (106, 107):
@@ -194,10 +211,10 @@ class RobotModbusService:
                 spd=float(params.get("spd", 0.0)),
                 acc_v=float(params.get("acc_v", 0.0)),
                 dec_v=float(params.get("dec_v", 0.0)),
-                fuzzy_pos=float(int(float(params.get("fuzzy_pos", 0)))),
-                fuzzy_spd=float(int(float(params.get("fuzzy_spd", 0)))),
-                fuzzy_acc=float(int(float(params.get("fuzzy_acc", 0)))),
-                fuzzy_dec=float(int(float(params.get("fuzzy_dec", 0)))),
+                fuzzy_pos=int(float(params.get("fuzzy_pos", 0))),
+                fuzzy_spd=int(float(params.get("fuzzy_spd", 0))),
+                fuzzy_acc=int(float(params.get("fuzzy_acc", 0))),
+                fuzzy_dec=int(float(params.get("fuzzy_dec", 0))),
                 stop_cmd=int(float(params.get("stop_cmd", 0))),
             )
 
@@ -215,43 +232,96 @@ class RobotModbusService:
                 acc_v=float(params.get("acc_v", 0.0)),
                 dec_v=float(params.get("dec_v", 0.0)),
                 stop_cmd=int(float(params.get("stop_cmd", 0))),
-                fuzzy_pos=float(int(float(params.get("fuzzy_pos", 0)))),
-                fuzzy_spd=float(int(float(params.get("fuzzy_spd", 0)))),
-                fuzzy_acc=float(int(float(params.get("fuzzy_acc", 0)))),
-                fuzzy_dec=float(int(float(params.get("fuzzy_dec", 0)))),
+                fuzzy_pos=int(float(params.get("fuzzy_pos", 0))),
+                fuzzy_spd=int(float(params.get("fuzzy_spd", 0))),
+                fuzzy_acc=int(float(params.get("fuzzy_acc", 0))),
+                fuzzy_dec=int(float(params.get("fuzzy_dec", 0))),
                 move_type=int(float(params.get("move_type", 0))),
             )
 
-        raise ValueError(f"仅支持 Func104/106/107/108，查询键={record.query_key}，实际={func_num}")
+        if func_num == 11:
+            points_raw = params.get("points", ())
+            points: list[tuple[float, float, float, float, float, float]] = []
+            if isinstance(points_raw, (list, tuple)):
+                for point in points_raw:
+                    if isinstance(point, (list, tuple)):
+                        padded = list(point[:6]) + [0.0] * max(0, 6 - len(point))
+                        points.append(tuple(float(value) for value in padded[:6]))
+            point_count = int(float(params.get("point_count", len(points))))
+            return SixAxisCommand(
+                func_num=11,
+                desc=record.description or record.query_key,
+                point_count=point_count,
+                interp_points=tuple(points[:point_count]),
+                spd=float(params.get("spd", 0.0)),
+                acc_v=float(params.get("acc_v", 0.0)),
+                dec_v=float(params.get("dec_v", 0.0)),
+            )
+
+        if func_num == 109:
+            return SixAxisCommand(
+                func_num=109,
+                desc=record.description or record.query_key,
+                check_value=int(float(params.get("check_value", params.get("valid_check", 1)))),
+                delay_sec=float(params.get("delay_sec", params.get("delay", 0.0))),
+            )
+
+        if func_num == 110:
+            return SixAxisCommand(
+                func_num=110,
+                desc=record.description or record.query_key,
+                delay_sec=float(params.get("delay_sec", params.get("delay", 0.0))),
+            )
+
+        if func_num == 120:
+            return SixAxisCommand(
+                func_num=120,
+                desc=record.description or record.query_key,
+                io_no=int(float(params.get("io_no", 0))),
+                io_action=int(float(params.get("io_action", params.get("action", 0)))),
+            )
+
+        raise ValueError(f"不支持的六轴函数号: 查询键={record.query_key}，实际={func_num}")
 
     def build_six_system_command(self, code: int) -> SixAxisCommand:
         """构建六轴系统命令"""
         if code == 4002:
-            return SixAxisCommand(func_num=104, desc="SYS_ESTOP", stop_mode=0)
+            return SixAxisCommand(func_num=104, desc="SYS_ESTOP", estop_ctrl=1)
         if code == 4003:
-            return SixAxisCommand(func_num=104, desc="SYS_PAUSE", stop_mode=1)
+            return SixAxisCommand(func_num=104, desc="SYS_PAUSE", pause_ctrl=1)
+        if code == 4004:
+            return SixAxisCommand(func_num=104, desc="SYS_RESUME", pause_ctrl=2)
         if code in (1008, 4001):
-            return SixAxisCommand(func_num=-10, desc="ALARM_RESET")
-        if code in (4004, 6001, 6002):
-            return SixAxisCommand(func_num=-5, desc=f"LOCAL_{code}")
+            return SixAxisCommand(func_num=104, desc="ALARM_RESET", reset_ctrl=1)
+        if code in (6001, 6002):
+            # TODO: 确认 6001/6002 是否等价于 V4.3 Func104 cancel_ctrl。
+            return SixAxisCommand(func_num=104, desc=f"CANCEL_{code}", cancel_ctrl=1)
         raise ValueError(f"系统命令码 {code} 当前未实现")
 
     def build_six_status_read(self) -> VrReadRequest:
         return VrReadRequest(start_vr=34, count=1)
 
-    def parse_six_status(self, values: list[float]) -> SixAxisStatus:
-        return SixAxisStatus.from_value(values[0] if values else 0.0)
+    def parse_six_status(self, values: list[float] | list[int], func_num: int | None = None) -> SixAxisStatus:
+        return SixAxisStatus.from_value(values[0] if values else 0, func_num=func_num)
+
+    def build_six_system_state_read(self) -> VrReadRequest:
+        """读 V4.3 LONG(36) 系统状态。"""
+        return VrReadRequest(start_vr=36, count=1)
+
+    def parse_six_system_state(self, values: list[float] | list[int]) -> int:
+        return int(values[0] if values else 0)
 
     def build_six_alarm_detail_read(self) -> VrReadRequest:
         return VrReadRequest(start_vr=38, count=1)
 
-    def parse_six_alarm_detail(self, values: list[float]) -> SixAxisAlarmDetail:
-        return SixAxisAlarmDetail.from_value(values[0] if values else 0.0)
+    def parse_six_alarm_detail(self, values: list[float] | list[int]) -> SixAxisAlarmDetail:
+        return SixAxisAlarmDetail.from_value(values[0] if values else 0)
 
     def build_six_current_func_read(self) -> VrReadRequest:
-        return VrReadRequest(start_vr=36, count=1)
+        """读 V4.3 IEEE(322) 当前 func_id。"""
+        return VrReadRequest(start_vr=322, count=1)
 
-    def parse_six_current_func(self, values: list[float]) -> int:
+    def parse_six_current_func(self, values: list[float] | list[int]) -> int:
         return int(values[0] if values else 0.0)
 
     def build_six_motion_state_read(self) -> VrReadRequest:
@@ -261,12 +331,12 @@ class RobotModbusService:
         return int(values[0] if values else 0.0)
 
     def build_six_joint_feedback_read(self) -> VrReadRequest:
-        """读 IEEE(1500~1510) 实际关节角度。"""
-        return VrReadRequest(start_vr=1500, count=6)
+        """读 MPOS(0~5): IEEE(1600~1610) 实际关节角度。"""
+        return VrReadRequest(start_vr=1600, count=6)
 
     def build_six_pose_feedback_read(self) -> VrReadRequest:
-        """读 IEEE(1512~1522) 实际笛卡尔位姿。"""
-        return VrReadRequest(start_vr=1512, count=6)
+        """读 MPOS(6~11): IEEE(1612~1622) 实际笛卡尔位姿。"""
+        return VrReadRequest(start_vr=1612, count=6)
 
     def build_six_safety_limits_read(self) -> VrReadRequest:
         return VrReadRequest(start_vr=1700, count=7)
@@ -298,8 +368,8 @@ class RobotModbusService:
         }
 
     def build_six_realtime_xyz_read(self) -> VrReadRequest:
-        """读 IEEE(40~50) Func108 运行态回传位姿。"""
-        return VrReadRequest(start_vr=40, count=6)
+        """deprecated: 读 MPOS(6~11)，替代旧 IEEE(40~50) 运行态位姿。"""
+        return self.build_six_pose_feedback_read()
 
     def parse_six_realtime(self, joint_vals: list[float], xyz_vals: list[float]) -> SixAxisRealtimeData:
         """合并两组读取结果为六轴实时数据"""

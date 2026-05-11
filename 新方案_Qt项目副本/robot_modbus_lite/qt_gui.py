@@ -71,12 +71,22 @@ from .license_dialog import LicenseDialog
 
 
 FUNC_OPTIONS = {
+    "Func11 多点插补": 11,
     "Func104 急停/慢停": 104,
     "Func106 关节轴点动": 106,
     "Func107 虚拟轴点动": 107,
     "Func108 直线插补/PTP": 108,
+    "Func109 定时检测": 109,
+    "Func110 延时": 110,
+    "Func120 IO控制": 120,
 }
 FUNC_LABELS = {value: key for key, value in FUNC_OPTIONS.items()}
+FUNC_LABELS.update({
+    11: "Func11 多点插补",
+    109: "Func109 定时检测",
+    110: "Func110 延时",
+    120: "Func120 IO控制",
+})
 STOP_CMD_LABELS = {
     0: "正常执行",
     1: "RAPIDSTOP(2) 急停",
@@ -805,6 +815,16 @@ class RobotQtWindow(QMainWindow):
         self.move_type_combo = QComboBox()
         self.move_type_combo.addItem("直线插补(0)", 0)
         self.move_type_combo.addItem("PTP(1)", 1)
+        self.point_count_edit = QLineEdit("2")
+        self.points_edit = QTextEdit()
+        self.points_edit.setMinimumHeight(90)
+        self.points_edit.setPlainText("[[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]]")
+        self.check_value_edit = QLineEdit("1")
+        self.delay_sec_edit = QLineEdit("0")
+        self.io_no_edit = QLineEdit("0")
+        self.io_action_combo = QComboBox()
+        self.io_action_combo.addItem("关闭(0)", 0)
+        self.io_action_combo.addItem("打开(1)", 1)
 
         self.record_form_rows: dict[str, tuple[QLabel, QWidget]] = {}
 
@@ -837,6 +857,12 @@ class RobotQtWindow(QMainWindow):
         add_record_row("target_ry", "目标Ry (target_ry)", self.ry_edit)
         add_record_row("target_rz", "目标Rz (target_rz)", self.rz_edit)
         add_record_row("move_type", "运动模式 (move_type)", self.move_type_combo)
+        add_record_row("point_count", "点数 (point_count)", self.point_count_edit)
+        add_record_row("points", "插补点 JSON (points)", self.points_edit)
+        add_record_row("check_value", "检测值 (check_value)", self.check_value_edit)
+        add_record_row("delay_sec", "延时秒 (delay_sec)", self.delay_sec_edit)
+        add_record_row("io_no", "IO编号 (io_no)", self.io_no_edit)
+        add_record_row("io_action", "IO动作 (io_action)", self.io_action_combo)
 
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
@@ -1081,8 +1107,13 @@ class RobotQtWindow(QMainWindow):
             self.rx_edit,
             self.ry_edit,
             self.rz_edit,
+            self.point_count_edit,
+            self.check_value_edit,
+            self.delay_sec_edit,
+            self.io_no_edit,
         ]:
             widget.textChanged.connect(self._render_preview)
+        self.points_edit.textChanged.connect(self._render_preview)
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_form_mode)
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_name_display)
         self.func_num_combo.currentIndexChanged.connect(self._render_preview)
@@ -1093,6 +1124,7 @@ class RobotQtWindow(QMainWindow):
         self.fuzzy_acc_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_dec_combo.currentIndexChanged.connect(self._render_preview)
         self.move_type_combo.currentIndexChanged.connect(self._render_preview)
+        self.io_action_combo.currentIndexChanged.connect(self._render_preview)
         self._load_system_config_into_form()
         self._load_avoidance_config_into_form()
         self._sync_func_name_display()
@@ -1651,6 +1683,12 @@ class RobotQtWindow(QMainWindow):
         self.ry_edit.setText(self._fmt(record.float_param("target_ry")))
         self.rz_edit.setText(self._fmt(record.float_param("target_rz")))
         self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(record.int_param("move_type")))
+        self.point_count_edit.setText(str(record.int_param("point_count")))
+        self.points_edit.setPlainText(json.dumps(record.params.get("points", []), ensure_ascii=False))
+        self.check_value_edit.setText(str(record.int_param("check_value", 1)))
+        self.delay_sec_edit.setText(self._fmt(record.float_param("delay_sec")))
+        self.io_no_edit.setText(str(record.int_param("io_no")))
+        self.io_action_combo.setCurrentIndex(self.io_action_combo.findData(record.int_param("io_action")))
         self.safety_edit.setText(str(record.safety_level))
         self.desc_edit.setText(record.description)
         self._sync_func_form_mode()
@@ -1662,7 +1700,7 @@ class RobotQtWindow(QMainWindow):
             text = text.strip().replace("%", "")
             return float(text) if text else 0.0
         func_num = int(self.func_num_combo.currentData())
-        params: dict[str, float | int]
+        params: dict[str, object]
         if func_num == 104:
             params = {
                 "stop_mode": int(self.stop_mode_combo.currentData()),
@@ -1679,6 +1717,29 @@ class RobotQtWindow(QMainWindow):
                 "fuzzy_acc": int(self.fuzzy_acc_combo.currentData()),
                 "fuzzy_dec": int(self.fuzzy_dec_combo.currentData()),
                 "stop_cmd": int(self.stop_cmd_combo.currentData()),
+            }
+        elif func_num == 11:
+            points_raw = json.loads(self.points_edit.toPlainText() or "[]")
+            params = {
+                "point_count": int(float(self.point_count_edit.text() or "0")),
+                "spd": num(self.spd_edit.text()),
+                "acc_v": num(self.acc_v_edit.text()),
+                "dec_v": num(self.dec_v_edit.text()),
+                "points": points_raw,
+            }
+        elif func_num == 109:
+            params = {
+                "check_value": int(float(self.check_value_edit.text() or "0")),
+                "delay_sec": num(self.delay_sec_edit.text()),
+            }
+        elif func_num == 110:
+            params = {
+                "delay_sec": num(self.delay_sec_edit.text()),
+            }
+        elif func_num == 120:
+            params = {
+                "io_no": int(float(self.io_no_edit.text() or "0")),
+                "io_action": int(self.io_action_combo.currentData()),
             }
         else:
             params = {
@@ -1760,8 +1821,10 @@ class RobotQtWindow(QMainWindow):
             if six_cmd.func_num in (106, 107, 108):
                 self.current_options_label.setText(self._describe_six_motion_options(six_cmd))
             elif six_cmd.func_num == 104:
-                stop_mode = int(six_cmd.stop_mode)
-                self.current_options_label.setText(f"stop_mode={stop_mode}({'急停' if stop_mode == 0 else '慢停'})")
+                self.current_options_label.setText(
+                    f"estop={six_cmd.estop_ctrl}, pause={six_cmd.pause_ctrl}, "
+                    f"cancel={six_cmd.cancel_ctrl}, reset={six_cmd.reset_ctrl}"
+                )
             else:
                 self.current_options_label.setText("-")
         except Exception:
@@ -3230,36 +3293,19 @@ class RobotQtWindow(QMainWindow):
 
         # 2. 判断是否跳过前置检查
         skip_precheck = (
-            six_cmd.func_num == 104          # Func104急停/慢停: 不需要前置检查
-            or six_cmd.func_num == -10       # ALARM_RESET: 报警时can_send为false，必须跳过
+            six_cmd.func_num == 104          # Func104系统控制: 不需要前置检查
             or six_cmd.func_num < 0          # 其他本地命令
         )
 
         # 3. 前置检查 (非跳过时)
         if not skip_precheck:
             status_read = self.service.build_six_status_read()
-            status_vals = client.read_modbus_float(status_read)
-            six_status = self.service.parse_six_status(status_vals)
-            if not six_status.can_send:
+            status_vals = client.read_modbus_long(status_read)
+            six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+            if not six_status.can_send_for(six_cmd.func_num):
                 raise RuntimeError(f"六轴前置检查失败: IEEE(34)={six_status.raw} 控制器未就绪")
 
         # 4. 本地命令处理
-        if six_cmd.func_num == -10:
-            # ALARM_RESET: 写BIT(151)=1 → 轮询确认 → 写BIT(151)=0
-            client.write_modbus_bit(151, [1])
-            self._append_log("六轴", f"报警复位 {record.query_key}", "执行", "BIT(151)=1")
-            status_read = self.service.build_six_status_read()
-            for _ in range(10):
-                time.sleep(0.05)
-                vals = client.read_modbus_float(status_read)
-                st = self.service.parse_six_status(vals)
-                if not st.has_alarm and st.can_send:
-                    break
-            client.write_modbus_bit(151, [0])
-            self._append_log("六轴", f"报警复位 {record.query_key}", "成功", "BIT(151)=0 恢复")
-            pose_read = self.service.build_six_pose_feedback_read()
-            return client.read_modbus_float(pose_read)
-
         if six_cmd.func_num == -1:
             client.write_modbus_bit(20000, [six_cmd.io_grip])
             self._append_log("六轴", f"夹爪控制 {record.query_key}", "成功", f"BIT(20000)={six_cmd.io_grip}")
@@ -3313,8 +3359,9 @@ class RobotQtWindow(QMainWindow):
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
 
-        # 8. 轮询 IEEE(34) + IEEE(36) + IEEE(56) 执行确认
+        # 8. 轮询 LONG(34) 函数状态 + IEEE(56) 运动状态
         status_read = self.service.build_six_status_read()
+        system_state_read = self.service.build_six_system_state_read()
         curr_func_read = self.service.build_six_current_func_read()
         motion_state_read = self.service.build_six_motion_state_read()
         poll_interval_sec = 0.05
@@ -3325,61 +3372,88 @@ class RobotQtWindow(QMainWindow):
         last_motion_state = 0
         for _ in range(max_attempts):
             time.sleep(poll_interval_sec)
-            vals = client.read_modbus_float(status_read)
-            st = self.service.parse_six_status(vals)
+            vals = client.read_modbus_long(status_read)
+            st = self.service.parse_six_status(vals, six_cmd.func_num)
+            system_state_vals = client.read_modbus_long(system_state_read)
+            system_state = self.service.parse_six_system_state(system_state_vals)
             curr_func_vals = client.read_modbus_float(curr_func_read)
             curr_func = self.service.parse_six_current_func(curr_func_vals)
             motion_state_vals = client.read_modbus_float(motion_state_read)
             motion_state = self.service.parse_six_motion_state(motion_state_vals)
             last_motion_state = motion_state
 
-            if (st.is_received or st.is_executing or st.is_complete) and curr_func == six_cmd.func_num:
+            if st.is_received or st.is_executing or st.is_complete:
                 if st.is_received and not saw_received:
                     saw_received = True
-                    self._append_log("六轴", f"收到确认 {record.query_key}", "成功", f"IEEE(34)={st.raw}, IEEE(36)={curr_func}")
+                    self._append_log(
+                        "六轴",
+                        f"收到确认 {record.query_key}",
+                        "成功",
+                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}",
+                    )
                 if st.is_executing and not saw_executing:
                     saw_executing = True
                     self._append_log(
                         "六轴",
                         f"执行中确认 {record.query_key}",
                         "成功",
-                        f"IEEE(34)={st.raw}, IEEE(36)={curr_func}, IEEE(56)={motion_state}",
+                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}, IEEE(56)={motion_state}",
                     )
 
             if st.has_error:
-                raise RuntimeError(f"六轴执行错误: IEEE(34)={st.raw}, IEEE(36)={curr_func}, IEEE(56)={motion_state}")
+                raise RuntimeError(
+                    f"六轴执行错误: LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}, IEEE(56)={motion_state}"
+                )
             if st.is_complete and not st.has_alarm:
-                if curr_func != six_cmd.func_num:
-                    raise RuntimeError(
-                        f"六轴函数号回传不一致: 期望={six_cmd.func_num}, IEEE(36)={curr_func}"
-                    )
                 if not saw_received and not saw_executing:
-                    self._append_log("六轴", f"快速完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}, IEEE(36)={curr_func}")
-                self._append_log("六轴", f"执行完成 {record.query_key}", "成功", f"IEEE(34)={st.raw}")
+                    self._append_log("六轴", f"快速完成 {record.query_key}", "成功", f"LONG(34)={st.raw}")
+                self._append_log("六轴", f"执行完成 {record.query_key}", "成功", f"LONG(34)={st.raw}")
                 break
             if st.is_complete and st.has_alarm:
-                if curr_func != six_cmd.func_num:
-                    raise RuntimeError(
-                        f"六轴函数号回传不一致: 期望={six_cmd.func_num}, IEEE(36)={curr_func}"
-                    )
-                # 68=完成+报警: 运动已结束，读IEEE(38)记录警告，不中断
+                # 完成+报警: 运动已结束，读 LONG(38) 记录警告，不中断
                 alarm_read = self.service.build_six_alarm_detail_read()
-                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_vals = client.read_modbus_long(alarm_read)
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 self._append_log("六轴", f"完成+报警 {record.query_key}", "警告",
-                                 f"IEEE(34)={st.raw}, 详情: {alarm_detail}")
+                                 f"LONG(34)={st.raw}, 详情: {alarm_detail}")
                 break
         else:
             raise RuntimeError(
                 f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | IEEE(56)={last_motion_state}"
             )
 
-        # 9. 读取完整回传数据 (IEEE 40-72)
-        xyz_vals = client.read_modbus_float(VrReadRequest(start_vr=40, count=6))
+        if six_cmd.func_num == 11:
+            current_point = client.read_modbus_float(VrReadRequest(start_vr=640, count=1))
+            total_points = client.read_modbus_float(VrReadRequest(start_vr=642, count=1))
+            self._append_log(
+                "六轴",
+                f"Func11 反馈 {record.query_key}",
+                "成功",
+                f"当前点={int(current_point[0]) if current_point else 0}, 总点数={int(total_points[0]) if total_points else 0}",
+            )
+        elif six_cmd.func_num == 109:
+            check_result = client.read_modbus_float(VrReadRequest(start_vr=326, count=1))
+            elapsed = client.read_modbus_float(VrReadRequest(start_vr=330, count=1))
+            self._append_log("六轴", f"Func109 反馈 {record.query_key}", "成功",
+                             f"检测={check_result[0] if check_result else 0}, 延时={elapsed[0] if elapsed else 0}")
+        elif six_cmd.func_num == 110:
+            delay_state = client.read_modbus_float(VrReadRequest(start_vr=328, count=1))
+            elapsed = client.read_modbus_float(VrReadRequest(start_vr=332, count=1))
+            timer_ms = client.read_modbus_long(VrReadRequest(start_vr=40, count=1))
+            self._append_log("六轴", f"Func110 反馈 {record.query_key}", "成功",
+                             f"状态={delay_state[0] if delay_state else 0}, 延时={elapsed[0] if elapsed else 0}, 计时ms={timer_ms[0] if timer_ms else 0}")
+        elif six_cmd.func_num == 120:
+            y_state = client.read_modbus_long(VrReadRequest(start_vr=44, count=1))
+            x_state = client.read_modbus_long(VrReadRequest(start_vr=46, count=1))
+            self._append_log("六轴", f"Func120 反馈 {record.query_key}", "成功",
+                             f"Y={y_state[0] if y_state else 0}, X={x_state[0] if x_state else 0}")
+
+        # 9. 读取回传数据，位姿/关节优先使用 V4.3 MPOS 区。
+        xyz_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
         spd_vals = client.read_modbus_float(VrReadRequest(start_vr=52, count=1))
         dist_vals = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))
         motion_state_vals = client.read_modbus_float(motion_state_read)
-        joint_vals = client.read_modbus_float(VrReadRequest(start_vr=58, count=6))
+        joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
         ecat_vals = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))
         frame_vals = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))
         motion_state = self.service.parse_six_motion_state(motion_state_vals)
@@ -3440,23 +3514,8 @@ class RobotQtWindow(QMainWindow):
             six_cmd = self.service.build_six_system_command(code)
 
             # 本地操作: 不发下位机
-            if six_cmd.func_num < 0 and six_cmd.func_num != -10:
+            if six_cmd.func_num < 0:
                 self._append_log("六轴", f"本地系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
-                return []
-
-            # ALARM_RESET: BIT(151)=1 → 轮询 → BIT(151)=0
-            if six_cmd.func_num == -10:
-                client.write_modbus_bit(151, [1])
-                self._append_log("六轴", "报警复位", "执行", "BIT(151)=1")
-                status_read = self.service.build_six_status_read()
-                for _ in range(10):
-                    time.sleep(0.05)
-                    vals = client.read_modbus_float(status_read)
-                    st = self.service.parse_six_status(vals)
-                    if not st.has_alarm and st.can_send:
-                        break
-                client.write_modbus_bit(151, [0])
-                self._append_log("六轴", "报警复位", "成功", "BIT(151)=0 恢复")
                 return []
 
             # Func104: 跳过前置检查直接执行
@@ -3469,7 +3528,7 @@ class RobotQtWindow(QMainWindow):
             status_read = self.service.build_six_status_read()
             for _ in range(60):
                 time.sleep(0.05)
-                vals = client.read_modbus_float(status_read)
+                vals = client.read_modbus_long(status_read)
                 st = self.service.parse_six_status(vals)
                 if st.is_complete and not st.has_error:
                     return []
@@ -3568,28 +3627,34 @@ class RobotQtWindow(QMainWindow):
                 self.robot_speed = f"{self._fmt(record.speed_value())} / {self._fmt(record.acc_value())}"
 
     def _validate_record(self, record: QueryRecord) -> str | None:
-        if record.func_num not in (104, 106, 107, 108):
-            return "当前仅支持 Func104 / Func106 / Func107 / Func108。"
+        if record.func_num not in (11, 104, 106, 107, 108, 109, 110, 120):
+            return "当前仅支持 Func11 / Func104 / Func106 / Func107 / Func108 / Func109 / Func110 / Func120。"
         if not (1 <= record.safety_level <= 5):
             return "安全等级必须在 1 到 5 之间。"
         if record.func_num == 104:
             if record.int_param("stop_mode") not in (0, 1):
                 return "Func104 的停止模式只能是 0 或 1。"
             return None
-        if record.int_param("stop_cmd") not in (0, 1, 2, 3, 4, 5):
-            return "停止指令必须在 0 到 5 之间。"
-        for label, value in [
-            ("位置模式", record.int_param("fuzzy_pos")),
-            ("速度模式", record.int_param("fuzzy_spd")),
-            ("加速度模式", record.int_param("fuzzy_acc")),
-            ("减速度模式", record.int_param("fuzzy_dec")),
-        ]:
-            if value not in (0, 1):
-                return f"{label} 只能是 0 或 1。"
-        if record.speed_value() <= 0 and record.int_param("stop_cmd") == 0:
-            return "正常执行时速度必须大于 0。"
-        if record.acc_value() < 0 or record.float_param("dec_v") < 0:
-            return "加速度和减速度不能小于 0。"
+        if record.func_num in (106, 107, 108):
+            if record.int_param("stop_cmd") not in (0, 1, 2, 3, 4, 5):
+                return "停止指令必须在 0 到 5 之间。"
+            for label, value in [
+                ("位置模式", record.int_param("fuzzy_pos")),
+                ("速度模式", record.int_param("fuzzy_spd")),
+                ("加速度模式", record.int_param("fuzzy_acc")),
+                ("减速度模式", record.int_param("fuzzy_dec")),
+            ]:
+                if value not in (0, 1):
+                    return f"{label} 只能是 0 或 1。"
+            if record.speed_value() <= 0 and record.int_param("stop_cmd") == 0:
+                return "正常执行时速度必须大于 0。"
+            if record.acc_value() < 0 or record.float_param("dec_v") < 0:
+                return "加速度和减速度不能小于 0。"
+        if record.func_num == 11:
+            if record.speed_value() <= 0:
+                return "Func11 的速度必须大于 0。"
+            if record.acc_value() < 0 or record.float_param("dec_v") < 0:
+                return "Func11 的加速度和减速度不能小于 0。"
         if record.func_num == 106:
             if not (0 <= record.int_param("axis_no") <= 5):
                 return "Func106 的轴号只能是 0 到 5。"
@@ -3608,6 +3673,25 @@ class RobotQtWindow(QMainWindow):
                 return f"Y 坐标超出范围 {self.axis_ranges.y}。"
             if not (self.axis_ranges.z[0] <= pose[2] <= self.axis_ranges.z[1]):
                 return f"Z 坐标超出范围 {self.axis_ranges.z}。"
+        if record.func_num == 11:
+            if record.int_param("point_count") <= 0:
+                return "Func11 的 point_count 必须大于 0。"
+            points = record.params.get("points", [])
+            if not isinstance(points, list) or len(points) < record.int_param("point_count"):
+                return "Func11 的 points 数量不足。"
+        if record.func_num == 109:
+            if record.int_param("check_value", 1) == 0:
+                return "Func109 的 check_value 不能为 0。"
+            if record.float_param("delay_sec") < 0:
+                return "Func109 的 delay_sec 不能小于 0。"
+        if record.func_num == 110:
+            if record.float_param("delay_sec") < 0:
+                return "Func110 的 delay_sec 不能小于 0。"
+        if record.func_num == 120:
+            if record.int_param("io_no") < 0:
+                return "Func120 的 io_no 不能小于 0。"
+            if record.int_param("io_action") not in (0, 1):
+                return "Func120 的 io_action 只能是 0 或 1。"
         return None
 
     @staticmethod
@@ -3621,9 +3705,17 @@ class RobotQtWindow(QMainWindow):
 
     def _sync_func_form_mode(self, *_) -> None:
         func_num = int(self.func_num_combo.currentData() or 108)
+        if func_num == 11 and int(float(self.point_count_edit.text() or "0")) <= 0:
+            self.point_count_edit.setText("2")
+            if not self.points_edit.toPlainText().strip() or self.points_edit.toPlainText().strip() == "[]":
+                self.points_edit.setPlainText("[[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]]")
+        elif func_num == 109 and int(float(self.check_value_edit.text() or "0")) == 0:
+            self.check_value_edit.setText("1")
         visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
             visible_keys |= {"stop_mode"}
+        elif func_num == 11:
+            visible_keys |= {"point_count", "points", "spd", "acc_v", "dec_v"}
         elif func_num in (106, 107):
             visible_keys |= {
                 "axis_no",
@@ -3637,7 +3729,7 @@ class RobotQtWindow(QMainWindow):
                 "fuzzy_acc",
                 "fuzzy_dec",
             }
-        else:
+        elif func_num == 108:
             visible_keys |= {
                 "target_x",
                 "target_y",
@@ -3655,6 +3747,12 @@ class RobotQtWindow(QMainWindow):
                 "fuzzy_dec",
                 "move_type",
             }
+        elif func_num == 109:
+            visible_keys |= {"check_value", "delay_sec"}
+        elif func_num == 110:
+            visible_keys |= {"delay_sec"}
+        elif func_num == 120:
+            visible_keys |= {"io_no", "io_action"}
         for key, (label, widget) in self.record_form_rows.items():
             is_visible = key in visible_keys
             label.setVisible(is_visible)
@@ -3769,7 +3867,7 @@ class RobotQtWindow(QMainWindow):
             self.robot_z = self._fmt(rt.z)
             self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
             st_read = self.service.build_six_status_read()
-            st_vals = client.read_modbus_float(st_read)
+            st_vals = client.read_modbus_long(st_read)
             six_status = self.service.parse_six_status(st_vals)
             self.busy = "空闲" if six_status.can_send else "运行中"
             motion_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
@@ -3777,7 +3875,7 @@ class RobotQtWindow(QMainWindow):
             self.motion_percent = "运动中" if motion_state == 1 else "空闲"
             if six_status.has_alarm:
                 alarm_read = self.service.build_six_alarm_detail_read()
-                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_vals = client.read_modbus_long(alarm_read)
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 self.alarm_text = f"报警: {alarm_detail}"
                 self.alarm_code = f"ERR_{six_status.raw}"
@@ -3835,7 +3933,7 @@ class RobotQtWindow(QMainWindow):
 
         while time.time() < deadline:
             xyz_vals = tuple(float(value) for value in client.read_modbus_float(xyz_read))
-            status_vals = client.read_modbus_float(status_read)
+            status_vals = client.read_modbus_long(status_read)
             status = self.service.parse_six_status(status_vals)
             last_status_raw = status.raw
 
@@ -3843,7 +3941,7 @@ class RobotQtWindow(QMainWindow):
                 return False, f"控制器存在错误状态 IEEE(34)={status.raw}"
             if status.has_alarm:
                 alarm_read = self.service.build_six_alarm_detail_read()
-                alarm_vals = client.read_modbus_float(alarm_read)
+                alarm_vals = client.read_modbus_long(alarm_read)
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 return False, f"控制器存在报警 IEEE(34)={status.raw} | {alarm_detail}"
 

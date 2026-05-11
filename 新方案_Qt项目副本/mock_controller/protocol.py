@@ -138,11 +138,11 @@ MODBUS_ESTOP_BIT = 150         # BIT(150) 急停触发
 # ── 六轴机械手协议常量 (VPLC516E) ──────────────────────────────────
 
 # BIT 寄存器地址
-SIX_ALARM_BIT = 151              # BIT(151) 报警复位
+SIX_ALARM_BIT = 151              # deprecated: V4.3 使用 Func104 reset_ctrl 报警复位
 
 # IEEE 寄存器地址
 SIX_ALARM_DETAIL_ADDR = 38       # IEEE(38) 报警详情(位组合)
-SIX_CURR_FUNC_ADDR = 36          # IEEE(36) 当前函数号
+SIX_CURR_FUNC_ADDR = 322         # IEEE(322) 当前函数号
 
 # 实时数据 IEEE 地址
 SIX_RT_J_START = 58             # IEEE(58~68) J1~J6角度
@@ -203,16 +203,24 @@ SIX_108_MOVE_TYPE = 30           # 0=直线插补 1=PTP
 
 class FuncSixAxis:
     """六轴机械手函数号定义"""
+    MULTI_POINT_INTERP = 11       # 多点插补
     STOP = 104                    # 停止(急停/慢停)
     JOINT_JOG = 106               # 关节点动(J1~J6)
     VIRTUAL_JOG = 107             # 虚拟轴点动(X/Y/Z/Rx/Ry/Rz)
     LINE_MOVE = 108               # 直线插补/PTP运动
+    TIMER_CHECK = 109             # 定时检测
+    DELAY = 110                   # 延时
+    IO_CTRL = 120                 # IO控制
 
     _NAMES = {
+        11: "MULTI_POINT_INTERP",
         104: "STOP",
         106: "JOINT_JOG",
         107: "VIRTUAL_JOG",
         108: "LINE_MOVE",
+        109: "TIMER_CHECK",
+        110: "DELAY",
+        120: "IO_CTRL",
     }
 
     @classmethod

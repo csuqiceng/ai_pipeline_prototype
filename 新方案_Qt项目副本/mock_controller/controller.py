@@ -95,8 +95,14 @@ class MockController:
         self._vr: list[float] = [0.0] * VR_TOTAL
         # Modbus 寄存器
         self._modbus_ieee: list[float] = [0.0] * 2048
+        self._modbus_long: list[int] = [0] * 2048
         self._modbus_bit: list[int] = [0] * 24000
         self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
+        self._modbus_long[MODBUS_STATUS_ADDR] = 1 << 28
+        self._modbus_long[36] = 0
+        self._modbus_ieee[320] = 0.0
+        self._modbus_ieee[322] = 0.0
+        self._modbus_ieee[324] = 0.0
         self._modbus_bit[SIX_ALARM_BIT] = 0
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
@@ -168,10 +174,12 @@ class MockController:
         should_dispatch = False
         with self._lock:
             for i, v in enumerate(values):
-                idx = start + i
+                idx = start + i * 2
                 if idx < 0 or idx >= len(self._modbus_ieee):
                     raise IndexError(f"IEEE[{idx}] 超出范围")
                 self._modbus_ieee[idx] = float(v)
+            if start <= MODBUS_TRIGGER_ADDR:
+                self._mirror_six_echo_locked()
             if start == MODBUS_TRIGGER_ADDR and values and values[0] != 0:
                 should_dispatch = True
 
@@ -180,9 +188,28 @@ class MockController:
 
     def read_modbus_float(self, start: int, count: int) -> list[float]:
         with self._lock:
-            if start < 0 or start + count > len(self._modbus_ieee):
-                raise IndexError(f"读取范围 IEEE[{start}..{start + count - 1}] 超出范围")
-            return list(self._modbus_ieee[start : start + count])
+            end = start + (count - 1) * 2 if count > 0 else start
+            if start < 0 or end >= len(self._modbus_ieee):
+                raise IndexError(f"读取范围 IEEE[{start}..{end}] 超出范围")
+            return [self._modbus_ieee[start + i * 2] for i in range(count)]
+
+    def _mirror_six_echo_locked(self) -> None:
+        for src_addr in range(0, 34, 2):
+            self._modbus_ieee[280 + src_addr] = self._modbus_ieee[src_addr]
+
+    def write_modbus_long(self, start: int, values: list[int] | tuple[int, ...]) -> None:
+        with self._lock:
+            for i, v in enumerate(values):
+                idx = start + i
+                if idx < 0 or idx >= len(self._modbus_long):
+                    raise IndexError(f"LONG[{idx}] 超出范围")
+                self._modbus_long[idx] = int(v)
+
+    def read_modbus_long(self, start: int, count: int) -> list[int]:
+        with self._lock:
+            if start < 0 or start + count > len(self._modbus_long):
+                raise IndexError(f"读取范围 LONG[{start}..{start + count - 1}] 超出范围")
+            return list(self._modbus_long[start : start + count])
 
     def write_modbus_bit(self, start: int, values: list[int] | tuple[int, ...]) -> None:
         with self._lock:
@@ -191,10 +218,13 @@ class MockController:
                 if idx < 0 or idx >= len(self._modbus_bit):
                     raise IndexError(f"BIT[{idx}] 超出范围")
                 self._modbus_bit[idx] = int(v)
-            # 报警复位: BIT(151)=1 时清除 IEEE(34) 和 IEEE(38)
+            # deprecated: V4.3 报警复位走 Func104 reset_ctrl，BIT(151) 仅保留旧兼容。
             if start == SIX_ALARM_BIT and values and values[0] == 1:
                 self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
+                self._modbus_long[MODBUS_STATUS_ADDR] = 1 << 28
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 0
+                self._sync_six_system_state_locked()
 
     def read_modbus_bit(self, start: int, count: int) -> list[int]:
         with self._lock:
@@ -485,16 +515,84 @@ class MockController:
 
     # ── 六轴机械手命令分发 (VPLC516E) ───────────────────────────────
 
+    _SIX_FUNC_STATE_FIELDS = {
+        FuncSixAxis.MULTI_POINT_INTERP: (14, 0x0000C000),
+        FuncSixAxis.STOP: (0, 0x00000003),
+        FuncSixAxis.JOINT_JOG: (2, 0x0000000C),
+        FuncSixAxis.VIRTUAL_JOG: (4, 0x00000030),
+        FuncSixAxis.LINE_MOVE: (6, 0x000000C0),
+        FuncSixAxis.TIMER_CHECK: (8, 0x00000300),
+        FuncSixAxis.DELAY: (10, 0x00000C00),
+        FuncSixAxis.IO_CTRL: (18, 0x000C0000),
+    }
+    _SIX_STATE_IDLE = 0
+    _SIX_STATE_EXEC = 1
+    _SIX_STATE_DONE = 2
+    _SIX_STATE_ERR = 3
+    _SIX_READY_BIT = 1 << 28
+    _SIX_ALARM_BIT = 1 << 24
+    _SIX_ESTOP_BIT = 1 << 25
+    _SIX_PAUSE_BIT = 1 << 26
+    _SIX_CANCEL_BIT = 1 << 27
+
+    def _sync_six_system_state_locked(self, current_func: int | None = None) -> None:
+        status_raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
+        system_raw = 0
+        if status_raw & self._SIX_ESTOP_BIT:
+            system_raw |= 1 << 3
+        if status_raw & self._SIX_PAUSE_BIT:
+            system_raw |= 1 << 4
+        if status_raw & self._SIX_CANCEL_BIT:
+            system_raw |= 1 << 5
+        for func_num in (FuncSixAxis.JOINT_JOG, FuncSixAxis.VIRTUAL_JOG):
+            shift, mask = self._SIX_FUNC_STATE_FIELDS[func_num]
+            if ((status_raw & mask) >> shift) == self._SIX_STATE_EXEC:
+                system_raw |= 1 << 6
+                break
+        self._modbus_long[36] = system_raw
+        self._modbus_ieee[320] = float(system_raw)
+        if current_func is not None:
+            self._modbus_ieee[322] = float(current_func)
+        self._modbus_ieee[324] = 0.0
+
+    def _set_six_func_state_locked(self, func_num: int, state: int, *, alarm_bits: int = 0) -> None:
+        shift, mask = self._SIX_FUNC_STATE_FIELDS.get(func_num, (0, 0))
+        raw = int(self._modbus_long[MODBUS_STATUS_ADDR]) | self._SIX_READY_BIT
+        if mask:
+            raw = (raw & ~mask) | ((int(state) << shift) & mask)
+        if alarm_bits:
+            raw |= self._SIX_ALARM_BIT
+        else:
+            raw &= ~self._SIX_ALARM_BIT
+        self._modbus_long[MODBUS_STATUS_ADDR] = raw
+        self._modbus_ieee[MODBUS_STATUS_ADDR] = float(raw)
+        self._sync_six_system_state_locked(func_num)
+
+    def _set_six_legacy_status_locked(self, func_num: int, status: int, *, alarm_bits: int = 0) -> None:
+        if status in (SIX_STATUS_ERROR, SIX_STATUS_ERROR_ALARM):
+            state = self._SIX_STATE_ERR
+        elif status == SIX_STATUS_EXECUTING:
+            state = self._SIX_STATE_EXEC
+        else:
+            state = self._SIX_STATE_DONE
+        if status in (SIX_STATUS_COMPLETE_ALARM, SIX_STATUS_ERROR_ALARM):
+            alarm_bits = alarm_bits or int(self._modbus_long[SIX_ALARM_DETAIL_ADDR])
+        self._set_six_func_state_locked(func_num, state, alarm_bits=alarm_bits)
+
     def _dispatch_six_command(self) -> None:
         with self._lock:
-            raw_status = int(self._modbus_ieee[MODBUS_STATUS_ADDR])
+            raw_status = int(self._modbus_long[MODBUS_STATUS_ADDR])
             # Func104可在执行中调用
             func_num = int(self._modbus_ieee[MODBUS_FUNC_ADDR])
             if func_num == 0:
                 return
-            if func_num != FuncSixAxis.STOP and raw_status in (SIX_STATUS_EXECUTING, SIX_STATUS_RECEIVED):
+            busy = any(
+                ((raw_status & mask) >> shift) == self._SIX_STATE_EXEC
+                for shift, mask in self._SIX_FUNC_STATE_FIELDS.values()
+            )
+            if func_num != FuncSixAxis.STOP and busy:
                 return
-            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_RECEIVED)
+            self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
 
         if self._exec_thread_six and self._exec_thread_six.is_alive():
             self._exec_thread_six.join(timeout=5.0)
@@ -507,33 +605,131 @@ class MockController:
     def _execute_six_command(self, func_num: int) -> None:
         with self._lock:
             self._modbus_ieee[SIX_CURR_FUNC_ADDR] = float(func_num)
-            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_EXECUTING)
+            self._modbus_ieee[322] = float(func_num)
+            self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
 
         try:
             if func_num == FuncSixAxis.STOP:
                 self._do_six_stop()
+            elif func_num == FuncSixAxis.MULTI_POINT_INTERP:
+                self._do_six_multi_point_interp()
             elif func_num == FuncSixAxis.JOINT_JOG:
                 self._do_six_joint_jog()
             elif func_num == FuncSixAxis.VIRTUAL_JOG:
                 self._do_six_virtual_jog()
             elif func_num == FuncSixAxis.LINE_MOVE:
                 self._do_six_line_move()
+            elif func_num == FuncSixAxis.TIMER_CHECK:
+                self._do_six_timer_check()
+            elif func_num == FuncSixAxis.DELAY:
+                self._do_six_delay()
+            elif func_num == FuncSixAxis.IO_CTRL:
+                self._do_six_io_ctrl()
             else:
                 with self._lock:
-                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR)
+                    self._set_six_func_state_locked(func_num, self._SIX_STATE_ERR)
         finally:
             with self._lock:
-                if int(self._modbus_ieee[MODBUS_STATUS_ADDR]) == SIX_STATUS_EXECUTING:
-                    self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE)
+                if self._SIX_FUNC_STATE_FIELDS.get(func_num) is not None:
+                    if ((self._modbus_long[MODBUS_STATUS_ADDR] & self._SIX_FUNC_STATE_FIELDS[func_num][1])
+                            >> self._SIX_FUNC_STATE_FIELDS[func_num][0]) == self._SIX_STATE_EXEC:
+                        self._set_six_func_state_locked(func_num, self._SIX_STATE_DONE)
                 self._modbus_ieee[MODBUS_TRIGGER_ADDR] = 0.0
                 # 六轴: 不清零IEEE(0)函数号
                 self._sync_six_realtime_locked()
 
     def _do_six_stop(self) -> None:
         with self._lock:
+            estop_ctrl = int(self._modbus_ieee[2])
+            pause_ctrl = int(self._modbus_ieee[4])
+            cancel_ctrl = int(self._modbus_ieee[6])
+            reset_ctrl = int(self._modbus_ieee[8])
+            raw = int(self._modbus_long[MODBUS_STATUS_ADDR]) | self._SIX_READY_BIT
+            if estop_ctrl == 1:
+                raw |= self._SIX_ESTOP_BIT
+            elif estop_ctrl == 2:
+                raw &= ~self._SIX_ESTOP_BIT
+            if pause_ctrl == 1:
+                raw |= self._SIX_PAUSE_BIT
+                self._set_status(STATUS_PAUSED)
+            elif pause_ctrl == 2:
+                raw &= ~self._SIX_PAUSE_BIT
+                self._set_status(STATUS_IDLE)
+            if cancel_ctrl == 1:
+                raw |= self._SIX_CANCEL_BIT
+            elif cancel_ctrl == 2:
+                raw &= ~self._SIX_CANCEL_BIT
+            if reset_ctrl == 1:
+                for _shift, mask in self._SIX_FUNC_STATE_FIELDS.values():
+                    raw &= ~mask
+                raw &= ~(self._SIX_ALARM_BIT | self._SIX_ESTOP_BIT | self._SIX_PAUSE_BIT | self._SIX_CANCEL_BIT)
+                raw |= self._SIX_READY_BIT
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 0
+                self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
+            self._modbus_long[MODBUS_STATUS_ADDR] = raw
             self._modbus_ieee[56] = 0.0
-            self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE)
-            self._set_status(STATUS_IDLE)
+            self._set_six_func_state_locked(FuncSixAxis.STOP, self._SIX_STATE_DONE)
+            if pause_ctrl != 1:
+                self._set_status(STATUS_IDLE)
+
+    def _do_six_multi_point_interp(self) -> None:
+        with self._lock:
+            point_count = int(self._modbus_ieee[2])
+            speed = float(self._modbus_ieee[14])
+            acc_v = float(self._modbus_ieee[16])
+            dec_v = float(self._modbus_ieee[18])
+            if point_count <= 0 or speed < 0 or acc_v < 0 or dec_v < 0:
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
+                self._set_six_func_state_locked(FuncSixAxis.MULTI_POINT_INTERP, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+                return
+            point_count = min(point_count, 20)
+            last_base = 400 + (point_count - 1) * 12
+            last_point = [self._modbus_ieee[last_base + i * 2] for i in range(6)]
+            self._modbus_ieee[56] = 1.0
+        time.sleep(min(0.02 * point_count, 2.0))
+        with self._lock:
+            for i, value in enumerate(last_point):
+                self._modbus_ieee[SIX_RT_XYZ_START + i] = float(value)
+            self._modbus_ieee[56] = 0.0
+            self._modbus_ieee[640] = float(point_count)
+            self._modbus_ieee[642] = float(point_count)
+
+    def _do_six_timer_check(self) -> None:
+        with self._lock:
+            check_value = int(self._modbus_ieee[2])
+            delay_sec = max(0.0, float(self._modbus_ieee[4]))
+            if check_value == 0:
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
+                self._set_six_func_state_locked(FuncSixAxis.TIMER_CHECK, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+                return
+        time.sleep(min(delay_sec, 2.0))
+        with self._lock:
+            self._modbus_ieee[326] = 1.0
+            self._modbus_ieee[330] = delay_sec
+
+    def _do_six_delay(self) -> None:
+        with self._lock:
+            delay_sec = max(0.0, float(self._modbus_ieee[6]))
+            self._modbus_ieee[328] = 1.0
+        time.sleep(min(delay_sec, 2.0))
+        with self._lock:
+            self._modbus_ieee[332] = delay_sec
+            self._modbus_long[40] = int(delay_sec * 1000)
+
+    def _do_six_io_ctrl(self) -> None:
+        with self._lock:
+            io_no = int(self._modbus_ieee[2])
+            action = int(self._modbus_ieee[4])
+            if io_no < 0 or action not in (0, 1):
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
+                self._set_six_func_state_locked(FuncSixAxis.IO_CTRL, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+                return
+            if io_no < 32:
+                if action:
+                    self._modbus_long[44] |= 1 << io_no
+                else:
+                    self._modbus_long[44] &= ~(1 << io_no)
+            self._modbus_long[46] = int(io_no)
 
     def _do_six_joint_jog(self) -> None:
         with self._lock:
@@ -564,12 +760,17 @@ class MockController:
             self._modbus_ieee[52] = spd
             self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+            self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
             if spd <= 0:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR_ALARM if alarm_bits else SIX_STATUS_ERROR)
+                self._set_six_func_state_locked(
+                    FuncSixAxis.JOINT_JOG,
+                    self._SIX_STATE_ERR,
+                    alarm_bits=alarm_bits,
+                )
                 return
             stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
             if stop_status is not None:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
+                self._set_six_legacy_status_locked(FuncSixAxis.JOINT_JOG, stop_status, alarm_bits=alarm_bits)
                 return
 
         steps = 3
@@ -616,12 +817,17 @@ class MockController:
             self._modbus_ieee[52] = spd
             self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+            self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
             if spd <= 0:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_ERROR_ALARM if alarm_bits else SIX_STATUS_ERROR)
+                self._set_six_func_state_locked(
+                    FuncSixAxis.VIRTUAL_JOG,
+                    self._SIX_STATE_ERR,
+                    alarm_bits=alarm_bits,
+                )
                 return
             stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
             if stop_status is not None:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
+                self._set_six_legacy_status_locked(FuncSixAxis.VIRTUAL_JOG, stop_status, alarm_bits=alarm_bits)
                 return
 
         steps = 3
@@ -677,10 +883,11 @@ class MockController:
             self._modbus_ieee[54] = sum(abs(targets[i] - currents[i]) for i in range(3))
             self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
+            self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
 
             stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
             if stop_status is not None:
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(stop_status)
+                self._set_six_legacy_status_locked(FuncSixAxis.LINE_MOVE, stop_status, alarm_bits=alarm_bits)
                 return
 
         steps = 3 if move_type == 1 else 5
@@ -805,13 +1012,17 @@ class MockController:
             self._modbus_ieee[52] = speed
             if alarm_bits:
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
-                self._modbus_ieee[MODBUS_STATUS_ADDR] = float(SIX_STATUS_COMPLETE_ALARM)
+                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
+                active_func = int(self._modbus_ieee[SIX_CURR_FUNC_ADDR])
+                self._set_six_func_state_locked(active_func, self._SIX_STATE_DONE, alarm_bits=alarm_bits)
 
     def _sync_six_realtime_locked(self) -> None:
         """同步六轴实时位姿到 VR 与文档反馈地址。"""
         for i in range(6):
             self._modbus_ieee[1500 + i * 2] = self._modbus_ieee[SIX_RT_J_START + i]
+            self._modbus_ieee[1600 + i * 2] = self._modbus_ieee[SIX_RT_J_START + i]
             self._modbus_ieee[1512 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
+            self._modbus_ieee[1612 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
         self._vr[VR_OFFSET["CUR_X"].index] = self._modbus_ieee[SIX_RT_XYZ_START]
         self._vr[VR_OFFSET["CUR_Y"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 1]
         self._vr[VR_OFFSET["CUR_Z"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 2]

@@ -48,6 +48,16 @@ class MockZMotionVrClient:
             raise RuntimeError("控制器未连接。")
         return self._ctrl.read_modbus_float(request.start_vr, request.count)
 
+    def write_modbus_long(self, request: Any) -> None:
+        if not self.connected:
+            raise RuntimeError("控制器未连接。")
+        self._ctrl.write_modbus_long(request.start_vr, list(request.values))
+
+    def read_modbus_long(self, request: Any) -> list[int]:
+        if not self.connected:
+            raise RuntimeError("控制器未连接。")
+        return self._ctrl.read_modbus_long(request.start_vr, request.count)
+
     def write_modbus_bit(self, start: int, values: list[int]) -> None:
         if not self.connected:
             raise RuntimeError("控制器未连接。")

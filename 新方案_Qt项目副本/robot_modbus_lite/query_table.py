@@ -3,11 +3,12 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Any
 
 from .models import QueryRecord
 
 
-SUPPORTED_FUNC_NUMS = {104, 106, 107, 108}
+SUPPORTED_FUNC_NUMS = {11, 104, 106, 107, 108, 109, 110, 120}
 
 
 class QueryTableError(ValueError):
@@ -76,6 +77,11 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
             ]
             for key, value in zip(keys, values):
                 params[key] = value
+        elif func_num == 11:
+            params["point_count"] = int(values[0]) if values else 0
+            params["spd"] = values[1] if len(values) > 1 else params["spd"]
+            params["acc_v"] = values[2] if len(values) > 2 else params["acc_v"]
+            params["dec_v"] = values[3] if len(values) > 3 else params["dec_v"]
         table[query_key] = QueryRecord(query_key=query_key, func_num=func_num, params=params)
 
     if not table:
@@ -101,7 +107,7 @@ def load_query_table_json(path: str | Path) -> dict[str, QueryRecord]:
             raise QueryTableError("JSON 记录缺少 query_key。")
         func_num = int(item.get("func_num"))
         if func_num not in SUPPORTED_FUNC_NUMS:
-            raise QueryTableError(f"仅支持 Func104/106/107/108，实际={func_num}")
+            raise QueryTableError(f"不支持的函数号: {func_num}")
         params_raw = item.get("params")
         if not isinstance(params_raw, dict):
             raise QueryTableError(f"JSON 记录缺少 params: {item!r}")
@@ -151,7 +157,7 @@ def bootstrap_query_table_json(json_path: str | Path, csv_path: str | Path) -> P
     return json_file
 
 
-def _default_params_for_func(func_num: int) -> dict[str, float | int]:
+def _default_params_for_func(func_num: int) -> dict[str, Any]:
     if func_num == 104:
         return {"stop_mode": 0}
     if func_num in (106, 107):
@@ -184,5 +190,27 @@ def _default_params_for_func(func_num: int) -> dict[str, float | int]:
             "fuzzy_acc": 0,
             "fuzzy_dec": 0,
             "move_type": 0,
+        }
+    if func_num == 11:
+        return {
+            "point_count": 0,
+            "spd": 300.0,
+            "acc_v": 400.0,
+            "dec_v": 400.0,
+            "points": [],
+        }
+    if func_num == 109:
+        return {
+            "check_value": 1,
+            "delay_sec": 0.0,
+        }
+    if func_num == 110:
+        return {
+            "delay_sec": 0.0,
+        }
+    if func_num == 120:
+        return {
+            "io_no": 0,
+            "io_action": 0,
         }
     raise QueryTableError(f"不支持的函数号: {func_num}")
