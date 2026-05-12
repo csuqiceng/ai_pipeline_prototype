@@ -162,7 +162,13 @@ def bootstrap_query_table_json(json_path: str | Path, csv_path: str | Path) -> P
 
 def _default_params_for_func(func_num: int) -> dict[str, Any]:
     if func_num == 104:
-        return {"stop_mode": 0}
+        return {
+            "stop_mode": 0,
+            "estop_ctrl": 0,
+            "pause_ctrl": 0,
+            "cancel_ctrl": 0,
+            "reset_ctrl": 0,
+        }
     if func_num in (106, 107):
         return {
             "axis_no": 0,

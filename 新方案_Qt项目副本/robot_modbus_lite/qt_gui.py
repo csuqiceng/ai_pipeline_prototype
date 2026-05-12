@@ -786,6 +786,12 @@ class RobotQtWindow(QMainWindow):
         self.stop_mode_combo = QComboBox()
         self.stop_mode_combo.addItem("急停(0)", 0)
         self.stop_mode_combo.addItem("慢停(1)", 1)
+        self.system_action_combo = QComboBox()
+        self.system_action_combo.addItem("急停", "estop")
+        self.system_action_combo.addItem("暂停", "pause")
+        self.system_action_combo.addItem("继续", "resume")
+        self.system_action_combo.addItem("取消/结束", "cancel")
+        self.system_action_combo.addItem("报警复位", "reset")
         self.axis_no_edit = QLineEdit("0")
         self.pos_val_edit = QLineEdit("0")
         self.spd_pct_edit = QLineEdit("50")
@@ -851,7 +857,7 @@ class RobotQtWindow(QMainWindow):
         add_record_row("keywords", "自然语言关键词 (keywords)", self.keywords_edit)
         add_record_row("safety", "安全等级 (safety_level)", self.safety_edit)
         add_record_row("desc", "说明 (description)", self.desc_edit)
-        add_record_row("stop_mode", "停止模式 (stop_mode)", self.stop_mode_combo)
+        add_record_row("system_action", "系统动作 (Func104)", self.system_action_combo)
         add_record_row("axis_no", "轴号 (axis_no)", self.axis_no_edit)
         add_record_row("pos_val", "目标值 (pos_val)", self.pos_val_edit)
         add_record_row("spd_pct", "速度百分比 (spd_pct)", self.spd_pct_edit)
@@ -1135,6 +1141,7 @@ class RobotQtWindow(QMainWindow):
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_name_display)
         self.func_num_combo.currentIndexChanged.connect(self._render_preview)
         self.stop_mode_combo.currentIndexChanged.connect(self._render_preview)
+        self.system_action_combo.currentIndexChanged.connect(self._render_preview)
         self.stop_cmd_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_pos_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_spd_combo.currentIndexChanged.connect(self._render_preview)
@@ -1677,12 +1684,53 @@ class RobotQtWindow(QMainWindow):
             self.current_safe_point_key = key
             self._load_safe_point_into_form(self.avoidance_config.safe_points[key])
 
+    @staticmethod
+    def _func104_action_from_record(record: QueryRecord) -> str:
+        if record.int_param("estop_ctrl") == 1:
+            return "estop"
+        if record.int_param("pause_ctrl") == 1:
+            return "pause"
+        if record.int_param("pause_ctrl") == 2:
+            return "resume"
+        if record.int_param("cancel_ctrl") == 1:
+            return "cancel"
+        if record.int_param("reset_ctrl") == 1:
+            return "reset"
+        return "estop" if record.int_param("stop_mode") == 0 else "pause"
+
+    @staticmethod
+    def _func104_params_from_action(action: str) -> dict[str, int]:
+        params = {
+            "stop_mode": 0,
+            "estop_ctrl": 0,
+            "pause_ctrl": 0,
+            "cancel_ctrl": 0,
+            "reset_ctrl": 0,
+        }
+        if action == "pause":
+            params["stop_mode"] = 1
+            params["pause_ctrl"] = 1
+        elif action == "resume":
+            params["stop_mode"] = 1
+            params["pause_ctrl"] = 2
+        elif action == "cancel":
+            params["stop_mode"] = 1
+            params["cancel_ctrl"] = 1
+        elif action == "reset":
+            params["reset_ctrl"] = 1
+        else:
+            params["estop_ctrl"] = 1
+        return params
+
     def _load_record_into_form(self, record: QueryRecord) -> None:
         self.name_edit.setText(record.query_key)
         self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(record.func_num))
         self._sync_func_name_display()
         self.keywords_edit.setText(record.keywords)
         self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(record.int_param("stop_mode")))
+        self.system_action_combo.setCurrentIndex(
+            self.system_action_combo.findData(self._func104_action_from_record(record))
+        )
         self.axis_no_edit.setText(str(record.int_param("axis_no")))
         self.pos_val_edit.setText(self._fmt(record.float_param("pos_val")))
         self.spd_pct_edit.setText(self._fmt(record.float_param("spd_pct")))
@@ -1777,9 +1825,8 @@ class RobotQtWindow(QMainWindow):
         func_num = int(self.func_num_combo.currentData())
         params: dict[str, object]
         if func_num == 104:
-            params = {
-                "stop_mode": int(self.stop_mode_combo.currentData()),
-            }
+            action = str(self.system_action_combo.currentData() or "estop")
+            params = self._func104_params_from_action(action)
         elif func_num in (106, 107):
             params = {
                 "axis_no": int(float(self.axis_no_edit.text() or "0")),
@@ -1968,13 +2015,21 @@ class RobotQtWindow(QMainWindow):
             self.command_grid_layout.addWidget(card, idx // 3, idx % 3)
 
     def _refresh_template_tree(self) -> None:
-        self.template_tree.clear()
-        for record in sorted(self.table.values(), key=lambda r: r.query_key):
-            kind = f"Func{record.func_num}"
-            item = QTreeWidgetItem([record.query_key, kind])
-            self.template_tree.addTopLevelItem(item)
-            if self.current_key == record.query_key:
-                self.template_tree.setCurrentItem(item)
+        current_key = self.current_key
+        selected_item: QTreeWidgetItem | None = None
+        self.template_tree.blockSignals(True)
+        try:
+            self.template_tree.clear()
+            for record in sorted(self.table.values(), key=lambda r: r.query_key):
+                kind = f"Func{record.func_num}"
+                item = QTreeWidgetItem([record.query_key, kind])
+                self.template_tree.addTopLevelItem(item)
+                if current_key == record.query_key:
+                    selected_item = item
+        finally:
+            self.template_tree.blockSignals(False)
+        if selected_item is not None:
+            self.template_tree.setCurrentItem(selected_item)
 
     def _refresh_history(self) -> None:
         self.history_table.setRowCount(0)
@@ -2994,6 +3049,7 @@ class RobotQtWindow(QMainWindow):
         self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(108))
         self.keywords_edit.setText("")
         self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(0))
+        self.system_action_combo.setCurrentIndex(self.system_action_combo.findData("estop"))
         self.axis_no_edit.setText("0")
         self.pos_val_edit.setText("0")
         self.spd_pct_edit.setText("50")
@@ -3018,6 +3074,7 @@ class RobotQtWindow(QMainWindow):
         self._append_log("后台", "新增模板", "成功", "已创建空白模板")
 
     def _save_record(self) -> None:
+        old_key = self.current_key
         try:
             record = self._collect_record()
         except ValueError:
@@ -3036,6 +3093,8 @@ class RobotQtWindow(QMainWindow):
         validation_warning = self._record_protocol_warning(record)
         if validation_warning:
             self._append_log("后台", "保存模板", "警告", validation_warning)
+        if old_key and old_key != record.query_key and old_key in self.table:
+            del self.table[old_key]
         self.table[record.query_key] = record
         save_query_table_json(self.json_path, self.table)
         self.service.reload()
@@ -3704,6 +3763,14 @@ class RobotQtWindow(QMainWindow):
         if record.func_num == 104:
             if record.int_param("stop_mode") not in (0, 1):
                 return "Func104 的停止模式只能是 0 或 1。"
+            if record.int_param("estop_ctrl") not in (0, 1, 2):
+                return "Func104 的 estop_ctrl 只能是 0 / 1 / 2。"
+            if record.int_param("pause_ctrl") not in (0, 1, 2):
+                return "Func104 的 pause_ctrl 只能是 0 / 1 / 2。"
+            if record.int_param("cancel_ctrl") not in (0, 1, 2):
+                return "Func104 的 cancel_ctrl 只能是 0 / 1 / 2。"
+            if record.int_param("reset_ctrl") not in (0, 1):
+                return "Func104 的 reset_ctrl 只能是 0 / 1。"
             return None
         if record.func_num in (106, 107, 108):
             if record.int_param("stop_cmd") not in (0, 1, 2, 3, 4, 5):
@@ -3788,7 +3855,7 @@ class RobotQtWindow(QMainWindow):
             self.check_value_edit.setText("1")
         visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
-            visible_keys |= {"stop_mode"}
+            visible_keys |= {"system_action"}
         elif func_num == 11:
             visible_keys |= {"point_count", "points", "point_buttons", "spd_pct", "acc_pct", "dec_pct"}
         elif func_num in (106, 107):
