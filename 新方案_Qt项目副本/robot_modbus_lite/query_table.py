@@ -9,6 +9,8 @@ from .models import QueryRecord
 
 
 SUPPORTED_FUNC_NUMS = {11, 104, 106, 107, 108, 109, 110, 120}
+PCT_DEFAULTS = {"spd_pct": 50.0, "acc_pct": 60.0, "dec_pct": 60.0}
+LEGACY_PCT_KEYS = {"spd": "spd_pct", "acc_v": "acc_pct", "dec_v": "dec_pct"}
 
 
 class QueryTableError(ValueError):
@@ -46,9 +48,9 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
             keys = [
                 "axis_no",
                 "pos_val",
-                "spd",
-                "acc_v",
-                "dec_v",
+                "spd_pct",
+                "acc_pct",
+                "dec_pct",
                 "fuzzy_pos",
                 "fuzzy_spd",
                 "fuzzy_acc",
@@ -65,9 +67,9 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
                 "target_rx",
                 "target_ry",
                 "target_rz",
-                "spd",
-                "acc_v",
-                "dec_v",
+                "spd_pct",
+                "acc_pct",
+                "dec_pct",
                 "stop_cmd",
                 "fuzzy_pos",
                 "fuzzy_spd",
@@ -79,9 +81,9 @@ def load_query_table_csv(path: str | Path) -> dict[str, QueryRecord]:
                 params[key] = value
         elif func_num == 11:
             params["point_count"] = int(values[0]) if values else 0
-            params["spd"] = values[1] if len(values) > 1 else params["spd"]
-            params["acc_v"] = values[2] if len(values) > 2 else params["acc_v"]
-            params["dec_v"] = values[3] if len(values) > 3 else params["dec_v"]
+            params["spd_pct"] = values[1] if len(values) > 1 else params["spd_pct"]
+            params["acc_pct"] = values[2] if len(values) > 2 else params["acc_pct"]
+            params["dec_pct"] = values[3] if len(values) > 3 else params["dec_pct"]
         table[query_key] = QueryRecord(query_key=query_key, func_num=func_num, params=params)
 
     if not table:
@@ -112,6 +114,7 @@ def load_query_table_json(path: str | Path) -> dict[str, QueryRecord]:
         if not isinstance(params_raw, dict):
             raise QueryTableError(f"JSON 记录缺少 params: {item!r}")
         params = _default_params_for_func(func_num)
+        params_raw = _normalize_pct_params(func_num, params_raw)
         for key in params:
             if key in params_raw:
                 params[key] = params_raw[key]
@@ -140,7 +143,7 @@ def save_query_table_json(path: str | Path, table: dict[str, QueryRecord]) -> No
                 "keywords": record.keywords,
                 "description": record.description,
                 "safety_level": record.safety_level,
-                "params": record.params,
+                "params": _normalize_pct_params(record.func_num, record.params),
             }
             for record in sorted(table.values(), key=lambda item: item.query_key)
         ]
@@ -164,9 +167,9 @@ def _default_params_for_func(func_num: int) -> dict[str, Any]:
         return {
             "axis_no": 0,
             "pos_val": 0.0,
-            "spd": 300.0,
-            "acc_v": 60.0,
-            "dec_v": 60.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
             "fuzzy_pos": 0,
             "fuzzy_spd": 0,
             "fuzzy_acc": 0,
@@ -181,9 +184,9 @@ def _default_params_for_func(func_num: int) -> dict[str, Any]:
             "target_rx": 0.0,
             "target_ry": 0.0,
             "target_rz": 0.0,
-            "spd": 300.0,
-            "acc_v": 400.0,
-            "dec_v": 400.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
             "stop_cmd": 0,
             "fuzzy_pos": 0,
             "fuzzy_spd": 0,
@@ -194,19 +197,19 @@ def _default_params_for_func(func_num: int) -> dict[str, Any]:
     if func_num == 11:
         return {
             "point_count": 0,
-            "spd": 300.0,
-            "acc_v": 400.0,
-            "dec_v": 400.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
             "points": [],
         }
     if func_num == 109:
         return {
             "check_value": 1,
-            "delay_sec": 0.0,
+            "delay_sec": 1.0,
         }
     if func_num == 110:
         return {
-            "delay_sec": 0.0,
+            "delay_sec": 1.0,
         }
     if func_num == 120:
         return {
@@ -214,3 +217,19 @@ def _default_params_for_func(func_num: int) -> dict[str, Any]:
             "io_action": 0,
         }
     raise QueryTableError(f"不支持的函数号: {func_num}")
+
+
+def _normalize_pct_params(func_num: int, params: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(params)
+    if func_num not in (11, 106, 107, 108):
+        return normalized
+    for legacy_key, pct_key in LEGACY_PCT_KEYS.items():
+        if pct_key in normalized:
+            normalized.pop(legacy_key, None)
+            continue
+        if legacy_key in normalized:
+            value = float(normalized.pop(legacy_key))
+            normalized[pct_key] = value if value <= 150 else PCT_DEFAULTS[pct_key]
+    for pct_key, default in PCT_DEFAULTS.items():
+        normalized.setdefault(pct_key, default)
+    return normalized

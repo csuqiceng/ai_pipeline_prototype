@@ -168,8 +168,8 @@ class RobotModbusService:
             rx=pose[3],
             ry=pose[4],
             rz=pose[5],
-            speed_percent=int(round(record.speed_value())),
-            acc_percent=int(round(record.acc_value())),
+            speed_percent=int(round(record.spd_pct_value())),
+            acc_percent=int(round(record.acc_pct_value())),
             safety_level=record.safety_level,
             desc=record.description or record.query_key,
         )
@@ -208,9 +208,9 @@ class RobotModbusService:
                 desc=record.description or record.query_key,
                 axis_no=int(float(params.get("axis_no", 0))),
                 pos_val=float(params.get("pos_val", 0.0)),
-                spd=float(params.get("spd", 0.0)),
-                acc_v=float(params.get("acc_v", 0.0)),
-                dec_v=float(params.get("dec_v", 0.0)),
+                spd_pct=float(params.get("spd_pct", 0.0)),
+                acc_pct=float(params.get("acc_pct", 0.0)),
+                dec_pct=float(params.get("dec_pct", 0.0)),
                 fuzzy_pos=int(float(params.get("fuzzy_pos", 0))),
                 fuzzy_spd=int(float(params.get("fuzzy_spd", 0))),
                 fuzzy_acc=int(float(params.get("fuzzy_acc", 0))),
@@ -228,9 +228,9 @@ class RobotModbusService:
                 target_rx=float(params.get("target_rx", 0.0)),
                 target_ry=float(params.get("target_ry", 0.0)),
                 target_rz=float(params.get("target_rz", 0.0)),
-                spd=float(params.get("spd", 0.0)),
-                acc_v=float(params.get("acc_v", 0.0)),
-                dec_v=float(params.get("dec_v", 0.0)),
+                spd_pct=float(params.get("spd_pct", 0.0)),
+                acc_pct=float(params.get("acc_pct", 0.0)),
+                dec_pct=float(params.get("dec_pct", 0.0)),
                 stop_cmd=int(float(params.get("stop_cmd", 0))),
                 fuzzy_pos=int(float(params.get("fuzzy_pos", 0))),
                 fuzzy_spd=int(float(params.get("fuzzy_spd", 0))),
@@ -253,9 +253,9 @@ class RobotModbusService:
                 desc=record.description or record.query_key,
                 point_count=point_count,
                 interp_points=tuple(points[:point_count]),
-                spd=float(params.get("spd", 0.0)),
-                acc_v=float(params.get("acc_v", 0.0)),
-                dec_v=float(params.get("dec_v", 0.0)),
+                spd_pct=float(params.get("spd_pct", 0.0)),
+                acc_pct=float(params.get("acc_pct", 0.0)),
+                dec_pct=float(params.get("dec_pct", 0.0)),
             )
 
         if func_num == 109:
@@ -294,8 +294,7 @@ class RobotModbusService:
         if code in (1008, 4001):
             return SixAxisCommand(func_num=104, desc="ALARM_RESET", reset_ctrl=1)
         if code in (6001, 6002):
-            # TODO: 确认 6001/6002 是否等价于 V4.3 Func104 cancel_ctrl。
-            return SixAxisCommand(func_num=104, desc=f"CANCEL_{code}", cancel_ctrl=1)
+            raise ValueError(f"系统命令码 {code} 是旧系统本地流程命令，V4.3 不再下发到控制器")
         raise ValueError(f"系统命令码 {code} 当前未实现")
 
     def build_six_status_read(self) -> VrReadRequest:
@@ -330,6 +329,36 @@ class RobotModbusService:
     def parse_six_motion_state(self, values: list[float]) -> int:
         return int(values[0] if values else 0.0)
 
+    def build_six_axis_status_read(self) -> VrReadRequest:
+        """读 V4.3 IEEE(200~222): AXISSTATUS(0~11)。"""
+        return VrReadRequest(start_vr=200, count=12)
+
+    def parse_six_axis_status(self, values: list[float]) -> list[int]:
+        return [int(value) for value in values[:12]]
+
+    def build_six_motion_type_read(self) -> VrReadRequest:
+        """读 V4.3 IEEE(240~262): MTYPE(0~11)。"""
+        return VrReadRequest(start_vr=240, count=12)
+
+    def parse_six_motion_type(self, values: list[float]) -> list[int]:
+        return [int(value) for value in values[:12]]
+
+    def build_six_hmi_command_read(self) -> VrReadRequest:
+        """读 V4.3 IEEE(720~752): HMI 函数号+参数+触发。"""
+        return VrReadRequest(start_vr=720, count=17)
+
+    def build_six_hmi_command_write(self, command: SixAxisCommand) -> list[VrWriteRequest]:
+        values_by_addr: dict[int, float] = {}
+        for request in command.to_func_writes():
+            for index, value in enumerate(request.values):
+                values_by_addr[request.start_vr + index * 2] = float(value)
+        values = [values_by_addr.get(addr, 0.0) for addr in range(0, 34, 2)]
+        return [VrWriteRequest(start_vr=720, values=tuple(values))]
+
+    def build_six_hmi_local_settings_read(self) -> VrReadRequest:
+        """读 V4.3 IEEE(1800~1814): HMI 本地设定。"""
+        return VrReadRequest(start_vr=1800, count=8)
+
     def build_six_joint_feedback_read(self) -> VrReadRequest:
         """读 MPOS(0~5): IEEE(1600~1610) 实际关节角度。"""
         return VrReadRequest(start_vr=1600, count=6)
@@ -339,7 +368,7 @@ class RobotModbusService:
         return VrReadRequest(start_vr=1612, count=6)
 
     def build_six_safety_limits_read(self) -> VrReadRequest:
-        return VrReadRequest(start_vr=1700, count=7)
+        return VrReadRequest(start_vr=1700, count=16)
 
     def build_six_safety_limits_write(self, config) -> VrWriteRequest:
         return VrWriteRequest(
@@ -352,11 +381,20 @@ class RobotModbusService:
                 float(config.safe_speed_max),
                 float(config.safe_acc_max),
                 float(config.safe_dec_max),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
             ),
         )
 
     def parse_six_safety_limits(self, values: list[float]) -> dict[str, float]:
-        padded = list(values[:7]) + [0.0] * max(0, 7 - len(values))
+        padded = list(values[:16]) + [0.0] * max(0, 16 - len(values))
         return {
             "safe_r_min": float(padded[0]),
             "safe_r_max": float(padded[1]),
@@ -365,6 +403,7 @@ class RobotModbusService:
             "safe_speed_max": float(padded[4]),
             "safe_acc_max": float(padded[5]),
             "safe_dec_max": float(padded[6]),
+            "reserved": [float(value) for value in padded[7:16]],
         }
 
     def build_six_realtime_xyz_read(self) -> VrReadRequest:

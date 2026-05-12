@@ -107,7 +107,11 @@ class MockController:
         self._lock = threading.RLock()
         self._on_command: Callable[[int, dict[str, float]], None] | None = None
         self._exec_thread: threading.Thread | None = None
-        self._exec_thread_six: threading.Thread | None = None
+        self._exec_threads_six: dict[str, threading.Thread | None] = {
+            "motion": None,
+            "program": None,
+            "system": None,
+        }
         self._x_range = x_range if x_range is not None else X_RANGE
         self._y_range = y_range if y_range is not None else Y_RANGE
         self._z_range = z_range if z_range is not None else Z_RANGE
@@ -115,6 +119,7 @@ class MockController:
         self._set_result(RESULT_OK)
         self._set_alarm(ALM_NORMAL)
         self._sync_realtime_monitor_locked()
+        self._sync_six_monitor_regions_locked()
         self._running = True
 
     def set_on_command(self, callback: Callable[[int, dict[str, float]], None]) -> None:
@@ -530,6 +535,40 @@ class MockController:
     _SIX_STATE_DONE = 2
     _SIX_STATE_ERR = 3
     _SIX_READY_BIT = 1 << 28
+    _SIX_MOTION_FUNCS = {
+        FuncSixAxis.MULTI_POINT_INTERP,
+        FuncSixAxis.JOINT_JOG,
+        FuncSixAxis.VIRTUAL_JOG,
+        FuncSixAxis.LINE_MOVE,
+        FuncSixAxis.TIMER_CHECK,
+    }
+    _SIX_PROGRAM_FUNCS = {
+        FuncSixAxis.DELAY,
+        FuncSixAxis.IO_CTRL,
+    }
+
+    def _six_slot_for_func(self, func_num: int) -> str:
+        if func_num in self._SIX_MOTION_FUNCS:
+            return "motion"
+        if func_num in self._SIX_PROGRAM_FUNCS:
+            return "program"
+        if func_num == FuncSixAxis.STOP:
+            return "system"
+        return "unknown"
+
+    def _six_slot_busy_locked(self, slot: str) -> bool:
+        if slot == "system":
+            return False
+        thread = self._exec_threads_six.get(slot)
+        if thread is not None and thread.is_alive():
+            return True
+        funcs = self._SIX_MOTION_FUNCS if slot == "motion" else self._SIX_PROGRAM_FUNCS
+        raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
+        return any(
+            ((raw & self._SIX_FUNC_STATE_FIELDS[func_num][1]) >> self._SIX_FUNC_STATE_FIELDS[func_num][0])
+            == self._SIX_STATE_EXEC
+            for func_num in funcs
+        )
     _SIX_ALARM_BIT = 1 << 24
     _SIX_ESTOP_BIT = 1 << 25
     _SIX_PAUSE_BIT = 1 << 26
@@ -555,18 +594,58 @@ class MockController:
             self._modbus_ieee[322] = float(current_func)
         self._modbus_ieee[324] = 0.0
 
+    def _sync_six_monitor_regions_locked(self) -> None:
+        for axis in range(12):
+            self._modbus_ieee[200 + axis * 2] = 0.0
+            self._modbus_ieee[240 + axis * 2] = 0.0
+        self._modbus_ieee[1800] = self._modbus_ieee[320]
+        self._modbus_ieee[1802] = self._modbus_ieee[322]
+        self._modbus_ieee[1804] = self._modbus_ieee[324]
+
     def _set_six_func_state_locked(self, func_num: int, state: int, *, alarm_bits: int = 0) -> None:
         shift, mask = self._SIX_FUNC_STATE_FIELDS.get(func_num, (0, 0))
-        raw = int(self._modbus_long[MODBUS_STATUS_ADDR]) | self._SIX_READY_BIT
+        raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
         if mask:
             raw = (raw & ~mask) | ((int(state) << shift) & mask)
         if alarm_bits:
             raw |= self._SIX_ALARM_BIT
-        else:
-            raw &= ~self._SIX_ALARM_BIT
+            self._modbus_long[SIX_ALARM_DETAIL_ADDR] |= int(alarm_bits)
+            self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(self._modbus_long[SIX_ALARM_DETAIL_ADDR])
         self._modbus_long[MODBUS_STATUS_ADDR] = raw
         self._modbus_ieee[MODBUS_STATUS_ADDR] = float(raw)
         self._sync_six_system_state_locked(func_num)
+
+    def _fail_six_func_locked(self, func_num: int, alarm_bits: int) -> None:
+        self._set_six_func_state_locked(func_num, self._SIX_STATE_ERR, alarm_bits=alarm_bits)
+
+    def _apply_six_pct_triplet_locked(
+        self,
+        func_num: int,
+        spd_pct: float,
+        acc_pct: float,
+        dec_pct: float,
+        *,
+        fuzzy_spd: int = 0,
+        fuzzy_acc: int = 0,
+        fuzzy_dec: int = 0,
+    ) -> tuple[float, float, float] | None:
+        alarm_bits = 0
+        if fuzzy_spd:
+            spd_pct = min(max(spd_pct, 0.0), 150.0)
+        elif spd_pct < 0 or spd_pct > 150:
+            alarm_bits |= 1 << 3
+        if fuzzy_acc:
+            acc_pct = min(max(acc_pct, 0.0), 150.0)
+        elif acc_pct < 0 or acc_pct > 150:
+            alarm_bits |= 1 << 4
+        if fuzzy_dec:
+            dec_pct = min(max(dec_pct, 0.0), 150.0)
+        elif dec_pct < 0 or dec_pct > 150:
+            alarm_bits |= 1 << 5
+        if alarm_bits:
+            self._fail_six_func_locked(func_num, alarm_bits)
+            return None
+        return spd_pct, acc_pct, dec_pct
 
     def _set_six_legacy_status_locked(self, func_num: int, status: int, *, alarm_bits: int = 0) -> None:
         if status in (SIX_STATUS_ERROR, SIX_STATUS_ERROR_ALARM):
@@ -581,28 +660,26 @@ class MockController:
 
     def _dispatch_six_command(self) -> None:
         with self._lock:
-            raw_status = int(self._modbus_long[MODBUS_STATUS_ADDR])
-            # Func104可在执行中调用
             func_num = int(self._modbus_ieee[MODBUS_FUNC_ADDR])
             if func_num == 0:
                 return
-            busy = any(
-                ((raw_status & mask) >> shift) == self._SIX_STATE_EXEC
-                for shift, mask in self._SIX_FUNC_STATE_FIELDS.values()
-            )
-            if func_num != FuncSixAxis.STOP and busy:
+            slot = self._six_slot_for_func(func_num)
+            if slot == "unknown":
+                self._fail_six_func_locked(func_num, 1 << 8)
+                return
+            if func_num != FuncSixAxis.STOP and self._six_slot_busy_locked(slot):
+                self._fail_six_func_locked(func_num, 1 << 2)
                 return
             self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
 
-        if self._exec_thread_six and self._exec_thread_six.is_alive():
-            self._exec_thread_six.join(timeout=5.0)
-
-        self._exec_thread_six = threading.Thread(
-            target=self._execute_six_command, args=(func_num,), daemon=True
+        thread = threading.Thread(
+            target=self._execute_six_command, args=(func_num, slot), daemon=True
         )
-        self._exec_thread_six.start()
+        with self._lock:
+            self._exec_threads_six[slot] = thread
+        thread.start()
 
-    def _execute_six_command(self, func_num: int) -> None:
+    def _execute_six_command(self, func_num: int, slot: str) -> None:
         with self._lock:
             self._modbus_ieee[SIX_CURR_FUNC_ADDR] = float(func_num)
             self._modbus_ieee[322] = float(func_num)
@@ -637,6 +714,8 @@ class MockController:
                 self._modbus_ieee[MODBUS_TRIGGER_ADDR] = 0.0
                 # 六轴: 不清零IEEE(0)函数号
                 self._sync_six_realtime_locked()
+                if self._exec_threads_six.get(slot) is threading.current_thread():
+                    self._exec_threads_six[slot] = None
 
     def _do_six_stop(self) -> None:
         with self._lock:
@@ -646,7 +725,8 @@ class MockController:
             reset_ctrl = int(self._modbus_ieee[8])
             raw = int(self._modbus_long[MODBUS_STATUS_ADDR]) | self._SIX_READY_BIT
             if estop_ctrl == 1:
-                raw |= self._SIX_ESTOP_BIT
+                raw |= self._SIX_ESTOP_BIT | self._SIX_ALARM_BIT
+                raw &= ~self._SIX_READY_BIT
             elif estop_ctrl == 2:
                 raw &= ~self._SIX_ESTOP_BIT
             if pause_ctrl == 1:
@@ -666,6 +746,8 @@ class MockController:
                 raw |= self._SIX_READY_BIT
                 self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 0
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
+                self._exec_threads_six["motion"] = None
+                self._exec_threads_six["program"] = None
             self._modbus_long[MODBUS_STATUS_ADDR] = raw
             self._modbus_ieee[56] = 0.0
             self._set_six_func_state_locked(FuncSixAxis.STOP, self._SIX_STATE_DONE)
@@ -676,11 +758,13 @@ class MockController:
         with self._lock:
             point_count = int(self._modbus_ieee[2])
             speed = float(self._modbus_ieee[14])
-            acc_v = float(self._modbus_ieee[16])
-            dec_v = float(self._modbus_ieee[18])
-            if point_count <= 0 or speed < 0 or acc_v < 0 or dec_v < 0:
-                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
-                self._set_six_func_state_locked(FuncSixAxis.MULTI_POINT_INTERP, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+            acc_pct = float(self._modbus_ieee[16])
+            dec_pct = float(self._modbus_ieee[18])
+            if point_count <= 0:
+                self._fail_six_func_locked(FuncSixAxis.MULTI_POINT_INTERP, 1 << 9)
+                return
+            pct_values = self._apply_six_pct_triplet_locked(FuncSixAxis.MULTI_POINT_INTERP, speed, acc_pct, dec_pct)
+            if pct_values is None:
                 return
             point_count = min(point_count, 20)
             last_base = 400 + (point_count - 1) * 12
@@ -697,10 +781,9 @@ class MockController:
     def _do_six_timer_check(self) -> None:
         with self._lock:
             check_value = int(self._modbus_ieee[2])
-            delay_sec = max(0.0, float(self._modbus_ieee[4]))
-            if check_value == 0:
-                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
-                self._set_six_func_state_locked(FuncSixAxis.TIMER_CHECK, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+            delay_sec = float(self._modbus_ieee[4])
+            if check_value == 0 or delay_sec <= 0:
+                self._fail_six_func_locked(FuncSixAxis.TIMER_CHECK, 1 << 9)
                 return
         time.sleep(min(delay_sec, 2.0))
         with self._lock:
@@ -709,7 +792,10 @@ class MockController:
 
     def _do_six_delay(self) -> None:
         with self._lock:
-            delay_sec = max(0.0, float(self._modbus_ieee[6]))
+            delay_sec = float(self._modbus_ieee[6])
+            if delay_sec <= 0:
+                self._fail_six_func_locked(FuncSixAxis.DELAY, 1 << 9)
+                return
             self._modbus_ieee[328] = 1.0
         time.sleep(min(delay_sec, 2.0))
         with self._lock:
@@ -720,29 +806,32 @@ class MockController:
         with self._lock:
             io_no = int(self._modbus_ieee[2])
             action = int(self._modbus_ieee[4])
-            if io_no < 0 or action not in (0, 1):
-                self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 1 << 9
-                self._set_six_func_state_locked(FuncSixAxis.IO_CTRL, self._SIX_STATE_ERR, alarm_bits=1 << 9)
+            if not (0 <= io_no <= 11) or action not in (0, 1):
+                self._fail_six_func_locked(FuncSixAxis.IO_CTRL, 1 << 9)
                 return
-            if io_no < 32:
-                if action:
-                    self._modbus_long[44] |= 1 << io_no
-                else:
-                    self._modbus_long[44] &= ~(1 << io_no)
+            if action:
+                self._modbus_long[44] |= 1 << io_no
+            else:
+                self._modbus_long[44] &= ~(1 << io_no)
             self._modbus_long[46] = int(io_no)
 
     def _do_six_joint_jog(self) -> None:
         with self._lock:
             axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
             pos_val = self._modbus_ieee[SIX_P_POS_VAL]
-            spd = self._modbus_ieee[SIX_P_SPD]
-            acc_v = self._modbus_ieee[SIX_P_ACC_V]
-            dec_v = self._modbus_ieee[SIX_P_DEC_V]
+            spd_pct = self._modbus_ieee[SIX_P_SPD]
+            acc_pct = self._modbus_ieee[SIX_P_ACC_V]
+            dec_pct = self._modbus_ieee[SIX_P_DEC_V]
             fuzzy_pos = int(self._modbus_ieee[SIX_P_FUZZY_POS])
             fuzzy_spd = int(self._modbus_ieee[SIX_P_FUZZY_SPD])
             fuzzy_acc = int(self._modbus_ieee[SIX_P_FUZZY_ACC])
             fuzzy_dec = int(self._modbus_ieee[SIX_P_FUZZY_DEC])
             stop_cmd = int(self._modbus_ieee[SIX_P_STOP_CMD])
+            if not (0 <= axis_no <= 5) or stop_cmd not in (0, 1, 2, 3, 4, 5) or any(
+                value not in (0, 1) for value in (fuzzy_pos, fuzzy_spd, fuzzy_acc, fuzzy_dec)
+            ):
+                self._fail_six_func_locked(FuncSixAxis.JOINT_JOG, 1 << 9)
+                return
             current = self._modbus_ieee[SIX_RT_J_START + axis_no]
             current_speed = self._modbus_ieee[52]
 
@@ -751,23 +840,28 @@ class MockController:
             else:
                 target_pos = pos_val
             if fuzzy_spd == 1:
-                spd += current_speed
+                spd_pct += current_speed
             if fuzzy_acc == 1:
-                acc_v += self._modbus_ieee[SIX_P_ACC_V]
+                acc_pct += self._modbus_ieee[SIX_P_ACC_V]
             if fuzzy_dec == 1:
-                dec_v += self._modbus_ieee[SIX_P_DEC_V]
-            spd, acc_v, dec_v, alarm_bits = self._clamp_six_motion_values_locked(spd, acc_v, dec_v)
-            self._modbus_ieee[52] = spd
+                dec_pct += self._modbus_ieee[SIX_P_DEC_V]
+            pct_values = self._apply_six_pct_triplet_locked(
+                FuncSixAxis.JOINT_JOG,
+                spd_pct,
+                acc_pct,
+                dec_pct,
+                fuzzy_spd=fuzzy_spd,
+                fuzzy_acc=fuzzy_acc,
+                fuzzy_dec=fuzzy_dec,
+            )
+            if pct_values is None:
+                return
+            spd_pct, acc_pct, dec_pct = pct_values
+            spd_pct, acc_pct, dec_pct, alarm_bits = self._clamp_six_motion_values_locked(spd_pct, acc_pct, dec_pct)
+            self._modbus_ieee[52] = spd_pct
             self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
             self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
-            if spd <= 0:
-                self._set_six_func_state_locked(
-                    FuncSixAxis.JOINT_JOG,
-                    self._SIX_STATE_ERR,
-                    alarm_bits=alarm_bits,
-                )
-                return
             stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
             if stop_status is not None:
                 self._set_six_legacy_status_locked(FuncSixAxis.JOINT_JOG, stop_status, alarm_bits=alarm_bits)
@@ -790,14 +884,19 @@ class MockController:
         with self._lock:
             axis_no = int(self._modbus_ieee[SIX_P_AXIS_NO])
             pos_val = self._modbus_ieee[SIX_P_POS_VAL]
-            spd = self._modbus_ieee[SIX_P_SPD]
-            acc_v = self._modbus_ieee[SIX_P_ACC_V]
-            dec_v = self._modbus_ieee[SIX_P_DEC_V]
+            spd_pct = self._modbus_ieee[SIX_P_SPD]
+            acc_pct = self._modbus_ieee[SIX_P_ACC_V]
+            dec_pct = self._modbus_ieee[SIX_P_DEC_V]
             fuzzy_pos = int(self._modbus_ieee[SIX_P_FUZZY_POS])
             fuzzy_spd = int(self._modbus_ieee[SIX_P_FUZZY_SPD])
             fuzzy_acc = int(self._modbus_ieee[SIX_P_FUZZY_ACC])
             fuzzy_dec = int(self._modbus_ieee[SIX_P_FUZZY_DEC])
             stop_cmd = int(self._modbus_ieee[SIX_P_STOP_CMD])
+            if not (6 <= axis_no <= 11) or stop_cmd not in (0, 1, 2, 3, 4, 5) or any(
+                value not in (0, 1) for value in (fuzzy_pos, fuzzy_spd, fuzzy_acc, fuzzy_dec)
+            ):
+                self._fail_six_func_locked(FuncSixAxis.VIRTUAL_JOG, 1 << 9)
+                return
             # 虚拟轴6~11映射到IEEE(1512+): 6→1512, 7→1513, ...
             target_idx = SIX_RT_XYZ_START + (axis_no - 6)
             current = self._modbus_ieee[target_idx]
@@ -808,23 +907,28 @@ class MockController:
             else:
                 target_pos = pos_val
             if fuzzy_spd == 1:
-                spd += current_speed
+                spd_pct += current_speed
             if fuzzy_acc == 1:
-                acc_v += self._modbus_ieee[SIX_P_ACC_V]
+                acc_pct += self._modbus_ieee[SIX_P_ACC_V]
             if fuzzy_dec == 1:
-                dec_v += self._modbus_ieee[SIX_P_DEC_V]
-            spd, acc_v, dec_v, alarm_bits = self._clamp_six_motion_values_locked(spd, acc_v, dec_v)
-            self._modbus_ieee[52] = spd
+                dec_pct += self._modbus_ieee[SIX_P_DEC_V]
+            pct_values = self._apply_six_pct_triplet_locked(
+                FuncSixAxis.VIRTUAL_JOG,
+                spd_pct,
+                acc_pct,
+                dec_pct,
+                fuzzy_spd=fuzzy_spd,
+                fuzzy_acc=fuzzy_acc,
+                fuzzy_dec=fuzzy_dec,
+            )
+            if pct_values is None:
+                return
+            spd_pct, acc_pct, dec_pct = pct_values
+            spd_pct, acc_pct, dec_pct, alarm_bits = self._clamp_six_motion_values_locked(spd_pct, acc_pct, dec_pct)
+            self._modbus_ieee[52] = spd_pct
             self._modbus_ieee[56] = 0.0
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(alarm_bits)
             self._modbus_long[SIX_ALARM_DETAIL_ADDR] = int(alarm_bits)
-            if spd <= 0:
-                self._set_six_func_state_locked(
-                    FuncSixAxis.VIRTUAL_JOG,
-                    self._SIX_STATE_ERR,
-                    alarm_bits=alarm_bits,
-                )
-                return
             stop_status = self._apply_six_stop_cmd_locked(stop_cmd, alarm_bits)
             if stop_status is not None:
                 self._set_six_legacy_status_locked(FuncSixAxis.VIRTUAL_JOG, stop_status, alarm_bits=alarm_bits)
@@ -864,20 +968,37 @@ class MockController:
             move_type = int(self._modbus_ieee[SIX_108_MOVE_TYPE])
             current_speed = self._modbus_ieee[52]
             speed = self._modbus_ieee[SIX_108_SPD]
-            acc_v = self._modbus_ieee[SIX_108_ACC]
-            dec_v = self._modbus_ieee[SIX_108_DEC]
+            acc_pct = self._modbus_ieee[SIX_108_ACC]
+            dec_pct = self._modbus_ieee[SIX_108_DEC]
+            if stop_cmd not in (0, 1, 2, 3, 4, 5) or move_type not in (0, 1) or any(
+                value not in (0, 1) for value in (fuzzy_pos, fuzzy_spd, fuzzy_acc, fuzzy_dec)
+            ):
+                self._fail_six_func_locked(FuncSixAxis.LINE_MOVE, 1 << 9)
+                return
             if fuzzy_pos == 1:
                 for i in range(6):
                     targets[i] = self._modbus_ieee[SIX_RT_XYZ_START + i] + targets[i]
             if fuzzy_spd == 1:
                 speed += current_speed
             if fuzzy_acc == 1:
-                acc_v += self._modbus_ieee[16]
+                acc_pct += self._modbus_ieee[16]
             if fuzzy_dec == 1:
-                dec_v += self._modbus_ieee[18]
+                dec_pct += self._modbus_ieee[18]
+            pct_values = self._apply_six_pct_triplet_locked(
+                FuncSixAxis.LINE_MOVE,
+                speed,
+                acc_pct,
+                dec_pct,
+                fuzzy_spd=fuzzy_spd,
+                fuzzy_acc=fuzzy_acc,
+                fuzzy_dec=fuzzy_dec,
+            )
+            if pct_values is None:
+                return
+            speed, acc_pct, dec_pct = pct_values
             currents = [self._modbus_ieee[SIX_RT_XYZ_START + i] for i in range(6)]
-            targets, speed, acc_v, dec_v, alarm_bits = self._apply_six_func108_limits_locked(
-                targets, speed, acc_v, dec_v
+            targets, speed, acc_pct, dec_pct, alarm_bits = self._apply_six_func108_limits_locked(
+                targets, speed, acc_pct, dec_pct
             )
             self._modbus_ieee[52] = speed
             self._modbus_ieee[54] = sum(abs(targets[i] - currents[i]) for i in range(3))
@@ -913,8 +1034,8 @@ class MockController:
         self,
         targets: list[float],
         speed: float,
-        acc_v: float,
-        dec_v: float,
+        acc_pct: float,
+        dec_pct: float,
     ) -> tuple[list[float], float, float, float, int]:
         alarm_bits = 0
         target_x, target_y, target_z = targets[0], targets[1], targets[2]
@@ -940,44 +1061,41 @@ class MockController:
             if max_z and target_z > max_z:
                 target_z = max_z
                 alarm_bits |= 2
-        if safe_spd > 0 and (speed > safe_spd or speed <= 0):
+        if safe_spd > 0 and speed > safe_spd:
             speed = safe_spd
             alarm_bits |= 8
-        if safe_acc > 0 and acc_v > safe_acc:
-            acc_v = safe_acc
+        if safe_acc > 0 and acc_pct > safe_acc:
+            acc_pct = safe_acc
             alarm_bits |= 16
-        if safe_dec > 0 and dec_v > safe_dec:
-            dec_v = safe_dec
+        if safe_dec > 0 and dec_pct > safe_dec:
+            dec_pct = safe_dec
             alarm_bits |= 32
 
         targets[0] = target_x
         targets[2] = target_z
-        return targets, speed, acc_v, dec_v, alarm_bits
+        return targets, speed, acc_pct, dec_pct, alarm_bits
 
     def _clamp_six_motion_values_locked(
         self,
         speed: float,
-        acc_v: float,
-        dec_v: float,
+        acc_pct: float,
+        dec_pct: float,
     ) -> tuple[float, float, float, int]:
         alarm_bits = 0
         safe_spd = self._modbus_ieee[SIX_SAFE_SPD_MAX]
         safe_acc = self._modbus_ieee[SIX_SAFE_ACC_MAX]
         safe_dec = self._modbus_ieee[SIX_SAFE_DEC_MAX]
 
-        if speed <= 0:
-            alarm_bits |= 8
-            return speed, acc_v, dec_v, alarm_bits
         if safe_spd > 0 and speed > safe_spd:
             speed = safe_spd
             alarm_bits |= 8
-        if safe_acc > 0 and acc_v > safe_acc:
-            acc_v = safe_acc
+        if safe_acc > 0 and acc_pct > safe_acc:
+            acc_pct = safe_acc
             alarm_bits |= 16
-        if safe_dec > 0 and dec_v > safe_dec:
-            dec_v = safe_dec
+        if safe_dec > 0 and dec_pct > safe_dec:
+            dec_pct = safe_dec
             alarm_bits |= 32
-        return speed, acc_v, dec_v, alarm_bits
+        return speed, acc_pct, dec_pct, alarm_bits
 
     def _apply_six_stop_cmd_locked(self, stop_cmd: int, alarm_bits: int) -> int | None:
         if stop_cmd <= 0:
@@ -1001,7 +1119,7 @@ class MockController:
                 self._modbus_ieee[SIX_RT_XYZ_START + i]
                 for i in range(6)
             ]
-            targets, speed, _acc_v, _dec_v, alarm_bits = self._apply_six_func108_limits_locked(
+            targets, speed, _acc_pct, _dec_pct, alarm_bits = self._apply_six_func108_limits_locked(
                 targets,
                 self._modbus_ieee[52],
                 self._modbus_ieee[SIX_108_ACC],
@@ -1023,6 +1141,7 @@ class MockController:
             self._modbus_ieee[1600 + i * 2] = self._modbus_ieee[SIX_RT_J_START + i]
             self._modbus_ieee[1512 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
             self._modbus_ieee[1612 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
+        self._sync_six_monitor_regions_locked()
         self._vr[VR_OFFSET["CUR_X"].index] = self._modbus_ieee[SIX_RT_XYZ_START]
         self._vr[VR_OFFSET["CUR_Y"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 1]
         self._vr[VR_OFFSET["CUR_Z"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 2]

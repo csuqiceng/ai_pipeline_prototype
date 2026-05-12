@@ -15,6 +15,20 @@ FUNC_NAME_MAP = {
     120: "FUNC120_IO",
 }
 
+SIX_MOTION_FUNCS: frozenset[int] = frozenset({11, 106, 107, 108, 109})
+SIX_PROGRAM_FUNCS: frozenset[int] = frozenset({110, 120})
+SIX_SYSTEM_FUNCS: frozenset[int] = frozenset({104})
+
+
+def six_func_slot(func_num: int) -> str:
+    if func_num in SIX_MOTION_FUNCS:
+        return "motion"
+    if func_num in SIX_PROGRAM_FUNCS:
+        return "program"
+    if func_num in SIX_SYSTEM_FUNCS:
+        return "system"
+    return "unknown"
+
 
 @dataclass(frozen=True)
 class QueryRecord:
@@ -53,15 +67,15 @@ class QueryRecord:
                 self.float_param("target_rx"),
                 self.float_param("target_ry"),
                 self.float_param("target_rz"),
-                self.float_param("spd"),
+                self.float_param("spd_pct"),
             )
         if self.func_num in (106, 107):
             return (
                 self.float_param("axis_no"),
                 self.float_param("pos_val"),
-                self.float_param("spd"),
-                self.float_param("acc_v"),
-                self.float_param("dec_v"),
+                self.float_param("spd_pct"),
+                self.float_param("acc_pct"),
+                self.float_param("dec_pct"),
                 self.float_param("fuzzy_pos"),
                 self.float_param("stop_cmd"),
             )
@@ -93,11 +107,14 @@ class QueryRecord:
             self.float_param("target_rz"),
         )
 
-    def speed_value(self) -> float:
-        return self.float_param("spd")
+    def spd_pct_value(self) -> float:
+        return self.float_param("spd_pct")
 
-    def acc_value(self) -> float:
-        return self.float_param("acc_v")
+    def acc_pct_value(self) -> float:
+        return self.float_param("acc_pct")
+
+    def dec_pct_value(self) -> float:
+        return self.float_param("dec_pct")
 
     def summary_text(self) -> str:
         if self.func_num == 104:
@@ -112,12 +129,12 @@ class QueryRecord:
             return (
                 f"{axis_label} {self.int_param('axis_no')}  "
                 f"目标 {self.float_param('pos_val')}  "
-                f"速度 {self.float_param('spd')}"
+                f"速度百分比 {self.float_param('spd_pct')}"
             )
         pose = self.pose_tuple()
         if pose is None:
             if self.func_num == 11:
-                return f"points={self.int_param('point_count')} speed={self.float_param('spd')}"
+                return f"points={self.int_param('point_count')} spd_pct={self.float_param('spd_pct')}"
             if self.func_num == 109:
                 return f"check={self.int_param('check_value')} delay={self.float_param('delay_sec')}s"
             if self.func_num == 110:
@@ -336,9 +353,9 @@ class SixAxisCommand:
     # Func 106/107: 点动参数
     axis_no: int = 0
     pos_val: float = 0.0
-    spd: float = 0.0
-    acc_v: float = 0.0
-    dec_v: float = 0.0
+    spd_pct: float = 0.0
+    acc_pct: float = 0.0
+    dec_pct: float = 0.0
     fuzzy_pos: int = 0
     fuzzy_spd: int = 0
     fuzzy_acc: int = 0
@@ -354,7 +371,7 @@ class SixAxisCommand:
     move_type: int = 0           # 0=直线插补 1=PTP
     point_count: int = 0
     interp_points: tuple[tuple[float, float, float, float, float, float], ...] = ()
-    # 特殊命令参数
+    # deprecated: 旧本地负函数号命令参数，V4.3 由 Func120/Func110 替代
     io_grip: int = 0
     io_door: int = 0
     ext_p1: float = 0.0
@@ -378,9 +395,9 @@ class SixAxisCommand:
                 VrWriteRequest(start_vr=0, values=(float(self.func_num),)),
                 VrWriteRequest(start_vr=2, values=(float(self.axis_no),)),
                 VrWriteRequest(start_vr=4, values=(self.pos_val,)),
-                VrWriteRequest(start_vr=6, values=(self.spd,)),
-                VrWriteRequest(start_vr=8, values=(self.acc_v,)),
-                VrWriteRequest(start_vr=10, values=(self.dec_v,)),
+                VrWriteRequest(start_vr=6, values=(self.spd_pct,)),
+                VrWriteRequest(start_vr=8, values=(self.acc_pct,)),
+                VrWriteRequest(start_vr=10, values=(self.dec_pct,)),
                 VrWriteRequest(start_vr=12, values=(self.fuzzy_pos,)),
                 VrWriteRequest(start_vr=14, values=(self.fuzzy_spd,)),
                 VrWriteRequest(start_vr=16, values=(self.fuzzy_acc,)),
@@ -396,9 +413,9 @@ class SixAxisCommand:
                 VrWriteRequest(start_vr=8, values=(self.target_rx,)),
                 VrWriteRequest(start_vr=10, values=(self.target_ry,)),
                 VrWriteRequest(start_vr=12, values=(self.target_rz,)),
-                VrWriteRequest(start_vr=14, values=(self.spd,)),
-                VrWriteRequest(start_vr=16, values=(self.acc_v,)),
-                VrWriteRequest(start_vr=18, values=(self.dec_v,)),
+                VrWriteRequest(start_vr=14, values=(self.spd_pct,)),
+                VrWriteRequest(start_vr=16, values=(self.acc_pct,)),
+                VrWriteRequest(start_vr=18, values=(self.dec_pct,)),
                 VrWriteRequest(start_vr=20, values=(float(self.stop_cmd),)),
                 VrWriteRequest(start_vr=22, values=(self.fuzzy_pos,)),
                 VrWriteRequest(start_vr=24, values=(self.fuzzy_spd,)),
@@ -410,9 +427,9 @@ class SixAxisCommand:
             writes = [
                 VrWriteRequest(start_vr=0, values=(11.0,)),
                 VrWriteRequest(start_vr=2, values=(float(self.point_count),)),
-                VrWriteRequest(start_vr=14, values=(self.spd,)),
-                VrWriteRequest(start_vr=16, values=(self.acc_v,)),
-                VrWriteRequest(start_vr=18, values=(self.dec_v,)),
+                VrWriteRequest(start_vr=14, values=(self.spd_pct,)),
+                VrWriteRequest(start_vr=16, values=(self.acc_pct,)),
+                VrWriteRequest(start_vr=18, values=(self.dec_pct,)),
             ]
             for idx, point in enumerate(self.interp_points[: self.point_count]):
                 base = 400 + idx * 12
@@ -475,6 +492,9 @@ class SixAxisStatus:
     STATE_EXEC = 1
     STATE_DONE = 2
     STATE_ERR = 3
+    MOTION_FUNCS: ClassVar[frozenset[int]] = SIX_MOTION_FUNCS
+    PROGRAM_FUNCS: ClassVar[frozenset[int]] = SIX_PROGRAM_FUNCS
+    SYSTEM_FUNCS: ClassVar[frozenset[int]] = SIX_SYSTEM_FUNCS
 
     def function_state(self, func_num: int | None = None) -> int:
         target = self.func_num if func_num is None else func_num
@@ -533,10 +553,25 @@ class SixAxisStatus:
             return False
         return all(state != self.STATE_EXEC for state in self._active_states())
 
+    def slot_busy(self, slot: str) -> bool:
+        if slot == "motion":
+            funcs = self.MOTION_FUNCS
+        elif slot == "program":
+            funcs = self.PROGRAM_FUNCS
+        elif slot == "system":
+            return False
+        else:
+            funcs = self.FUNC_STATE_FIELDS.keys()
+        return any(self.function_state(func_num) == self.STATE_EXEC for func_num in funcs)
+
     def can_send_for(self, func_num: int) -> bool:
+        if func_num in self.SYSTEM_FUNCS:
+            return True
         if self.has_alarm or self.is_estop or not self.is_ready:
             return False
-        return self.function_state(func_num) == self.STATE_IDLE
+        if self.function_state(func_num) == self.STATE_ERR:
+            return False
+        return not self.slot_busy(six_func_slot(func_num))
 
     @classmethod
     def from_value(cls, val: float | int, func_num: int | None = None) -> "SixAxisStatus":
@@ -590,7 +625,7 @@ class SixAxisAlarmDetail:
 
 @dataclass(frozen=True)
 class SixAxisRealtimeData:
-    """六轴实时坐标 — 分两组读取: IEEE(58,6) J1~J6 + IEEE(40,6) X/Y/Z/Rx/Ry/Rz"""
+    """六轴实时坐标 — V4.3 使用 MPOS: IEEE(1600~1610) 关节 + IEEE(1612~1622) 位姿。"""
     j1: float = 0.0
     j2: float = 0.0
     j3: float = 0.0
@@ -626,5 +661,6 @@ class ControllerClient(Protocol):
     def read_modbus_float(self, request: VrReadRequest) -> list[float]: ...
     def write_modbus_long(self, request: VrWriteRequest) -> None: ...
     def read_modbus_long(self, request: VrReadRequest) -> list[int]: ...
+    # deprecated: V4.3 新协议路径不再使用 BIT/REG，仅保留旧兼容。
     def write_modbus_bit(self, start: int, values: list[int]) -> None: ...
     def read_modbus_bit(self, start: int, count: int) -> list[int]: ...

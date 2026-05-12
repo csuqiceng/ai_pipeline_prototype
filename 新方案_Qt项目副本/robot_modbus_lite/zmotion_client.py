@@ -129,6 +129,7 @@ class ZMotionVrClient:
             return [int(item) for item in values]
 
     def write_modbus_bit(self, start: int, values: list[int]) -> None:
+        """deprecated: V4.3 新协议路径不再使用 BIT/REG，仅保留旧兼容。"""
         with self._lock:
             if not self.connected:
                 raise ZMotionClientError("控制器未连接。")
@@ -136,6 +137,7 @@ class ZMotionVrClient:
             self._ensure_ok(ret, "ZAux_Modbus_Set0x")
 
     def read_modbus_bit(self, start: int, count: int) -> list[int]:
+        """deprecated: V4.3 新协议路径不再使用 BIT/REG，仅保留旧兼容。"""
         with self._lock:
             if not self.connected:
                 raise ZMotionClientError("控制器未连接。")

@@ -54,7 +54,7 @@ from .avoidance_config import (
     save_avoidance_config,
     validate_safe_point,
 )
-from .models import ControllerClient, QueryRecord, VrWriteRequest, VrReadRequest
+from .models import ControllerClient, QueryRecord, SIX_MOTION_FUNCS, SixAxisCommand, SixAxisStatus, VrWriteRequest, VrReadRequest
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
 from .system_config import (
@@ -788,9 +788,9 @@ class RobotQtWindow(QMainWindow):
         self.stop_mode_combo.addItem("慢停(1)", 1)
         self.axis_no_edit = QLineEdit("0")
         self.pos_val_edit = QLineEdit("0")
-        self.spd_edit = QLineEdit("300")
-        self.acc_v_edit = QLineEdit("60")
-        self.dec_v_edit = QLineEdit("60")
+        self.spd_pct_edit = QLineEdit("50")
+        self.acc_pct_edit = QLineEdit("60")
+        self.dec_pct_edit = QLineEdit("60")
         self.stop_cmd_combo = QComboBox()
         for value, label in STOP_CMD_LABELS.items():
             self.stop_cmd_combo.addItem(f"{label}({value})", value)
@@ -816,11 +816,23 @@ class RobotQtWindow(QMainWindow):
         self.move_type_combo.addItem("直线插补(0)", 0)
         self.move_type_combo.addItem("PTP(1)", 1)
         self.point_count_edit = QLineEdit("2")
-        self.points_edit = QTextEdit()
-        self.points_edit.setMinimumHeight(90)
-        self.points_edit.setPlainText("[[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]]")
+        self.point_count_edit.setReadOnly(True)
+        self.points_table = QTableWidget(2, 6)
+        self.points_table.setHorizontalHeaderLabels(["X", "Y", "Z", "Rx", "Ry", "Rz"])
+        self.points_table.setMinimumHeight(130)
+        self.points_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._set_points_table_values([[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]])
+        self.point_add_btn = QPushButton("新增点")
+        self.point_delete_btn = QPushButton("删除点")
+        self.point_up_btn = QPushButton("上移")
+        self.point_down_btn = QPushButton("下移")
+        self.point_buttons = QWidget()
+        point_buttons_layout = QHBoxLayout(self.point_buttons)
+        point_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        for button in (self.point_add_btn, self.point_delete_btn, self.point_up_btn, self.point_down_btn):
+            point_buttons_layout.addWidget(button)
         self.check_value_edit = QLineEdit("1")
-        self.delay_sec_edit = QLineEdit("0")
+        self.delay_sec_edit = QLineEdit("1")
         self.io_no_edit = QLineEdit("0")
         self.io_action_combo = QComboBox()
         self.io_action_combo.addItem("关闭(0)", 0)
@@ -842,9 +854,9 @@ class RobotQtWindow(QMainWindow):
         add_record_row("stop_mode", "停止模式 (stop_mode)", self.stop_mode_combo)
         add_record_row("axis_no", "轴号 (axis_no)", self.axis_no_edit)
         add_record_row("pos_val", "目标值 (pos_val)", self.pos_val_edit)
-        add_record_row("spd", "速度 (spd)", self.spd_edit)
-        add_record_row("acc_v", "加速度 (acc_v)", self.acc_v_edit)
-        add_record_row("dec_v", "减速度 (dec_v)", self.dec_v_edit)
+        add_record_row("spd_pct", "速度百分比 (spd_pct)", self.spd_pct_edit)
+        add_record_row("acc_pct", "加速度百分比 (acc_pct)", self.acc_pct_edit)
+        add_record_row("dec_pct", "减速度百分比 (dec_pct)", self.dec_pct_edit)
         add_record_row("stop_cmd", "停止指令 (stop_cmd)", self.stop_cmd_combo)
         add_record_row("fuzzy_pos", "位置模式 (fuzzy_pos)", self.fuzzy_pos_combo)
         add_record_row("fuzzy_spd", "速度模式 (fuzzy_spd)", self.fuzzy_spd_combo)
@@ -858,7 +870,8 @@ class RobotQtWindow(QMainWindow):
         add_record_row("target_rz", "目标Rz (target_rz)", self.rz_edit)
         add_record_row("move_type", "运动模式 (move_type)", self.move_type_combo)
         add_record_row("point_count", "点数 (point_count)", self.point_count_edit)
-        add_record_row("points", "插补点 JSON (points)", self.points_edit)
+        add_record_row("points", "插补点 (points)", self.points_table)
+        add_record_row("point_buttons", "点位操作", self.point_buttons)
         add_record_row("check_value", "检测值 (check_value)", self.check_value_edit)
         add_record_row("delay_sec", "延时秒 (delay_sec)", self.delay_sec_edit)
         add_record_row("io_no", "IO编号 (io_no)", self.io_no_edit)
@@ -1098,9 +1111,9 @@ class RobotQtWindow(QMainWindow):
             self.desc_edit,
             self.axis_no_edit,
             self.pos_val_edit,
-            self.spd_edit,
-            self.acc_v_edit,
-            self.dec_v_edit,
+            self.spd_pct_edit,
+            self.acc_pct_edit,
+            self.dec_pct_edit,
             self.x_edit,
             self.y_edit,
             self.z_edit,
@@ -1113,7 +1126,11 @@ class RobotQtWindow(QMainWindow):
             self.io_no_edit,
         ]:
             widget.textChanged.connect(self._render_preview)
-        self.points_edit.textChanged.connect(self._render_preview)
+        self.points_table.itemChanged.connect(self._sync_points_from_table)
+        self.point_add_btn.clicked.connect(self._add_interp_point)
+        self.point_delete_btn.clicked.connect(self._delete_interp_point)
+        self.point_up_btn.clicked.connect(lambda: self._move_interp_point(-1))
+        self.point_down_btn.clicked.connect(lambda: self._move_interp_point(1))
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_form_mode)
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_name_display)
         self.func_num_combo.currentIndexChanged.connect(self._render_preview)
@@ -1448,7 +1465,7 @@ class RobotQtWindow(QMainWindow):
                 self._append_log("后台", "下发安全限位", "失败", str(exc))
         if controller_sync_error:
             self.status_label.setText(f"已保存本地系统配置，但控制器限位下发失败: {controller_sync_error}")
-            self._show_warning("部分成功", f"本地配置已保存，但控制器 1700~1712 下发失败：\n{controller_sync_error}")
+            self._show_warning("部分成功", f"本地配置已保存，但控制器 1700~1730 下发失败：\n{controller_sync_error}")
         else:
             self.status_label.setText(f"已保存系统配置: {self.system_config_path}")
         self._append_log("后台", "保存系统配置", "成功", json.dumps(config.to_dict(), ensure_ascii=False))
@@ -1668,9 +1685,9 @@ class RobotQtWindow(QMainWindow):
         self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(record.int_param("stop_mode")))
         self.axis_no_edit.setText(str(record.int_param("axis_no")))
         self.pos_val_edit.setText(self._fmt(record.float_param("pos_val")))
-        self.spd_edit.setText(self._fmt(record.float_param("spd")))
-        self.acc_v_edit.setText(self._fmt(record.float_param("acc_v")))
-        self.dec_v_edit.setText(self._fmt(record.float_param("dec_v")))
+        self.spd_pct_edit.setText(self._fmt(record.float_param("spd_pct")))
+        self.acc_pct_edit.setText(self._fmt(record.float_param("acc_pct")))
+        self.dec_pct_edit.setText(self._fmt(record.float_param("dec_pct")))
         self.stop_cmd_combo.setCurrentIndex(self.stop_cmd_combo.findData(record.int_param("stop_cmd")))
         self.fuzzy_pos_combo.setCurrentIndex(self.fuzzy_pos_combo.findData(record.int_param("fuzzy_pos")))
         self.fuzzy_spd_combo.setCurrentIndex(self.fuzzy_spd_combo.findData(record.int_param("fuzzy_spd")))
@@ -1684,7 +1701,7 @@ class RobotQtWindow(QMainWindow):
         self.rz_edit.setText(self._fmt(record.float_param("target_rz")))
         self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(record.int_param("move_type")))
         self.point_count_edit.setText(str(record.int_param("point_count")))
-        self.points_edit.setPlainText(json.dumps(record.params.get("points", []), ensure_ascii=False))
+        self._set_points_table_values(record.params.get("points", []))
         self.check_value_edit.setText(str(record.int_param("check_value", 1)))
         self.delay_sec_edit.setText(self._fmt(record.float_param("delay_sec")))
         self.io_no_edit.setText(str(record.int_param("io_no")))
@@ -1693,6 +1710,64 @@ class RobotQtWindow(QMainWindow):
         self.desc_edit.setText(record.description)
         self._sync_func_form_mode()
         self._update_current_template_info(record)
+        self._render_preview()
+
+    def _set_points_table_values(self, points: object) -> None:
+        rows: list[list[float]] = []
+        if isinstance(points, (list, tuple)):
+            for point in points:
+                if isinstance(point, (list, tuple)):
+                    padded = list(point[:6]) + [0.0] * max(0, 6 - len(point))
+                    rows.append([float(value) for value in padded[:6]])
+        if not rows:
+            rows = [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+        self.points_table.blockSignals(True)
+        self.points_table.setRowCount(len(rows))
+        for row, point in enumerate(rows):
+            for col, value in enumerate(point):
+                self.points_table.setItem(row, col, QTableWidgetItem(self._fmt(value)))
+        self.points_table.blockSignals(False)
+        self.point_count_edit.setText(str(len(rows)))
+
+    def _points_from_table(self) -> list[list[float]]:
+        points: list[list[float]] = []
+        for row in range(self.points_table.rowCount()):
+            point: list[float] = []
+            for col in range(6):
+                item = self.points_table.item(row, col)
+                text = item.text().strip() if item else "0"
+                point.append(float(text) if text else 0.0)
+            points.append(point)
+        return points
+
+    def _sync_points_from_table(self) -> None:
+        self.point_count_edit.setText(str(self.points_table.rowCount()))
+        self._render_preview()
+
+    def _add_interp_point(self) -> None:
+        row = self.points_table.rowCount()
+        self.points_table.insertRow(row)
+        for col in range(6):
+            self.points_table.setItem(row, col, QTableWidgetItem("0"))
+        self._sync_points_from_table()
+
+    def _delete_interp_point(self) -> None:
+        row = self.points_table.currentRow()
+        if row < 0:
+            row = self.points_table.rowCount() - 1
+        if row >= 0 and self.points_table.rowCount() > 1:
+            self.points_table.removeRow(row)
+            self._sync_points_from_table()
+
+    def _move_interp_point(self, direction: int) -> None:
+        row = self.points_table.currentRow()
+        target = row + direction
+        if row < 0 or target < 0 or target >= self.points_table.rowCount():
+            return
+        values = self._points_from_table()
+        values[row], values[target] = values[target], values[row]
+        self._set_points_table_values(values)
+        self.points_table.setCurrentCell(target, 0)
         self._render_preview()
 
     def _collect_record(self) -> QueryRecord:
@@ -1709,9 +1784,9 @@ class RobotQtWindow(QMainWindow):
             params = {
                 "axis_no": int(float(self.axis_no_edit.text() or "0")),
                 "pos_val": num(self.pos_val_edit.text()),
-                "spd": num(self.spd_edit.text()),
-                "acc_v": num(self.acc_v_edit.text()),
-                "dec_v": num(self.dec_v_edit.text()),
+                "spd_pct": num(self.spd_pct_edit.text()),
+                "acc_pct": num(self.acc_pct_edit.text()),
+                "dec_pct": num(self.dec_pct_edit.text()),
                 "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
                 "fuzzy_spd": int(self.fuzzy_spd_combo.currentData()),
                 "fuzzy_acc": int(self.fuzzy_acc_combo.currentData()),
@@ -1719,13 +1794,12 @@ class RobotQtWindow(QMainWindow):
                 "stop_cmd": int(self.stop_cmd_combo.currentData()),
             }
         elif func_num == 11:
-            points_raw = json.loads(self.points_edit.toPlainText() or "[]")
             params = {
-                "point_count": int(float(self.point_count_edit.text() or "0")),
-                "spd": num(self.spd_edit.text()),
-                "acc_v": num(self.acc_v_edit.text()),
-                "dec_v": num(self.dec_v_edit.text()),
-                "points": points_raw,
+                "point_count": self.points_table.rowCount(),
+                "spd_pct": num(self.spd_pct_edit.text()),
+                "acc_pct": num(self.acc_pct_edit.text()),
+                "dec_pct": num(self.dec_pct_edit.text()),
+                "points": self._points_from_table(),
             }
         elif func_num == 109:
             params = {
@@ -1749,9 +1823,9 @@ class RobotQtWindow(QMainWindow):
                 "target_rx": num(self.rx_edit.text()),
                 "target_ry": num(self.ry_edit.text()),
                 "target_rz": num(self.rz_edit.text()),
-                "spd": num(self.spd_edit.text()),
-                "acc_v": num(self.acc_v_edit.text()),
-                "dec_v": num(self.dec_v_edit.text()),
+                "spd_pct": num(self.spd_pct_edit.text()),
+                "acc_pct": num(self.acc_pct_edit.text()),
+                "dec_pct": num(self.dec_pct_edit.text()),
                 "stop_cmd": int(self.stop_cmd_combo.currentData()),
                 "fuzzy_pos": int(self.fuzzy_pos_combo.currentData()),
                 "fuzzy_spd": int(self.fuzzy_spd_combo.currentData()),
@@ -2922,9 +2996,9 @@ class RobotQtWindow(QMainWindow):
         self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(0))
         self.axis_no_edit.setText("0")
         self.pos_val_edit.setText("0")
-        self.spd_edit.setText("300")
-        self.acc_v_edit.setText("400")
-        self.dec_v_edit.setText("400")
+        self.spd_pct_edit.setText("50")
+        self.acc_pct_edit.setText("60")
+        self.dec_pct_edit.setText("60")
         self.x_edit.setText("0")
         self.y_edit.setText("0")
         self.z_edit.setText("0")
@@ -2959,6 +3033,9 @@ class RobotQtWindow(QMainWindow):
             self._show_warning("输入错误", validation_error)
             self._append_log("后台", "保存模板", "失败", validation_error)
             return
+        validation_warning = self._record_protocol_warning(record)
+        if validation_warning:
+            self._append_log("后台", "保存模板", "警告", validation_warning)
         self.table[record.query_key] = record
         save_query_table_json(self.json_path, self.table)
         self.service.reload()
@@ -3170,7 +3247,7 @@ class RobotQtWindow(QMainWindow):
                     self.robot_y = self._fmt(pose[1])
                     self.robot_z = self._fmt(pose[2])
                     self.robot_r = f"{self._fmt(pose[3])} / {self._fmt(pose[4])} / {self._fmt(pose[5])}"
-                    self.robot_speed = f"{self._fmt(record.speed_value())} / {self._fmt(record.acc_value())}"
+                    self.robot_speed = f"{self._fmt(record.spd_pct_value())} / {self._fmt(record.acc_pct_value())}"
             self.task_id += 1
             self.status_label.setText(f"已执行: {record.query_key}")
             self._append_log("执行", f"发送指令 {record.query_key}", "成功", f"任务{self.task_id - 1}")
@@ -3258,9 +3335,9 @@ class RobotQtWindow(QMainWindow):
                 "target_rx": point.rx,
                 "target_ry": point.ry,
                 "target_rz": point.rz,
-                "spd": point.speed_percent,
-                "acc_v": point.acc_percent,
-                "dec_v": point.acc_percent,
+                "spd_pct": point.speed_percent,
+                "acc_pct": point.acc_percent,
+                "dec_pct": point.acc_percent,
                 "stop_cmd": 0,
                 "fuzzy_pos": 0,
                 "fuzzy_spd": 0,
@@ -3287,53 +3364,32 @@ class RobotQtWindow(QMainWindow):
         return self._execute_send_six(client, record)
 
     def _execute_send_six(self, client: ControllerClient, record: QueryRecord) -> list[float]:
-        """六轴机械手协议执行流程 (Func 104/106/107/108)"""
-        # 1. 构建六轴命令
+        """六轴机械手协议执行流程。"""
+        six_cmd = self._trigger_six_no_wait(client, record)
+        self._wait_six_command_done(client, six_cmd, record)
+        return self._read_six_command_feedback(client, six_cmd, record)
+
+    def _trigger_six_no_wait(self, client: ControllerClient, record: QueryRecord) -> SixAxisCommand:
+        """写入并触发六轴命令，不等待完成。"""
         six_cmd = self.service.build_six_command_from_record(record)
+        self._precheck_six_command(client, six_cmd)
+        self._write_six_command(client, six_cmd, record)
+        return six_cmd
 
-        # 2. 判断是否跳过前置检查
-        skip_precheck = (
-            six_cmd.func_num == 104          # Func104系统控制: 不需要前置检查
-            or six_cmd.func_num < 0          # 其他本地命令
-        )
-
-        # 3. 前置检查 (非跳过时)
-        if not skip_precheck:
-            status_read = self.service.build_six_status_read()
-            status_vals = client.read_modbus_long(status_read)
-            six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
-            if not six_status.can_send_for(six_cmd.func_num):
-                raise RuntimeError(f"六轴前置检查失败: IEEE(34)={six_status.raw} 控制器未就绪")
-
-        # 4. 本地命令处理
-        if six_cmd.func_num == -1:
-            client.write_modbus_bit(20000, [six_cmd.io_grip])
-            self._append_log("六轴", f"夹爪控制 {record.query_key}", "成功", f"BIT(20000)={six_cmd.io_grip}")
-            time.sleep(0.1)
-            pose_read = self.service.build_six_pose_feedback_read()
-            return client.read_modbus_float(pose_read)
-
-        if six_cmd.func_num == -2:
-            delay_ms = six_cmd.ext_p1
-            self._append_log("六轴", f"等待 {record.query_key}", "成功", f"延时{delay_ms}ms")
-            time.sleep(min(delay_ms / 1000.0, 2.0))
-            pose_read = self.service.build_six_pose_feedback_read()
-            return client.read_modbus_float(pose_read)
-
-        if six_cmd.func_num == -3:
-            client.write_modbus_bit(20001, [six_cmd.io_door])
-            self._append_log("六轴", f"门控制 {record.query_key}", "成功", f"BIT(20001)={six_cmd.io_door}")
-            time.sleep(0.1)
-            pose_read = self.service.build_six_pose_feedback_read()
-            return client.read_modbus_float(pose_read)
-
+    def _precheck_six_command(self, client: ControllerClient, six_cmd: SixAxisCommand) -> None:
         if six_cmd.func_num < 0:
-            self._append_log("六轴", f"本地操作 {record.query_key}", "成功", f"func={six_cmd.func_num}")
-            time.sleep(0.05)
-            pose_read = self.service.build_six_pose_feedback_read()
-            return client.read_modbus_float(pose_read)
+            raise RuntimeError(f"V4.3 不支持本地负函数号命令: func={six_cmd.func_num}")
+        if six_cmd.func_num == 104:
+            return
+        status_read = self.service.build_six_status_read()
+        status_vals = client.read_modbus_long(status_read)
+        six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+        if six_status.function_state(six_cmd.func_num) == SixAxisStatus.STATE_ERR:
+            raise RuntimeError(f"六轴前置检查失败: Func{six_cmd.func_num} 处于 ERR，需先复位 | LONG(34)={six_status.raw}")
+        if not six_status.can_send_for(six_cmd.func_num):
+            raise RuntimeError(f"六轴前置检查失败: LONG(34)={six_status.raw} 目标 slot 未就绪")
 
-        # 5. 写参数
+    def _write_six_command(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         if six_cmd.func_num in (106, 107, 108):
             self._append_log(
                 "六轴",
@@ -3358,8 +3414,9 @@ class RobotQtWindow(QMainWindow):
         trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
+        time.sleep(0.03)
 
-        # 8. 轮询 LONG(34) 函数状态 + IEEE(56) 运动状态
+    def _wait_six_command_done(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         status_read = self.service.build_six_status_read()
         system_state_read = self.service.build_six_system_state_read()
         curr_func_read = self.service.build_six_current_func_read()
@@ -3422,6 +3479,8 @@ class RobotQtWindow(QMainWindow):
                 f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | IEEE(56)={last_motion_state}"
             )
 
+    def _read_six_command_feedback(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> list[float]:
+        motion_state_read = self.service.build_six_motion_state_read()
         if six_cmd.func_num == 11:
             current_point = client.read_modbus_float(VrReadRequest(start_vr=640, count=1))
             total_points = client.read_modbus_float(VrReadRequest(start_vr=642, count=1))
@@ -3450,23 +3509,34 @@ class RobotQtWindow(QMainWindow):
 
         # 9. 读取回传数据，位姿/关节优先使用 V4.3 MPOS 区。
         xyz_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
-        spd_vals = client.read_modbus_float(VrReadRequest(start_vr=52, count=1))
-        dist_vals = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))
         motion_state_vals = client.read_modbus_float(motion_state_read)
         joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
-        ecat_vals = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))
-        frame_vals = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))
         motion_state = self.service.parse_six_motion_state(motion_state_vals)
+        optional_feedback = self._read_optional_v43_feedback(client)
         self._append_log("六轴", "回传数据", "成功",
                          f"X={xyz_vals[0]:.1f} Y={xyz_vals[1]:.1f} Z={xyz_vals[2]:.1f} "
                          f"Rx={xyz_vals[3]:.1f} Ry={xyz_vals[4]:.1f} Rz={xyz_vals[5]:.1f} | "
-                         f"速度={spd_vals[0]:.1f}mm/s 剩余距离={dist_vals[0]:.1f} 运动状态={motion_state} | "
+                         f"运动状态={motion_state} | "
                          f"J1={joint_vals[0]:.1f} J2={joint_vals[1]:.1f} J3={joint_vals[2]:.1f} "
-                         f"J4={joint_vals[3]:.1f} J5={joint_vals[4]:.1f} J6={joint_vals[5]:.1f} | "
-                         f"ECAT={int(ecat_vals[0]) if ecat_vals else 0} "
-                         f"FRAME={int(frame_vals[0]) if frame_vals else 0}")
+                         f"J4={joint_vals[3]:.1f} J5={joint_vals[4]:.1f} J6={joint_vals[5]:.1f}"
+                         f"{optional_feedback}")
         self.motion_percent = "运动中" if motion_state == 1 else "空闲"
         return xyz_vals
+
+    def _read_optional_v43_feedback(self, client: ControllerClient) -> str:
+        """读取 V4.3 未定义语义的兼容反馈位，失败时静默跳过。"""
+        try:
+            speed = client.read_modbus_float(VrReadRequest(start_vr=52, count=1))[0]
+            distance = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))[0]
+            ecat = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))[0]
+            frame = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))[0]
+        except Exception:
+            return ""
+        return (
+            " | 可选反馈(待固件确认): "
+            f"IEEE(52)={speed:.1f}, IEEE(54)={distance:.1f}, "
+            f"IEEE(70)={int(ecat)}, IEEE(72)={int(frame)}"
+        )
 
     def _read_feedback(self) -> None:
         host = self.host_edit.text().strip()
@@ -3624,7 +3694,7 @@ class RobotQtWindow(QMainWindow):
             pose = record.pose_tuple()
             if pose is not None:
                 self.robot_r = f"{self._fmt(pose[3])} / {self._fmt(pose[4])} / {self._fmt(pose[5])}"
-                self.robot_speed = f"{self._fmt(record.speed_value())} / {self._fmt(record.acc_value())}"
+                self.robot_speed = f"{self._fmt(record.spd_pct_value())} / {self._fmt(record.acc_pct_value())}"
 
     def _validate_record(self, record: QueryRecord) -> str | None:
         if record.func_num not in (11, 104, 106, 107, 108, 109, 110, 120):
@@ -3646,15 +3716,19 @@ class RobotQtWindow(QMainWindow):
             ]:
                 if value not in (0, 1):
                     return f"{label} 只能是 0 或 1。"
-            if record.speed_value() <= 0 and record.int_param("stop_cmd") == 0:
-                return "正常执行时速度必须大于 0。"
-            if record.acc_value() < 0 or record.float_param("dec_v") < 0:
-                return "加速度和减速度不能小于 0。"
+            if record.int_param("fuzzy_spd") == 0 and not (0 <= record.spd_pct_value() <= 150):
+                return "速度百分比必须在 0 到 150 之间。"
+            if record.int_param("fuzzy_acc") == 0 and not (0 <= record.acc_pct_value() <= 150):
+                return "加速度百分比必须在 0 到 150 之间。"
+            if record.int_param("fuzzy_dec") == 0 and not (0 <= record.dec_pct_value() <= 150):
+                return "减速度百分比必须在 0 到 150 之间。"
         if record.func_num == 11:
-            if record.speed_value() <= 0:
-                return "Func11 的速度必须大于 0。"
-            if record.acc_value() < 0 or record.float_param("dec_v") < 0:
-                return "Func11 的加速度和减速度不能小于 0。"
+            if not (0 <= record.spd_pct_value() <= 150):
+                return "Func11 的速度百分比必须在 0 到 150 之间。"
+            if not (0 <= record.acc_pct_value() <= 150):
+                return "Func11 的加速度百分比必须在 0 到 150 之间。"
+            if not (0 <= record.dec_pct_value() <= 150):
+                return "Func11 的减速度百分比必须在 0 到 150 之间。"
         if record.func_num == 106:
             if not (0 <= record.int_param("axis_no") <= 5):
                 return "Func106 的轴号只能是 0 到 5。"
@@ -3682,16 +3756,19 @@ class RobotQtWindow(QMainWindow):
         if record.func_num == 109:
             if record.int_param("check_value", 1) == 0:
                 return "Func109 的 check_value 不能为 0。"
-            if record.float_param("delay_sec") < 0:
-                return "Func109 的 delay_sec 不能小于 0。"
+            if record.float_param("delay_sec") <= 0:
+                return "Func109 的 delay_sec 必须大于 0。"
         if record.func_num == 110:
-            if record.float_param("delay_sec") < 0:
-                return "Func110 的 delay_sec 不能小于 0。"
+            if record.float_param("delay_sec") <= 0:
+                return "Func110 的 delay_sec 必须大于 0。"
         if record.func_num == 120:
-            if record.int_param("io_no") < 0:
-                return "Func120 的 io_no 不能小于 0。"
+            if not (0 <= record.int_param("io_no") <= 11):
+                return "Func120 的 io_no 必须在 0 到 11 之间。"
             if record.int_param("io_action") not in (0, 1):
                 return "Func120 的 io_action 只能是 0 或 1。"
+        return None
+
+    def _record_protocol_warning(self, record: QueryRecord) -> str | None:
         return None
 
     @staticmethod
@@ -3705,24 +3782,22 @@ class RobotQtWindow(QMainWindow):
 
     def _sync_func_form_mode(self, *_) -> None:
         func_num = int(self.func_num_combo.currentData() or 108)
-        if func_num == 11 and int(float(self.point_count_edit.text() or "0")) <= 0:
-            self.point_count_edit.setText("2")
-            if not self.points_edit.toPlainText().strip() or self.points_edit.toPlainText().strip() == "[]":
-                self.points_edit.setPlainText("[[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]]")
+        if func_num == 11 and self.points_table.rowCount() <= 0:
+            self._set_points_table_values([[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]])
         elif func_num == 109 and int(float(self.check_value_edit.text() or "0")) == 0:
             self.check_value_edit.setText("1")
         visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
             visible_keys |= {"stop_mode"}
         elif func_num == 11:
-            visible_keys |= {"point_count", "points", "spd", "acc_v", "dec_v"}
+            visible_keys |= {"point_count", "points", "point_buttons", "spd_pct", "acc_pct", "dec_pct"}
         elif func_num in (106, 107):
             visible_keys |= {
                 "axis_no",
                 "pos_val",
-                "spd",
-                "acc_v",
-                "dec_v",
+                "spd_pct",
+                "acc_pct",
+                "dec_pct",
                 "stop_cmd",
                 "fuzzy_pos",
                 "fuzzy_spd",
@@ -3737,9 +3812,9 @@ class RobotQtWindow(QMainWindow):
                 "target_rx",
                 "target_ry",
                 "target_rz",
-                "spd",
-                "acc_v",
-                "dec_v",
+                "spd_pct",
+                "acc_pct",
+                "dec_pct",
                 "stop_cmd",
                 "fuzzy_pos",
                 "fuzzy_spd",
@@ -4151,6 +4226,10 @@ class RobotQtWindow(QMainWindow):
             return
 
         current_step_index = self.flow_step_index
+        parallel_group = self._build_parallel_flow_group(flow, current_step_index)
+        if parallel_group is not None:
+            self._run_parallel_flow_group(flow, current_step_index, parallel_group, auto_continue=auto_continue)
+            return
 
         def on_step_done(ok: bool) -> None:
             if not ok:
@@ -4201,6 +4280,134 @@ class RobotQtWindow(QMainWindow):
                     QTimer.singleShot(0, self._run_next_flow_step)
 
         self._execute_query_key(step_name, on_done=on_step_done)
+
+    def _build_parallel_flow_group(self, flow, start_index: int) -> list[QueryRecord] | None:
+        if start_index + 1 >= len(flow.steps):
+            return None
+        first = self.table.get(flow.steps[start_index])
+        second = self.table.get(flow.steps[start_index + 1])
+        if not isinstance(first, QueryRecord) or not isinstance(second, QueryRecord):
+            return None
+        if first.func_num not in SIX_MOTION_FUNCS or second.func_num != 110:
+            return None
+        try:
+            first_plan, _ = self._build_execution_plan(first)
+            second_plan, _ = self._build_execution_plan(second)
+        except Exception:
+            return None
+        if len(first_plan) != 1 or len(second_plan) != 1:
+            return None
+        group = [first, second]
+        if start_index + 2 < len(flow.steps):
+            third = self.table.get(flow.steps[start_index + 2])
+            if isinstance(third, QueryRecord) and third.func_num == 120:
+                try:
+                    third_plan, _ = self._build_execution_plan(third)
+                except Exception:
+                    third_plan = []
+                if len(third_plan) == 1:
+                    group.append(third)
+        return group
+
+    def _run_parallel_flow_group(self, flow, start_index: int, group: list[QueryRecord], *, auto_continue: bool) -> None:
+        names = " + ".join(record.query_key for record in group)
+        self._append_log("流程", f"并行组开始 第{start_index + 1}步", "成功", names)
+        host = self.host_edit.text().strip()
+        self._pause_polling()
+
+        def work():
+            client = self._get_client(host)
+            for record in group:
+                validation_error = self._validate_record(record)
+                if validation_error:
+                    raise ValueError(f"{record.query_key}: {validation_error}")
+
+            motion_record = group[0]
+            delay_record = group[1]
+            io_record = group[2] if len(group) > 2 else None
+
+            motion_cmd = self._trigger_six_no_wait(client, motion_record)
+            delay_cmd = self._trigger_six_no_wait(client, delay_record)
+            self._wait_six_command_done(client, delay_cmd, delay_record)
+            delay_feedback = self._read_six_command_feedback(client, delay_cmd, delay_record)
+
+            io_feedback: list[float] | None = None
+            if io_record is not None:
+                io_cmd = self._trigger_six_no_wait(client, io_record)
+                self._wait_six_command_done(client, io_cmd, io_record)
+                io_feedback = self._read_six_command_feedback(client, io_cmd, io_record)
+
+            self._wait_six_command_done(client, motion_cmd, motion_record)
+            motion_feedback = self._read_six_command_feedback(client, motion_cmd, motion_record)
+
+            results: list[tuple[QueryRecord, bool, str, list[float] | None]] = []
+            for record, feedback in (
+                (motion_record, motion_feedback),
+                (delay_record, delay_feedback),
+                (io_record, io_feedback),
+            ):
+                if record is None:
+                    continue
+                step_ok, step_error = self._evaluate_feedback_result(feedback or [])
+                results.append((record, step_ok, step_error, feedback))
+            return results
+
+        def on_result(result) -> None:
+            self._resume_polling()
+            if isinstance(result, Exception):
+                self._disconnect_client()
+                self.flow_running = False
+                self.flow_status = "失败"
+                self._refresh_flow_steps()
+                self._refresh_flow_status_panel()
+                self._append_log("流程", f"并行组失败 第{start_index + 1}步", "失败", str(result))
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(False)
+                return
+
+            failed = False
+            for record, step_ok, step_error, feedback in result:
+                self._after_send(record, step_ok, step_error, feedback)
+                if not step_ok:
+                    failed = True
+            if failed:
+                self.flow_running = False
+                self.flow_status = "失败"
+                self._refresh_flow_steps()
+                self._refresh_flow_status_panel()
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(False)
+                return
+
+            self._append_log("流程", f"并行组完成 第{start_index + 1}步", "成功", names)
+            self.flow_step_index = start_index + len(group)
+            current_flow = self._current_flow_definition()
+            if current_flow is None or self.flow_step_index >= len(current_flow.steps):
+                self.flow_running = False
+                self.flow_status = "完成"
+                self.flow_current_step = "-"
+                self._refresh_flow_steps()
+                self._refresh_flow_status_panel()
+                self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+                callback = self._flow_done_callback
+                self._flow_done_callback = None
+                if callback:
+                    callback(True)
+                return
+
+            self.flow_status = "运行中" if auto_continue else "空闲"
+            self.flow_current_step = current_flow.steps[self.flow_step_index]
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            if auto_continue and self.flow_running:
+                delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
+                QTimer.singleShot(delay_ms, self._run_next_flow_step)
+
+        self._run_in_background(work, on_result)
 
     def _current_flow_definition(self):
         if not self.current_flow_name:

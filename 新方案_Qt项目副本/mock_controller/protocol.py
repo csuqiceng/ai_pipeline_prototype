@@ -144,9 +144,9 @@ SIX_ALARM_BIT = 151              # deprecated: V4.3 使用 Func104 reset_ctrl �
 SIX_ALARM_DETAIL_ADDR = 38       # IEEE(38) 报警详情(位组合)
 SIX_CURR_FUNC_ADDR = 322         # IEEE(322) 当前函数号
 
-# 实时数据 IEEE 地址
-SIX_RT_J_START = 58             # IEEE(58~68) J1~J6角度
-SIX_RT_XYZ_START = 40           # IEEE(40~50) X/Y/Z/Rx/Ry/Rz
+# mock 内部运行态缓存；对外同步到 V4.3 DPOS/MPOS(1500+/1600+)。
+SIX_RT_J_START = 58
+SIX_RT_XYZ_START = 40
 
 # 安全限位地址
 SIX_SAFE_R_MIN = 1700            # IEEE(1700) 最小半径
