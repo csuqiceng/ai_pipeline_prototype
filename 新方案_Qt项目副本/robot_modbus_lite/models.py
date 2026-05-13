@@ -348,7 +348,7 @@ class SixAxisCommand:
     stop_mode: int = 0           # deprecated: 仅兼容旧 Func104 stop_mode 模板
     estop_ctrl: int = 0          # 0=无操作 1=急停 2=解除急停
     pause_ctrl: int = 0          # 0=无操作 1=暂停 2=继续
-    cancel_ctrl: int = 0         # 0=无操作 1=取消/结束 2=保留
+    cancel_ctrl: int = 0         # 0=无操作 1=结束按下 2=结束松开
     reset_ctrl: int = 0          # 0=无操作 1=报警复位
     # Func 106/107: 点动参数
     axis_no: int = 0

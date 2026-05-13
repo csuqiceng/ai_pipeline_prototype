@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import importlib.util
 import os
@@ -7,9 +8,12 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
+import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Iterator
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction
@@ -72,7 +76,7 @@ from .license_dialog import LicenseDialog
 
 FUNC_OPTIONS = {
     "Func11 多点插补": 11,
-    "Func104 急停/慢停": 104,
+    "Func104 系统控制": 104,
     "Func106 关节轴点动": 106,
     "Func107 虚拟轴点动": 107,
     "Func108 直线插补/PTP": 108,
@@ -88,17 +92,22 @@ FUNC_LABELS.update({
     120: "Func120 IO控制",
 })
 STOP_CMD_LABELS = {
-    0: "正常执行",
-    1: "RAPIDSTOP(2) 急停",
-    2: "RAPIDSTOP(1) 快速停止",
-    3: "CANCEL 取消当前运动",
-    4: "CANCEL 取消当前运动",
-    5: "MOVEABS(DPOS) 等效暂停",
+    0: "正常",
+    1: "急停",
+    2: "快停",
+    3: "慢停",
+    4: "暂停",
+    5: "恢复",
 }
 MOVE_TYPE_LABELS = {
     0: "直线插补",
     1: "PTP关节",
 }
+SIX_ECHO_RETRY_INTERVAL_SEC = 0.05
+SIX_ECHO_MAX_RETRY_COUNT = 100
+SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD = 5
+SIX_ECHO_COMPARE_EPSILON = 0.01
+SIX_POST_TRIGGER_SETTLE_SEC = 0.08
 SYSTEM_COMMANDS = {
     "上电": ("power_on", "系统已上电"),
     "启动": ("auto_start", "系统启动"),
@@ -115,6 +124,14 @@ SYSTEM_COMMAND_CODES = {
     "sys_resume": 4004,
     "sys_estop": 4002,
 }
+
+
+class BackgroundTaskError(RuntimeError):
+    def __init__(self, exc: Exception) -> None:
+        super().__init__(str(exc))
+        self.error_type = type(exc).__name__
+        self.error_message = str(exc)
+        self.traceback_text = traceback.format_exc()
 
 
 class RobotQtWindow(QMainWindow):
@@ -144,8 +161,9 @@ class RobotQtWindow(QMainWindow):
         self.service = RobotModbusService(self.json_path, flows_path=self.flows_path, table=self.table)
         self._client_factory = client_factory or (lambda host, repo_root: ZMotionVrClient(host=host, repo_root=repo_root))
         self._updating_command_fields = False
+        self._updating_func104_form = False
         self.history: list[dict[str, str | int]] = []
-        self.logs: list[dict[str, str]] = []
+        self.logs: list[dict[str, Any]] = []
         self.task_id = 1001
         self.current_key: str | None = None
         self.current_safe_point_key: str | None = None
@@ -177,10 +195,19 @@ class RobotQtWindow(QMainWindow):
         self._polling_feedback = False
         self._last_poll_error = ""
         self._last_realtime_snapshot: tuple[str, str, str, str] | None = None
+        self._last_realtime_snapshot_raw: dict[str, Any] | None = None
         self._poll_started_logged = False
         self._cached_client = None
         self._cached_client_host = ""
         self._client_cache_lock = threading.Lock()
+        self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        self._log_seq = 0
+        self._log_seq_lock = threading.Lock()
+        self._log_context = threading.local()
+        self._session_start_perf = time.perf_counter()
+        self._log_dir = self.runtime_root / "data" / "exported_logs"
+        self._log_session_path = self._log_dir / f"session_{self.session_id}.jsonl"
+        self._log_persist_error_reported = False
         self.nlp_last_plan: VoiceNlpPlan | None = None
         self.nlp_sequence_running = False
         self.nlp_parse_running = False
@@ -718,7 +745,7 @@ class RobotQtWindow(QMainWindow):
             ("支持", "Func104 停止"),
             ("支持", "Func106/107 点动"),
             ("支持", "Func108 直线/PTP"),
-            ("stop_cmd", "0正常 1急停 2快停 3/4取消 5等效暂停"),
+            ("stop_cmd", "0正常 1急停 2快停 3慢停 4暂停 5恢复"),
             ("fuzzy", "0绝对 1叠加当前值"),
             ("move_type", "0直线插补 1PTP关节"),
         ])
@@ -787,11 +814,29 @@ class RobotQtWindow(QMainWindow):
         self.stop_mode_combo.addItem("急停(0)", 0)
         self.stop_mode_combo.addItem("慢停(1)", 1)
         self.system_action_combo = QComboBox()
-        self.system_action_combo.addItem("急停", "estop")
-        self.system_action_combo.addItem("暂停", "pause")
-        self.system_action_combo.addItem("继续", "resume")
-        self.system_action_combo.addItem("取消/结束", "cancel")
+        self.system_action_combo.addItem("自定义/无动作", "custom")
+        self.system_action_combo.addItem("急停按下", "estop")
+        self.system_action_combo.addItem("急停松开", "estop_release")
+        self.system_action_combo.addItem("暂停按下", "pause")
+        self.system_action_combo.addItem("暂停松开/继续", "resume")
+        self.system_action_combo.addItem("结束按下", "cancel")
+        self.system_action_combo.addItem("结束松开", "cancel_release")
         self.system_action_combo.addItem("报警复位", "reset")
+        self.estop_ctrl_combo = QComboBox()
+        self.estop_ctrl_combo.addItem("不操作(0)", 0)
+        self.estop_ctrl_combo.addItem("按下(1)", 1)
+        self.estop_ctrl_combo.addItem("松开(2)", 2)
+        self.pause_ctrl_combo = QComboBox()
+        self.pause_ctrl_combo.addItem("不操作(0)", 0)
+        self.pause_ctrl_combo.addItem("按下(1)", 1)
+        self.pause_ctrl_combo.addItem("松开/继续(2)", 2)
+        self.cancel_ctrl_combo = QComboBox()
+        self.cancel_ctrl_combo.addItem("不操作(0)", 0)
+        self.cancel_ctrl_combo.addItem("按下(1)", 1)
+        self.cancel_ctrl_combo.addItem("松开(2)", 2)
+        self.reset_ctrl_combo = QComboBox()
+        self.reset_ctrl_combo.addItem("不操作(0)", 0)
+        self.reset_ctrl_combo.addItem("复位(1)", 1)
         self.axis_no_edit = QLineEdit("0")
         self.pos_val_edit = QLineEdit("0")
         self.spd_pct_edit = QLineEdit("50")
@@ -857,7 +902,11 @@ class RobotQtWindow(QMainWindow):
         add_record_row("keywords", "自然语言关键词 (keywords)", self.keywords_edit)
         add_record_row("safety", "安全等级 (safety_level)", self.safety_edit)
         add_record_row("desc", "说明 (description)", self.desc_edit)
-        add_record_row("system_action", "系统动作 (Func104)", self.system_action_combo)
+        add_record_row("system_action", "快捷动作 (Func104)", self.system_action_combo)
+        add_record_row("estop_ctrl", "急停控制 (estop_ctrl)", self.estop_ctrl_combo)
+        add_record_row("pause_ctrl", "暂停控制 (pause_ctrl)", self.pause_ctrl_combo)
+        add_record_row("cancel_ctrl", "结束控制 (cancel_ctrl)", self.cancel_ctrl_combo)
+        add_record_row("reset_ctrl", "报警复位 (reset_ctrl)", self.reset_ctrl_combo)
         add_record_row("axis_no", "轴号 (axis_no)", self.axis_no_edit)
         add_record_row("pos_val", "目标值 (pos_val)", self.pos_val_edit)
         add_record_row("spd_pct", "速度百分比 (spd_pct)", self.spd_pct_edit)
@@ -878,7 +927,7 @@ class RobotQtWindow(QMainWindow):
         add_record_row("point_count", "点数 (point_count)", self.point_count_edit)
         add_record_row("points", "插补点 (points)", self.points_table)
         add_record_row("point_buttons", "点位操作", self.point_buttons)
-        add_record_row("check_value", "检测值 (check_value)", self.check_value_edit)
+        add_record_row("check_value", "校验值 (check_value)", self.check_value_edit)
         add_record_row("delay_sec", "延时秒 (delay_sec)", self.delay_sec_edit)
         add_record_row("io_no", "IO编号 (io_no)", self.io_no_edit)
         add_record_row("io_action", "IO动作 (io_action)", self.io_action_combo)
@@ -912,7 +961,7 @@ class RobotQtWindow(QMainWindow):
         self.safe_speed_max_edit = QLineEdit("0")
         self.safe_acc_max_edit = QLineEdit("0")
         self.safe_dec_max_edit = QLineEdit("0")
-        self.motion_timeout_edit = QLineEdit("30")
+        self.motion_timeout_edit = QLineEdit("180")
         for label, widget in [
             ("X最小", self.range_x_min_edit),
             ("X最大", self.range_x_max_edit),
@@ -1141,7 +1190,11 @@ class RobotQtWindow(QMainWindow):
         self.func_num_combo.currentIndexChanged.connect(self._sync_func_name_display)
         self.func_num_combo.currentIndexChanged.connect(self._render_preview)
         self.stop_mode_combo.currentIndexChanged.connect(self._render_preview)
-        self.system_action_combo.currentIndexChanged.connect(self._render_preview)
+        self.system_action_combo.currentIndexChanged.connect(self._on_func104_action_changed)
+        self.estop_ctrl_combo.currentIndexChanged.connect(self._on_func104_control_changed)
+        self.pause_ctrl_combo.currentIndexChanged.connect(self._on_func104_control_changed)
+        self.cancel_ctrl_combo.currentIndexChanged.connect(self._on_func104_control_changed)
+        self.reset_ctrl_combo.currentIndexChanged.connect(self._on_func104_control_changed)
         self.stop_cmd_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_pos_combo.currentIndexChanged.connect(self._render_preview)
         self.fuzzy_spd_combo.currentIndexChanged.connect(self._render_preview)
@@ -1686,17 +1739,41 @@ class RobotQtWindow(QMainWindow):
 
     @staticmethod
     def _func104_action_from_record(record: QueryRecord) -> str:
-        if record.int_param("estop_ctrl") == 1:
+        return RobotQtWindow._func104_action_from_params({
+            "stop_mode": record.int_param("stop_mode"),
+            "estop_ctrl": record.int_param("estop_ctrl"),
+            "pause_ctrl": record.int_param("pause_ctrl"),
+            "cancel_ctrl": record.int_param("cancel_ctrl"),
+            "reset_ctrl": record.int_param("reset_ctrl"),
+        })
+
+    @staticmethod
+    def _func104_action_from_params(params: dict[str, int]) -> str:
+        estop = int(params.get("estop_ctrl", 0))
+        pause = int(params.get("pause_ctrl", 0))
+        cancel = int(params.get("cancel_ctrl", 0))
+        reset = int(params.get("reset_ctrl", 0))
+        if estop == 1 and pause == 0 and cancel == 0 and reset == 0:
             return "estop"
-        if record.int_param("pause_ctrl") == 1:
+        if estop == 2 and pause == 0 and cancel == 0 and reset == 0:
+            return "estop_release"
+        if pause == 1 and estop == 0 and cancel == 0 and reset == 0:
             return "pause"
-        if record.int_param("pause_ctrl") == 2:
+        if pause == 2 and estop == 0 and cancel == 0 and reset == 0:
             return "resume"
-        if record.int_param("cancel_ctrl") == 1:
+        if cancel == 1 and estop == 0 and pause == 0 and reset == 0:
             return "cancel"
-        if record.int_param("reset_ctrl") == 1:
+        if cancel == 2 and estop == 0 and pause == 0 and reset == 0:
+            return "cancel_release"
+        if reset == 1 and estop == 0 and pause == 0 and cancel == 0:
             return "reset"
-        return "estop" if record.int_param("stop_mode") == 0 else "pause"
+        return "custom"
+
+    @staticmethod
+    def _func104_stop_mode_from_params(params: dict[str, int]) -> int:
+        if int(params.get("pause_ctrl", 0)) != 0 or int(params.get("cancel_ctrl", 0)) != 0:
+            return 1
+        return 0
 
     @staticmethod
     def _func104_params_from_action(action: str) -> dict[str, int]:
@@ -1707,7 +1784,9 @@ class RobotQtWindow(QMainWindow):
             "cancel_ctrl": 0,
             "reset_ctrl": 0,
         }
-        if action == "pause":
+        if action == "estop_release":
+            params["estop_ctrl"] = 2
+        elif action == "pause":
             params["stop_mode"] = 1
             params["pause_ctrl"] = 1
         elif action == "resume":
@@ -1716,20 +1795,73 @@ class RobotQtWindow(QMainWindow):
         elif action == "cancel":
             params["stop_mode"] = 1
             params["cancel_ctrl"] = 1
+        elif action == "cancel_release":
+            params["stop_mode"] = 1
+            params["cancel_ctrl"] = 2
         elif action == "reset":
             params["reset_ctrl"] = 1
-        else:
+        elif action == "estop":
             params["estop_ctrl"] = 1
         return params
+
+    def _func104_form_params(self) -> dict[str, int]:
+        params = {
+            "estop_ctrl": int(self.estop_ctrl_combo.currentData() or 0),
+            "pause_ctrl": int(self.pause_ctrl_combo.currentData() or 0),
+            "cancel_ctrl": int(self.cancel_ctrl_combo.currentData() or 0),
+            "reset_ctrl": int(self.reset_ctrl_combo.currentData() or 0),
+        }
+        params["stop_mode"] = self._func104_stop_mode_from_params(params)
+        return params
+
+    def _set_func104_form_params(self, params: dict[str, int], *, update_action: bool = True) -> None:
+        self._updating_func104_form = True
+        try:
+            self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(self._func104_stop_mode_from_params(params)))
+            self.estop_ctrl_combo.setCurrentIndex(self.estop_ctrl_combo.findData(int(params.get("estop_ctrl", 0))))
+            self.pause_ctrl_combo.setCurrentIndex(self.pause_ctrl_combo.findData(int(params.get("pause_ctrl", 0))))
+            self.cancel_ctrl_combo.setCurrentIndex(self.cancel_ctrl_combo.findData(int(params.get("cancel_ctrl", 0))))
+            self.reset_ctrl_combo.setCurrentIndex(self.reset_ctrl_combo.findData(int(params.get("reset_ctrl", 0))))
+            if update_action:
+                action = self._func104_action_from_params(params)
+                self.system_action_combo.setCurrentIndex(self.system_action_combo.findData(action))
+        finally:
+            self._updating_func104_form = False
+
+    def _on_func104_action_changed(self, *_) -> None:
+        if self._updating_func104_form:
+            return
+        action = str(self.system_action_combo.currentData() or "custom")
+        if action != "custom":
+            self._set_func104_form_params(self._func104_params_from_action(action), update_action=False)
+        self._render_preview()
+
+    def _on_func104_control_changed(self, *_) -> None:
+        if self._updating_func104_form:
+            return
+        params = self._func104_form_params()
+        self._updating_func104_form = True
+        try:
+            action = self._func104_action_from_params(params)
+            self.system_action_combo.setCurrentIndex(self.system_action_combo.findData(action))
+            self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(self._func104_stop_mode_from_params(params)))
+        finally:
+            self._updating_func104_form = False
+        self._render_preview()
 
     def _load_record_into_form(self, record: QueryRecord) -> None:
         self.name_edit.setText(record.query_key)
         self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(record.func_num))
         self._sync_func_name_display()
         self.keywords_edit.setText(record.keywords)
-        self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(record.int_param("stop_mode")))
-        self.system_action_combo.setCurrentIndex(
-            self.system_action_combo.findData(self._func104_action_from_record(record))
+        self._set_func104_form_params(
+            {
+                "stop_mode": record.int_param("stop_mode"),
+                "estop_ctrl": record.int_param("estop_ctrl"),
+                "pause_ctrl": record.int_param("pause_ctrl"),
+                "cancel_ctrl": record.int_param("cancel_ctrl"),
+                "reset_ctrl": record.int_param("reset_ctrl"),
+            }
         )
         self.axis_no_edit.setText(str(record.int_param("axis_no")))
         self.pos_val_edit.setText(self._fmt(record.float_param("pos_val")))
@@ -1825,8 +1957,7 @@ class RobotQtWindow(QMainWindow):
         func_num = int(self.func_num_combo.currentData())
         params: dict[str, object]
         if func_num == 104:
-            action = str(self.system_action_combo.currentData() or "estop")
-            params = self._func104_params_from_action(action)
+            params = self._func104_form_params()
         elif func_num in (106, 107):
             params = {
                 "axis_no": int(float(self.axis_no_edit.text() or "0")),
@@ -1862,7 +1993,7 @@ class RobotQtWindow(QMainWindow):
                 "io_no": int(float(self.io_no_edit.text() or "0")),
                 "io_action": int(self.io_action_combo.currentData()),
             }
-        else:
+        elif func_num == 108:
             params = {
                 "target_x": num(self.x_edit.text()),
                 "target_y": num(self.y_edit.text()),
@@ -1880,6 +2011,8 @@ class RobotQtWindow(QMainWindow):
                 "fuzzy_dec": int(self.fuzzy_dec_combo.currentData()),
                 "move_type": int(self.move_type_combo.currentData()),
             }
+        else:
+            raise ValueError(f"不支持的函数号: {func_num}")
         return QueryRecord(
             query_key=self.name_edit.text().strip(),
             func_num=func_num,
@@ -2318,6 +2451,107 @@ class RobotQtWindow(QMainWindow):
         overall_state, _, _ = self._compute_overall_state()
         return (overall_state, self.busy, self.run_state, self.alarm_code)
 
+    def _controller_mode_value(self) -> str:
+        if not hasattr(self, "controller_combo"):
+            return "unknown"
+        return "mock" if self.controller_combo.currentText() == "模拟控制器" else "real"
+
+    def _next_dispatch_id(self) -> str:
+        return f"dispatch_{uuid.uuid4().hex[:10]}"
+
+    def _current_log_context(self) -> dict[str, Any]:
+        return dict(getattr(self._log_context, "value", {}))
+
+    @contextmanager
+    def _push_log_context(self, **context: Any) -> Iterator[None]:
+        previous = self._current_log_context()
+        merged = dict(previous)
+        merged.update({key: value for key, value in context.items() if value is not None})
+        self._log_context.value = merged
+        try:
+            yield
+        finally:
+            self._log_context.value = previous
+
+    def _log_exception_fields(self, exc: Exception) -> dict[str, Any]:
+        if isinstance(exc, BackgroundTaskError):
+            return {
+                "error_type": exc.error_type,
+                "error_message": exc.error_message,
+                "traceback": exc.traceback_text,
+            }
+        return {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+
+    def _build_record_dispatch_snapshot(self, record: QueryRecord) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {
+            "query_key": record.query_key,
+            "func_num": record.func_num,
+            "description": record.description,
+            "params": copy.deepcopy(record.params),
+        }
+        try:
+            six_cmd = self.service.build_six_command_from_record(record)
+            snapshot["writes"] = [
+                {"start_vr": req.start_vr, "values": list(req.values)}
+                for req in [*six_cmd.to_func_writes(), six_cmd.to_trigger_write()]
+            ]
+        except Exception as exc:
+            snapshot["snapshot_error"] = f"{type(exc).__name__}: {exc}"
+        return snapshot
+
+    def _build_system_dispatch_snapshot(self, action_key: str, code: int) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {"action_key": action_key, "code": code}
+        try:
+            six_cmd = self.service.build_six_system_command(code)
+            snapshot["func_num"] = six_cmd.func_num
+            snapshot["writes"] = [
+                {"start_vr": req.start_vr, "values": list(req.values)}
+                for req in [*six_cmd.to_func_writes(), six_cmd.to_trigger_write()]
+            ]
+        except Exception as exc:
+            snapshot["snapshot_error"] = f"{type(exc).__name__}: {exc}"
+        return snapshot
+
+    def _read_persisted_session_logs(self) -> list[dict[str, Any]]:
+        if not self._log_session_path.exists():
+            return []
+        entries: list[dict[str, Any]] = []
+        for line in self._log_session_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                entries.append(payload)
+        return entries
+
+    def _persist_log_entry(self, entry: dict[str, Any]) -> None:
+        try:
+            self._log_dir.mkdir(parents=True, exist_ok=True)
+            with self._log_session_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            if not self._log_persist_error_reported:
+                self._log_persist_error_reported = True
+                print(f"log persist failed: {exc}", file=sys.stderr)
+
+    def _export_logs_snapshot(self, export_path: Path) -> Path:
+        payload = {
+            "session_id": self.session_id,
+            "source_jsonl": str(self._log_session_path),
+            "entries": self._read_persisted_session_logs(),
+        }
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        export_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return export_path
+
     def _log_realtime_state_change_if_needed(self) -> None:
         current = self._capture_realtime_snapshot()
         if self._last_realtime_snapshot is None:
@@ -2333,7 +2567,7 @@ class RobotQtWindow(QMainWindow):
             f"实时 {prev_run} -> {curr_run} | "
             f"报警 {prev_alarm} -> {curr_alarm}"
         )
-        self._append_log("反馈", "实时状态变化", "成功", detail)
+        self._append_log("反馈", "实时状态变化", "成功", detail, extra=copy.deepcopy(self._last_realtime_snapshot_raw or {}))
         self._last_realtime_snapshot = current
 
     def _refresh_logs(self) -> None:
@@ -2343,26 +2577,57 @@ class RobotQtWindow(QMainWindow):
         for row_index, row in enumerate(self.logs[:200]):
             self.log_table.insertRow(row_index)
             for col_index, key in enumerate(["time", "category", "action", "result", "detail"]):
-                self.log_table.setItem(row_index, col_index, QTableWidgetItem(row.get(key, "")))
+                self.log_table.setItem(row_index, col_index, QTableWidgetItem(str(row.get(key, ""))))
         self.log_count_label.setText(str(len(self.logs)))
         self.log_last_time_label.setText(self.logs[0]["time"] if self.logs else "-")
 
-    def _append_log(self, category: str, action: str, result: str, detail: str) -> None:
+    def _append_log(
+        self,
+        category: str,
+        action: str,
+        result: str,
+        detail: str,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        now = datetime.now()
+        with self._log_seq_lock:
+            self._log_seq += 1
+            seq = self._log_seq
+        merged_extra = self._current_log_context()
+        if extra:
+            merged_extra.update({key: value for key, value in extra.items() if value is not None})
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        host = merged_extra.get("host")
+        if host is None:
+            host = self.host_edit.text().strip() if is_main_thread and hasattr(self, "host_edit") else ""
+        controller_mode = merged_extra.get("controller_mode")
+        if controller_mode is None:
+            controller_mode = self._controller_mode_value() if is_main_thread else "unknown"
         entry = {
-            "time": datetime.now().strftime("%H:%M:%S"),
+            "time": now.strftime("%H:%M:%S.%f")[:-3],
+            "ts": now.isoformat(timespec="milliseconds"),
+            "session_id": self.session_id,
+            "seq": seq,
+            "monotonic_ms": int((time.perf_counter() - self._session_start_perf) * 1000),
+            "host": host,
+            "controller_mode": controller_mode,
+            "thread": threading.current_thread().name,
             "category": category,
             "action": action,
             "result": result,
             "detail": detail,
         }
-        if threading.current_thread() is threading.main_thread():
+        entry.update(merged_extra)
+        if is_main_thread:
             self._append_log_entry(entry)
         else:
             self._run_on_main_thread(lambda e=entry: self._append_log_entry(e))
 
-    def _append_log_entry(self, entry: dict) -> None:
+    def _append_log_entry(self, entry: dict[str, Any]) -> None:
         self.logs.insert(0, entry)
         self.logs = self.logs[:200]
+        self._persist_log_entry(entry)
         self._refresh_logs()
 
     def _build_voice_nlp_adapter(self) -> VoiceNlpAdapter:
@@ -3022,24 +3287,19 @@ class RobotQtWindow(QMainWindow):
 
     def _clear_logs(self) -> None:
         cleared_count = len(self.logs)
+        export_dir = self.runtime_root / "data" / "exported_logs"
+        snapshot_path = export_dir / f"robot_qt_logs_before_clear_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        self._export_logs_snapshot(snapshot_path)
         self.logs.clear()
         self._refresh_logs()
         self.status_label.setText("日志已清空。")
-        self.logs.insert(0, {
-            "time": datetime.now().strftime("%H:%M:%S"),
-            "category": "日志",
-            "action": "清空日志",
-            "result": "成功",
-            "detail": f"已清空 {cleared_count} 条日志",
-        })
-        self._refresh_logs()
+        self._append_log("日志", "清空日志", "成功", f"已清空 {cleared_count} 条日志，快照: {snapshot_path}")
 
     def _export_logs(self) -> None:
         export_dir = self.runtime_root / "data" / "exported_logs"
         export_dir.mkdir(parents=True, exist_ok=True)
         export_path = export_dir / f"robot_qt_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with export_path.open("w", encoding="utf-8") as fh:
-            json.dump(self.logs, fh, ensure_ascii=False, indent=2)
+        self._export_logs_snapshot(export_path)
         self.status_label.setText(f"日志已导出: {export_path}")
         self._append_log("日志", "导出日志", "成功", str(export_path))
 
@@ -3048,8 +3308,7 @@ class RobotQtWindow(QMainWindow):
         self.name_edit.setText("")
         self.func_num_combo.setCurrentIndex(self.func_num_combo.findData(108))
         self.keywords_edit.setText("")
-        self.stop_mode_combo.setCurrentIndex(self.stop_mode_combo.findData(0))
-        self.system_action_combo.setCurrentIndex(self.system_action_combo.findData("estop"))
+        self._set_func104_form_params(self._func104_params_from_action("custom"))
         self.axis_no_edit.setText("0")
         self.pos_val_edit.setText("0")
         self.spd_pct_edit.setText("50")
@@ -3191,9 +3450,10 @@ class RobotQtWindow(QMainWindow):
 
     def _check_connection(self) -> None:
         host = self.host_edit.text().strip()
+        log_extra = {"host": host, "controller_mode": self._controller_mode_value()}
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
-            self._append_log("连接", "检测连接", "失败", "地址为空")
+            self._append_log("连接", "检测连接", "失败", "地址为空", extra=log_extra)
             return
         try:
             self._disconnect_client()
@@ -3202,13 +3462,13 @@ class RobotQtWindow(QMainWindow):
             self.connection_label.setText(f"{mode}连接成功: {host}")
             self.monitor_label.setText("实时监控运行中")
             self._refresh_overall_state_indicator()
-            self._append_log("连接", "检测连接", "成功", f"{mode}连接成功: {host}")
+            self._append_log("连接", "检测连接", "成功", f"{mode}连接成功: {host}", extra=log_extra)
         except Exception as exc:
             self._disconnect_client()
             self.connection_label.setText("连接失败")
             self.monitor_label.setText("实时监控离线")
             self._refresh_overall_state_indicator()
-            self._append_log("连接", "检测连接", "失败", str(exc))
+            self._append_log("连接", "检测连接", "失败", str(exc), extra={**log_extra, **self._log_exception_fields(exc)})
 
     def _send_record(self, query_key: str) -> None:
         if self.flow_running:
@@ -3219,9 +3479,17 @@ class RobotQtWindow(QMainWindow):
 
     def _execute_query_key(self, query_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         host = self.host_edit.text().strip()
+        dispatch_id = self._next_dispatch_id()
+        dispatch_extra = {
+            "dispatch_id": dispatch_id,
+            "host": host,
+            "controller_mode": self._controller_mode_value(),
+            "task_id": self.task_id,
+            "root_query_key": query_key,
+        }
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
-            self._append_log("执行", f"发送指令 {query_key}", "失败", "地址为空")
+            self._append_log("执行", f"发送指令 {query_key}", "失败", "地址为空", extra=dispatch_extra)
             if on_done:
                 on_done(False)
             return
@@ -3232,11 +3500,35 @@ class RobotQtWindow(QMainWindow):
                 validation_error = self._validate_record(plan_record)
                 if validation_error:
                     raise ValueError(validation_error)
+            self._append_log(
+                "执行",
+                f"发送准备 {query_key}",
+                "成功",
+                plan_reason,
+                extra={
+                    **dispatch_extra,
+                    "query_key": record.query_key,
+                    "func_num": record.func_num,
+                    "plan_step_total": len(plan_records),
+                    "plan_reason": plan_reason,
+                    "plan_records": [self._build_record_dispatch_snapshot(item) for item in plan_records],
+                },
+            )
         except Exception as exc:
             fallback = self.table.get(query_key)
             if isinstance(fallback, QueryRecord):
                 if not self.history or self.history[0]["task"] != self.task_id:
-                    self._after_send(fallback, False, str(exc))
+                    self._after_send(
+                        fallback,
+                        False,
+                        str(exc),
+                        log_extra={
+                            **dispatch_extra,
+                            "query_key": fallback.query_key,
+                            "func_num": fallback.func_num,
+                            **self._log_exception_fields(exc),
+                        },
+                    )
             if on_done:
                 on_done(False)
             return
@@ -3244,26 +3536,34 @@ class RobotQtWindow(QMainWindow):
         self._pause_polling()
 
         def work():
-            client = self._get_client(host)
-            if len(plan_records) > 1:
-                self._append_log("执行", f"规避判断 {query_key}", "成功", plan_reason)
-            results = []
-            step_failed = False
-            for idx, plan_record in enumerate(plan_records, start=1):
+            with self._push_log_context(**dispatch_extra):
+                client = self._get_client(host)
                 if len(plan_records) > 1:
-                    self._append_log(
-                        "执行",
-                        f"规避执行第{idx}步",
-                        "成功",
-                        f"{plan_record.query_key} | {plan_record.description or '-'}",
-                    )
-                feedback = self._execute_send_by_protocol(client, plan_record)
-                step_ok, step_error = self._evaluate_feedback_result(feedback)
-                results.append((plan_record, step_ok, step_error, feedback))
-                if not step_ok:
-                    step_failed = True
-                    break
-            return results, step_failed
+                    self._append_log("执行", f"规避判断 {query_key}", "成功", plan_reason)
+                results = []
+                step_failed = False
+                for idx, plan_record in enumerate(plan_records, start=1):
+                    step_extra = {
+                        "query_key": plan_record.query_key,
+                        "func_num": plan_record.func_num,
+                        "plan_step_index": idx,
+                        "plan_step_total": len(plan_records),
+                    }
+                    with self._push_log_context(**step_extra):
+                        if len(plan_records) > 1:
+                            self._append_log(
+                                "执行",
+                                f"规避执行第{idx}步",
+                                "成功",
+                                f"{plan_record.query_key} | {plan_record.description or '-'}",
+                            )
+                        feedback = self._execute_send_by_protocol(client, plan_record)
+                        step_ok, step_error = self._evaluate_feedback_result(feedback)
+                        results.append((plan_record, step_ok, step_error, feedback, step_extra))
+                        if not step_ok:
+                            step_failed = True
+                            break
+                return results, step_failed
 
         def on_result(result):
             self._resume_polling()
@@ -3272,19 +3572,37 @@ class RobotQtWindow(QMainWindow):
                 fallback = plan_records[0] if plan_records else self.table.get(query_key)
                 if isinstance(fallback, QueryRecord):
                     if not self.history or self.history[0]["task"] != self.task_id:
-                        self._after_send(fallback, False, str(result))
+                        self._after_send(
+                            fallback,
+                            False,
+                            str(result),
+                            log_extra={
+                                **dispatch_extra,
+                                "query_key": fallback.query_key,
+                                "func_num": fallback.func_num,
+                                **self._log_exception_fields(result),
+                            },
+                        )
                 if on_done:
                     on_done(False)
                 return
             results, step_failed = result
-            for plan_record, step_ok, step_error, feedback in results:
-                self._after_send(plan_record, step_ok, step_error, feedback)
+            for plan_record, step_ok, step_error, feedback, step_extra in results:
+                self._after_send(plan_record, step_ok, step_error, feedback, log_extra={**dispatch_extra, **step_extra})
             if on_done:
                 on_done(not step_failed)
 
         self._run_in_background(work, on_result)
 
-    def _after_send(self, record: QueryRecord, ok: bool, error: str, feedback: list[float] | None = None) -> None:
+    def _after_send(
+        self,
+        record: QueryRecord,
+        ok: bool,
+        error: str,
+        feedback: list[float] | None = None,
+        *,
+        log_extra: dict[str, Any] | None = None,
+    ) -> None:
         self.history.insert(0, {
             "task": self.task_id,
             "code": record.func_num,
@@ -3309,7 +3627,13 @@ class RobotQtWindow(QMainWindow):
                     self.robot_speed = f"{self._fmt(record.spd_pct_value())} / {self._fmt(record.acc_pct_value())}"
             self.task_id += 1
             self.status_label.setText(f"已执行: {record.query_key}")
-            self._append_log("执行", f"发送指令 {record.query_key}", "成功", f"任务{self.task_id - 1}")
+            self._append_log(
+                "执行",
+                f"发送指令 {record.query_key}",
+                "成功",
+                f"任务{self.task_id - 1}",
+                extra={**(log_extra or {}), "query_key": record.query_key, "func_num": record.func_num, "task_id": self.task_id - 1},
+            )
         else:
             self.busy = "空闲"
             self.result = "9"
@@ -3321,7 +3645,13 @@ class RobotQtWindow(QMainWindow):
                 self.alarm_text = error
             self.status_label.setText(f"发送失败: {error}")
             self._show_critical("发送失败", error)
-            self._append_log("执行", f"发送指令 {record.query_key}", "失败", error)
+            self._append_log(
+                "执行",
+                f"发送指令 {record.query_key}",
+                "失败",
+                error,
+                extra={**(log_extra or {}), "query_key": record.query_key, "func_num": record.func_num},
+            )
         if ok:
             self._refresh_all()
         else:
@@ -3425,13 +3755,15 @@ class RobotQtWindow(QMainWindow):
     def _execute_send_six(self, client: ControllerClient, record: QueryRecord) -> list[float]:
         """六轴机械手协议执行流程。"""
         six_cmd = self._trigger_six_no_wait(client, record)
+        if six_cmd.func_num == 104:
+            self._wait_func104_done(client, six_cmd, record.query_key)
+            return []
         self._wait_six_command_done(client, six_cmd, record)
         return self._read_six_command_feedback(client, six_cmd, record)
 
     def _trigger_six_no_wait(self, client: ControllerClient, record: QueryRecord) -> SixAxisCommand:
         """写入并触发六轴命令，不等待完成。"""
         six_cmd = self.service.build_six_command_from_record(record)
-        self._precheck_six_command(client, six_cmd)
         self._write_six_command(client, six_cmd, record)
         return six_cmd
 
@@ -3448,6 +3780,148 @@ class RobotQtWindow(QMainWindow):
         if not six_status.can_send_for(six_cmd.func_num):
             raise RuntimeError(f"六轴前置检查失败: LONG(34)={six_status.raw} 目标 slot 未就绪")
 
+    @staticmethod
+    def _expected_echo_map(six_cmd: SixAxisCommand) -> dict[int, float]:
+        return {addr: float(expected) for addr, expected in six_cmd.expected_echo_points()}
+
+    def _read_six_echo_snapshot(self, client: ControllerClient) -> dict[int, float]:
+        snapshot: dict[int, float] = {}
+        for addr in range(280, 314, 2):
+            vals = client.read_modbus_float(VrReadRequest(start_vr=addr, count=1))
+            snapshot[addr] = float(vals[0]) if vals else 0.0
+        return snapshot
+
+    def _collect_six_echo_mismatches(self, expected_map: dict[int, float], snapshot: dict[int, float]) -> list[str]:
+        mismatches: list[str] = []
+        for addr, expected in expected_map.items():
+            actual = float(snapshot.get(addr, 0.0))
+            if abs(actual - expected) > SIX_ECHO_COMPARE_EPSILON:
+                mismatches.append(f"IEEE({addr})期望={self._fmt(expected)} 实际={self._fmt(actual)}")
+        return mismatches
+
+    def _format_six_echo_snapshot(self, snapshot: dict[int, float], addrs: list[int] | None = None) -> str:
+        target_addrs = addrs if addrs is not None else sorted(snapshot)
+        return ", ".join(f"{addr}={self._fmt(float(snapshot.get(addr, 0.0)))}" for addr in target_addrs)
+
+    def _wait_six_command_echo_ready(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
+        expected_map = self._expected_echo_map(six_cmd)
+        if not expected_map:
+            return
+
+        retry_interval_sec = max(SIX_ECHO_RETRY_INTERVAL_SEC, 0.0)
+        max_retry_count = max(1, int(SIX_ECHO_MAX_RETRY_COUNT))
+        fail_threshold = max(1, int(SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD))
+        derived_wait_sec = retry_interval_sec * max_retry_count
+        expected_addrs = sorted(expected_map)
+        start_monotonic = time.monotonic()
+        last_snapshot = {addr: 0.0 for addr in range(280, 314, 2)}
+        last_precheck_snapshot = dict(last_snapshot)
+        last_precheck_error = ""
+        last_echo_failures: list[str] = []
+        saw_echo_ready = False
+        consecutive_echo_fail = 0
+        consecutive_precheck_fail = 0
+        total_echo_fail_count = 0
+        total_precheck_fail_count = 0
+
+        self._append_log(
+            "六轴",
+            f"回显等待开始 {record.query_key}",
+            "进行中",
+            (
+                f"retry_interval={retry_interval_sec:.2f}s, max_retries={max_retry_count}, "
+                f"fail_threshold={fail_threshold}, derived_wait={derived_wait_sec:.2f}s, "
+                f"expected={self._format_six_echo_snapshot(expected_map, expected_addrs)}"
+            ),
+        )
+
+        for attempt in range(1, max_retry_count + 1):
+            read_error = ""
+            try:
+                last_snapshot = self._read_six_echo_snapshot(client)
+                last_echo_failures = self._collect_six_echo_mismatches(expected_map, last_snapshot)
+            except Exception as exc:
+                read_error = f"{type(exc).__name__}: {exc}"
+                last_echo_failures = [f"回显读取异常 {read_error}"]
+
+            if not read_error and not last_echo_failures:
+                saw_echo_ready = True
+                consecutive_echo_fail = 0
+                try:
+                    self._precheck_six_command(client, six_cmd)
+                    elapsed_sec = time.monotonic() - start_monotonic
+                    self._append_log(
+                        "六轴",
+                        f"回显等待成功 {record.query_key}",
+                        "成功",
+                        (
+                            f"elapsed={elapsed_sec:.3f}s, attempts={attempt}, "
+                            f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}"
+                        ),
+                    )
+                    return
+                except Exception as exc:
+                    last_precheck_error = str(exc)
+                    last_precheck_snapshot = dict(last_snapshot)
+                    consecutive_precheck_fail += 1
+                    total_precheck_fail_count += 1
+                    if consecutive_precheck_fail == fail_threshold:
+                        elapsed_sec = time.monotonic() - start_monotonic
+                        self._append_log(
+                            "六轴",
+                            f"前置检查连续失败 {record.query_key}",
+                            "警告",
+                            (
+                                f"count={consecutive_precheck_fail}, elapsed={elapsed_sec:.3f}s, "
+                                f"reason={last_precheck_error}, "
+                                f"snapshot={self._format_six_echo_snapshot(last_precheck_snapshot, expected_addrs)}"
+                            ),
+                        )
+            else:
+                consecutive_precheck_fail = 0
+                consecutive_echo_fail += 1
+                total_echo_fail_count += 1
+                if consecutive_echo_fail == fail_threshold:
+                    elapsed_sec = time.monotonic() - start_monotonic
+                    detail = (
+                        f"count={consecutive_echo_fail}, elapsed={elapsed_sec:.3f}s, "
+                        f"reason={last_echo_failures[0] if last_echo_failures else '未知'}, "
+                        f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}"
+                    )
+                    self._append_log("六轴", f"回显连续错误 {record.query_key}", "警告", detail)
+
+            if attempt < max_retry_count:
+                time.sleep(retry_interval_sec)
+
+        elapsed_sec = time.monotonic() - start_monotonic
+        if saw_echo_ready:
+            detail_parts = [
+                f"retry_interval={retry_interval_sec:.2f}s",
+                f"max_retries={max_retry_count}",
+                f"attempts={max_retry_count}",
+                f"total_precheck_fail={total_precheck_fail_count}",
+                f"consecutive_precheck_fail={consecutive_precheck_fail}",
+                f"threshold={fail_threshold}",
+                f"reason={last_precheck_error or '前置条件未满足'}",
+                f"elapsed={elapsed_sec:.3f}s",
+                f"snapshot={self._format_six_echo_snapshot(last_precheck_snapshot, expected_addrs)}",
+            ]
+            raise RuntimeError("六轴回显正常但执行条件不满足: " + " | ".join(detail_parts))
+
+        reason = "; ".join(last_echo_failures[:6]) if last_echo_failures else "回显未收敛"
+        detail_parts = [
+            f"retry_interval={retry_interval_sec:.2f}s",
+            f"max_retries={max_retry_count}",
+            f"attempts={max_retry_count}",
+            f"total_echo_fail={total_echo_fail_count}",
+            f"consecutive_echo_fail={consecutive_echo_fail}",
+            f"threshold={fail_threshold}",
+            f"reason={reason}",
+            f"elapsed={elapsed_sec:.3f}s",
+            f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}",
+        ]
+        raise RuntimeError("六轴回显通讯失败: " + " | ".join(detail_parts))
+
     def _write_six_command(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         if six_cmd.func_num in (106, 107, 108):
             self._append_log(
@@ -3460,26 +3934,21 @@ class RobotQtWindow(QMainWindow):
             client.write_modbus_float(wr)
             self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
-        # 6. 参数回显校验: 对已写入的全部参数点位逐项确认
-        for addr, expected in six_cmd.expected_echo_points():
-            echo_vals = client.read_modbus_float(VrReadRequest(start_vr=addr, count=1))
-            actual = echo_vals[0] if echo_vals else 0.0
-            if abs(actual - expected) > 0.01:
-                raise RuntimeError(
-                    f"六轴参数回显失败: IEEE({addr})期望={self._fmt(expected)}, 实际={self._fmt(actual)}"
-                )
+        # 6. 参数回显等待: 按重试间隔和重试次数持续轮询回显区，收敛后立即继续执行。
+        self._wait_six_command_echo_ready(client, six_cmd, record)
 
         # 7. 写触发 IEEE(32)=1
         trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
-        time.sleep(0.03)
+        time.sleep(SIX_POST_TRIGGER_SETTLE_SEC)
 
     def _wait_six_command_done(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         status_read = self.service.build_six_status_read()
         system_state_read = self.service.build_six_system_state_read()
         curr_func_read = self.service.build_six_current_func_read()
         motion_state_read = self.service.build_six_motion_state_read()
+        alarm_read = self.service.build_six_alarm_detail_read()
         poll_interval_sec = 0.05
         max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
         max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
@@ -3517,8 +3986,11 @@ class RobotQtWindow(QMainWindow):
                     )
 
             if st.has_error:
+                alarm_vals = client.read_modbus_long(alarm_read)
+                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 raise RuntimeError(
-                    f"六轴执行错误: LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}, IEEE(56)={motion_state}"
+                    f"六轴执行错误: LONG(34)={st.raw}, LONG(36)={system_state}, LONG(38)={alarm_vals[0] if alarm_vals else 0}, "
+                    f"IEEE(322)={curr_func}, IEEE(56)={motion_state}, 详情={alarm_detail}"
                 )
             if st.is_complete and not st.has_alarm:
                 if not saw_received and not saw_executing:
@@ -3538,8 +4010,74 @@ class RobotQtWindow(QMainWindow):
                 f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | IEEE(56)={last_motion_state}"
             )
 
+    @staticmethod
+    def _system_state_bit(val: int, bit: int) -> int:
+        return 1 if (int(val) & (1 << bit)) else 0
+
+    def _format_func104_feedback_detail(self, six_status: SixAxisStatus, system_state: int) -> str:
+        return (
+            f"LONG(34)={six_status.raw}, LONG(36)={system_state} | "
+            f"34.25={int(six_status.is_estop)} 34.26={int(six_status.is_paused)} "
+            f"34.27={int(six_status.is_cancelled)} 34.28={int(six_status.is_ready)} | "
+            f"36.00={self._system_state_bit(system_state, 0)} "
+            f"36.01={self._system_state_bit(system_state, 1)} "
+            f"36.02={self._system_state_bit(system_state, 2)} "
+            f"36.03={self._system_state_bit(system_state, 3)} "
+            f"36.04={self._system_state_bit(system_state, 4)} "
+            f"36.05={self._system_state_bit(system_state, 5)}"
+        )
+
+    def _validate_func104_post_state(self, six_cmd: SixAxisCommand, six_status: SixAxisStatus, system_state: int) -> None:
+        mismatches: list[str] = []
+        if six_cmd.estop_ctrl == 1 and not six_status.is_estop:
+            mismatches.append("急停按下后期望 34.25=1")
+        if six_cmd.pause_ctrl == 1 and not six_status.is_paused:
+            mismatches.append("暂停按下后期望 34.26=1")
+        if six_cmd.pause_ctrl == 2 and six_status.is_paused:
+            mismatches.append("暂停松开后期望 34.26=0")
+        if six_cmd.cancel_ctrl == 1 and not six_status.is_cancelled:
+            mismatches.append("结束按下后期望 34.27=1")
+        if six_cmd.cancel_ctrl == 2 and six_status.is_cancelled:
+            mismatches.append("结束松开后期望 34.27=0")
+        if six_cmd.reset_ctrl == 1:
+            if six_status.has_alarm:
+                mismatches.append("报警复位后期望 34.24=0")
+            if not six_status.is_ready:
+                mismatches.append("报警复位后期望 34.28=1")
+        if mismatches:
+            detail = self._format_func104_feedback_detail(six_status, system_state)
+            raise RuntimeError(f"Func104 状态确认失败: {'; '.join(mismatches)} | {detail}")
+
+    def _wait_func104_done(self, client: ControllerClient, six_cmd: SixAxisCommand, label: str) -> None:
+        status_read = self.service.build_six_status_read()
+        system_state_read = self.service.build_six_system_state_read()
+        alarm_read = self.service.build_six_alarm_detail_read()
+        poll_interval_sec = 0.05
+        max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
+        max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
+        for _ in range(max_attempts):
+            time.sleep(poll_interval_sec)
+            vals = client.read_modbus_long(status_read)
+            six_status = self.service.parse_six_status(vals, 104)
+            system_state_vals = client.read_modbus_long(system_state_read)
+            system_state = self.service.parse_six_system_state(system_state_vals)
+            if six_status.has_error:
+                alarm_vals = client.read_modbus_long(alarm_read)
+                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
+                raise RuntimeError(
+                    f"Func104 执行错误: {self._format_func104_feedback_detail(six_status, system_state)}, "
+                    f"LONG(38)={alarm_vals[0] if alarm_vals else 0}, 详情={alarm_detail}"
+                )
+            if six_status.is_complete:
+                self._validate_func104_post_state(six_cmd, six_status, system_state)
+                self._append_log("六轴", f"Func104 完成 {label}", "成功", self._format_func104_feedback_detail(six_status, system_state))
+                return
+        raise RuntimeError(f"Func104 执行超时: {label} | timeout={self._fmt(max_wait_sec)}s")
+
     def _read_six_command_feedback(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> list[float]:
         motion_state_read = self.service.build_six_motion_state_read()
+        if six_cmd.func_num == 104:
+            return []
         if six_cmd.func_num == 11:
             current_point = client.read_modbus_float(VrReadRequest(start_vr=640, count=1))
             total_points = client.read_modbus_float(VrReadRequest(start_vr=642, count=1))
@@ -3599,9 +4137,10 @@ class RobotQtWindow(QMainWindow):
 
     def _read_feedback(self) -> None:
         host = self.host_edit.text().strip()
+        log_extra = {"host": host, "controller_mode": self._controller_mode_value()}
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
-            self._append_log("反馈", "读取反馈", "失败", "地址为空")
+            self._append_log("反馈", "读取反馈", "失败", "地址为空", extra=log_extra)
             return
         try:
             values, read_request = self._read_feedback_once()
@@ -3609,12 +4148,18 @@ class RobotQtWindow(QMainWindow):
             self._refresh_status_labels()
             self.monitor_label.setText("实时监控运行中")
             self.status_label.setText(f"反馈区读取成功: {values}")
-            self._append_log("反馈", "读取反馈", "成功", f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}")
+            self._append_log(
+                "反馈",
+                "读取反馈",
+                "成功",
+                f"{self._format_read_request(read_request.start_vr, read_request.count)} -> {values}",
+                extra={**log_extra, "read_start_vr": read_request.start_vr, "read_count": read_request.count, "read_values": values},
+            )
         except Exception as exc:
             self.status_label.setText(f"读取反馈区失败: {exc}")
             self.monitor_label.setText("实时监控离线")
             self._show_critical("读取失败", str(exc))
-            self._append_log("反馈", "读取反馈", "失败", str(exc))
+            self._append_log("反馈", "读取反馈", "失败", str(exc), extra={**log_extra, **self._log_exception_fields(exc)})
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
@@ -3636,34 +4181,47 @@ class RobotQtWindow(QMainWindow):
                 on_done(False)
             return
         code = SYSTEM_COMMAND_CODES[action_key]
+        dispatch_extra = {
+            "dispatch_id": self._next_dispatch_id(),
+            "host": host,
+            "controller_mode": self._controller_mode_value(),
+            "task_id": self.task_id,
+            "system_action": action_key,
+            "command_code": code,
+        }
+        self._append_log(
+            "系统",
+            f"系统命令准备 {action_key}",
+            "成功",
+            f"code={code}",
+            extra={**dispatch_extra, "command_snapshot": self._build_system_dispatch_snapshot(action_key, code)},
+        )
         self._pause_polling()
 
         def work():
-            client = self._get_client(host)
-            six_cmd = self.service.build_six_system_command(code)
+            with self._push_log_context(**dispatch_extra):
+                client = self._get_client(host)
+                six_cmd = self.service.build_six_system_command(code)
 
-            # 本地操作: 不发下位机
-            if six_cmd.func_num < 0:
-                self._append_log("六轴", f"本地系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
-                return []
-
-            # Func104: 跳过前置检查直接执行
-            for wr in six_cmd.to_func_writes():
-                client.write_modbus_float(wr)
-            client.write_modbus_float(six_cmd.to_trigger_write())
-            self._append_log("六轴", f"系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
-
-            # 轮询完成
-            status_read = self.service.build_six_status_read()
-            for _ in range(60):
-                time.sleep(0.05)
-                vals = client.read_modbus_long(status_read)
-                st = self.service.parse_six_status(vals)
-                if st.is_complete and not st.has_error:
+                if six_cmd.func_num < 0:
+                    self._append_log("六轴", f"本地系统命令 {action_key}", "成功", f"func={six_cmd.func_num}")
                     return []
-                if st.has_error:
-                    raise RuntimeError(f"六轴系统命令错误: IEEE(34)={st.raw}")
-            raise RuntimeError(f"六轴系统命令超时: {action_key}")
+                record = QueryRecord(
+                    query_key=action_key,
+                    func_num=104,
+                    params={
+                        "stop_mode": six_cmd.stop_mode,
+                        "estop_ctrl": six_cmd.estop_ctrl,
+                        "pause_ctrl": six_cmd.pause_ctrl,
+                        "cancel_ctrl": six_cmd.cancel_ctrl,
+                        "reset_ctrl": six_cmd.reset_ctrl,
+                    },
+                    description=six_cmd.desc,
+                )
+                self._write_six_command(client, six_cmd, record)
+                self._append_log("六轴", f"系统命令 {action_key}", "成功", f"func={six_cmd.func_num}", extra={"func_num": six_cmd.func_num})
+                self._wait_func104_done(client, six_cmd, action_key)
+                return []
 
         def on_result(result):
             self._resume_polling()
@@ -3671,6 +4229,7 @@ class RobotQtWindow(QMainWindow):
                 self._disconnect_client()
                 self.status_label.setText(f"六轴系统命令失败: {result}")
                 self._show_critical("系统命令失败", str(result))
+                self._append_log("系统", f"系统命令 {action_key}", "失败", str(result), extra={**dispatch_extra, **self._log_exception_fields(result)})
                 if on_done:
                     on_done(False)
                 return
@@ -3678,6 +4237,7 @@ class RobotQtWindow(QMainWindow):
             self.task_id += 1
             self.status_label.setText(f"六轴 {action_key} 完成")
             self._refresh_status_labels()
+            self._append_log("系统", f"系统命令 {action_key}", "成功", f"任务{self.task_id - 1}", extra={**dispatch_extra, "task_id": self.task_id - 1})
             if on_done:
                 on_done(True)
 
@@ -3855,7 +4415,7 @@ class RobotQtWindow(QMainWindow):
             self.check_value_edit.setText("1")
         visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
-            visible_keys |= {"system_action"}
+            visible_keys |= {"system_action", "estop_ctrl", "pause_ctrl", "cancel_ctrl", "reset_ctrl"}
         elif func_num == 11:
             visible_keys |= {"point_count", "points", "point_buttons", "spd_pct", "acc_pct", "dec_pct"}
         elif func_num in (106, 107):
@@ -3986,7 +4546,7 @@ class RobotQtWindow(QMainWindow):
             try:
                 result = work_fn()
             except Exception as exc:
-                result = exc
+                result = BackgroundTaskError(exc)
             self._run_on_main_thread(lambda: done_fn(result))
         thread = threading.Thread(target=wrapper, daemon=True)
         thread.start()
@@ -4011,14 +4571,17 @@ class RobotQtWindow(QMainWindow):
             st_read = self.service.build_six_status_read()
             st_vals = client.read_modbus_long(st_read)
             six_status = self.service.parse_six_status(st_vals)
+            system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
+            current_func_vals = client.read_modbus_float(self.service.build_six_current_func_read())
+            alarm_detail_vals = client.read_modbus_long(self.service.build_six_alarm_detail_read())
             self.busy = "空闲" if six_status.can_send else "运行中"
             motion_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
             motion_state = self.service.parse_six_motion_state(motion_vals)
             self.motion_percent = "运动中" if motion_state == 1 else "空闲"
+            system_state = self.service.parse_six_system_state(system_state_vals)
+            current_func = self.service.parse_six_current_func(current_func_vals)
+            alarm_detail = self.service.parse_six_alarm_detail(alarm_detail_vals)
             if six_status.has_alarm:
-                alarm_read = self.service.build_six_alarm_detail_read()
-                alarm_vals = client.read_modbus_long(alarm_read)
-                alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 self.alarm_text = f"报警: {alarm_detail}"
                 self.alarm_code = f"ERR_{six_status.raw}"
             elif six_status.has_error:
@@ -4032,6 +4595,13 @@ class RobotQtWindow(QMainWindow):
             if not self._poll_started_logged:
                 self._append_log("反馈", "实时监控轮询", "成功", "首次轮询成功，定时轮询已运行")
                 self._poll_started_logged = True
+            self._last_realtime_snapshot_raw = {
+                "long34_raw": six_status.raw,
+                "long36_raw": system_state,
+                "long38_raw": alarm_detail,
+                "ieee322_raw": current_func,
+                "motion_state_56": motion_state,
+            }
             self._log_realtime_state_change_if_needed()
             self._last_poll_error = ""
         except Exception as exc:
@@ -4040,7 +4610,7 @@ class RobotQtWindow(QMainWindow):
             self.monitor_label.setText("实时监控离线")
             self._refresh_overall_state_indicator()
             if error != self._last_poll_error:
-                self._append_log("反馈", "实时监控", "失败", error)
+                self._append_log("反馈", "实时监控", "失败", error, extra=self._log_exception_fields(exc))
                 self._last_poll_error = error
         finally:
             self._polling_feedback = False
@@ -4378,46 +4948,63 @@ class RobotQtWindow(QMainWindow):
 
     def _run_parallel_flow_group(self, flow, start_index: int, group: list[QueryRecord], *, auto_continue: bool) -> None:
         names = " + ".join(record.query_key for record in group)
-        self._append_log("流程", f"并行组开始 第{start_index + 1}步", "成功", names)
+        dispatch_extra = {
+            "dispatch_id": self._next_dispatch_id(),
+            "host": self.host_edit.text().strip(),
+            "controller_mode": self._controller_mode_value(),
+            "task_id": self.task_id,
+            "flow_name": flow.name,
+            "flow_step_index": start_index + 1,
+            "parallel_group": [record.query_key for record in group],
+        }
+        self._append_log("流程", f"并行组开始 第{start_index + 1}步", "成功", names, extra=dispatch_extra)
         host = self.host_edit.text().strip()
         self._pause_polling()
 
         def work():
-            client = self._get_client(host)
-            for record in group:
-                validation_error = self._validate_record(record)
-                if validation_error:
-                    raise ValueError(f"{record.query_key}: {validation_error}")
+            with self._push_log_context(**dispatch_extra):
+                client = self._get_client(host)
+                for record in group:
+                    validation_error = self._validate_record(record)
+                    if validation_error:
+                        raise ValueError(f"{record.query_key}: {validation_error}")
 
-            motion_record = group[0]
-            delay_record = group[1]
-            io_record = group[2] if len(group) > 2 else None
+                motion_record = group[0]
+                delay_record = group[1]
+                io_record = group[2] if len(group) > 2 else None
 
-            motion_cmd = self._trigger_six_no_wait(client, motion_record)
-            delay_cmd = self._trigger_six_no_wait(client, delay_record)
-            self._wait_six_command_done(client, delay_cmd, delay_record)
-            delay_feedback = self._read_six_command_feedback(client, delay_cmd, delay_record)
+                with self._push_log_context(query_key=motion_record.query_key, func_num=motion_record.func_num, plan_step_index=1):
+                    motion_cmd = self._trigger_six_no_wait(client, motion_record)
+                with self._push_log_context(query_key=delay_record.query_key, func_num=delay_record.func_num, plan_step_index=2):
+                    delay_cmd = self._trigger_six_no_wait(client, delay_record)
+                    self._wait_six_command_done(client, delay_cmd, delay_record)
+                    delay_feedback = self._read_six_command_feedback(client, delay_cmd, delay_record)
 
-            io_feedback: list[float] | None = None
-            if io_record is not None:
-                io_cmd = self._trigger_six_no_wait(client, io_record)
-                self._wait_six_command_done(client, io_cmd, io_record)
-                io_feedback = self._read_six_command_feedback(client, io_cmd, io_record)
+                io_feedback: list[float] | None = None
+                if io_record is not None:
+                    with self._push_log_context(query_key=io_record.query_key, func_num=io_record.func_num, plan_step_index=3):
+                        io_cmd = self._trigger_six_no_wait(client, io_record)
+                        self._wait_six_command_done(client, io_cmd, io_record)
+                        io_feedback = self._read_six_command_feedback(client, io_cmd, io_record)
 
-            self._wait_six_command_done(client, motion_cmd, motion_record)
-            motion_feedback = self._read_six_command_feedback(client, motion_cmd, motion_record)
+                with self._push_log_context(query_key=motion_record.query_key, func_num=motion_record.func_num, plan_step_index=1):
+                    self._wait_six_command_done(client, motion_cmd, motion_record)
+                    motion_feedback = self._read_six_command_feedback(client, motion_cmd, motion_record)
 
-            results: list[tuple[QueryRecord, bool, str, list[float] | None]] = []
-            for record, feedback in (
-                (motion_record, motion_feedback),
-                (delay_record, delay_feedback),
-                (io_record, io_feedback),
-            ):
-                if record is None:
-                    continue
-                step_ok, step_error = self._evaluate_feedback_result(feedback or [])
-                results.append((record, step_ok, step_error, feedback))
-            return results
+                results: list[tuple[QueryRecord, bool, str, list[float] | None, dict[str, Any]]] = []
+                for idx, (record, feedback) in enumerate(
+                    (
+                        (motion_record, motion_feedback),
+                        (delay_record, delay_feedback),
+                        (io_record, io_feedback),
+                    ),
+                    start=1,
+                ):
+                    if record is None:
+                        continue
+                    step_ok, step_error = self._evaluate_feedback_result(feedback or [])
+                    results.append((record, step_ok, step_error, feedback, {"query_key": record.query_key, "func_num": record.func_num, "plan_step_index": idx}))
+                return results
 
         def on_result(result) -> None:
             self._resume_polling()
@@ -4427,7 +5014,7 @@ class RobotQtWindow(QMainWindow):
                 self.flow_status = "失败"
                 self._refresh_flow_steps()
                 self._refresh_flow_status_panel()
-                self._append_log("流程", f"并行组失败 第{start_index + 1}步", "失败", str(result))
+                self._append_log("流程", f"并行组失败 第{start_index + 1}步", "失败", str(result), extra={**dispatch_extra, **self._log_exception_fields(result)})
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -4435,8 +5022,8 @@ class RobotQtWindow(QMainWindow):
                 return
 
             failed = False
-            for record, step_ok, step_error, feedback in result:
-                self._after_send(record, step_ok, step_error, feedback)
+            for record, step_ok, step_error, feedback, step_extra in result:
+                self._after_send(record, step_ok, step_error, feedback, log_extra={**dispatch_extra, **step_extra})
                 if not step_ok:
                     failed = True
             if failed:
@@ -4450,7 +5037,7 @@ class RobotQtWindow(QMainWindow):
                     callback(False)
                 return
 
-            self._append_log("流程", f"并行组完成 第{start_index + 1}步", "成功", names)
+            self._append_log("流程", f"并行组完成 第{start_index + 1}步", "成功", names, extra=dispatch_extra)
             self.flow_step_index = start_index + len(group)
             current_flow = self._current_flow_definition()
             if current_flow is None or self.flow_step_index >= len(current_flow.steps):

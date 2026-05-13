@@ -16,7 +16,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "safe_speed_max": 0.0,
     "safe_acc_max": 0.0,
     "safe_dec_max": 0.0,
-    "motion_timeout_sec": 30.0,
+    "motion_timeout_sec": 180.0,
 }
 
 
@@ -32,7 +32,7 @@ class AxisRangeConfig:
     safe_speed_max: float = 0.0
     safe_acc_max: float = 0.0
     safe_dec_max: float = 0.0
-    motion_timeout_sec: float = 30.0
+    motion_timeout_sec: float = 180.0
 
     @classmethod
     def from_dict(cls, data: dict) -> "AxisRangeConfig":

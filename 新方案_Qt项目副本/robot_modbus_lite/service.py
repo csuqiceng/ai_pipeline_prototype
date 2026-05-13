@@ -27,7 +27,7 @@ from .query_table import load_query_table
 class RobotModbusService:
     FUNC_LABELS = {
         11: "Func11 多点插补",
-        104: "Func104 停止",
+        104: "Func104 系统控制",
         106: "Func106 关节点动",
         107: "Func107 虚拟轴点动",
         108: "Func108 直线插补/PTP",
