@@ -112,6 +112,7 @@ class MockController:
             "program": None,
             "system": None,
         }
+        self._six_delay_deadline: float | None = None
         self._x_range = x_range if x_range is not None else X_RANGE
         self._y_range = y_range if y_range is not None else Y_RANGE
         self._z_range = z_range if z_range is not None else Z_RANGE
@@ -602,6 +603,12 @@ class MockController:
         self._modbus_ieee[1802] = self._modbus_ieee[322]
         self._modbus_ieee[1804] = self._modbus_ieee[324]
 
+    def _six_func_state_locked(self, func_num: int) -> int:
+        shift, mask = self._SIX_FUNC_STATE_FIELDS.get(func_num, (0, 0))
+        if not mask:
+            return self._SIX_STATE_IDLE
+        return (int(self._modbus_long[MODBUS_STATUS_ADDR]) & mask) >> shift
+
     def _set_six_func_state_locked(self, func_num: int, state: int, *, alarm_bits: int = 0) -> None:
         shift, mask = self._SIX_FUNC_STATE_FIELDS.get(func_num, (0, 0))
         raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
@@ -668,6 +675,14 @@ class MockController:
                 self._fail_six_func_locked(func_num, 1 << 8)
                 return
             if func_num != FuncSixAxis.STOP and self._six_slot_busy_locked(slot):
+                if func_num == FuncSixAxis.DELAY and self._six_func_state_locked(FuncSixAxis.DELAY) == self._SIX_STATE_EXEC:
+                    delay_sec = float(self._modbus_ieee[6])
+                    if delay_sec <= 0:
+                        self._fail_six_func_locked(func_num, 1 << 9)
+                    else:
+                        self._six_delay_deadline = time.monotonic() + min(delay_sec, 2.0)
+                        self._set_six_func_state_locked(FuncSixAxis.DELAY, self._SIX_STATE_EXEC)
+                    return
                 self._fail_six_func_locked(func_num, 1 << 2)
                 return
             self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
@@ -797,10 +812,21 @@ class MockController:
                 self._fail_six_func_locked(FuncSixAxis.DELAY, 1 << 9)
                 return
             self._modbus_ieee[328] = 1.0
-        time.sleep(min(delay_sec, 2.0))
+            self._six_delay_deadline = time.monotonic() + min(delay_sec, 2.0)
+        while self._running:
+            with self._lock:
+                deadline = self._six_delay_deadline
+            if deadline is None:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 0.02))
         with self._lock:
-            self._modbus_ieee[332] = delay_sec
-            self._modbus_long[40] = int(delay_sec * 1000)
+            elapsed_sec = float(self._modbus_ieee[6])
+            self._modbus_ieee[332] = elapsed_sec
+            self._modbus_long[40] = int(elapsed_sec * 1000)
+            self._six_delay_deadline = None
 
     def _do_six_io_ctrl(self) -> None:
         with self._lock:

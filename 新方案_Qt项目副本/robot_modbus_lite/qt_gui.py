@@ -58,7 +58,7 @@ from .avoidance_config import (
     save_avoidance_config,
     validate_safe_point,
 )
-from .models import ControllerClient, QueryRecord, SIX_MOTION_FUNCS, SixAxisCommand, SixAxisStatus, VrWriteRequest, VrReadRequest
+from .models import ControllerClient, QueryRecord, SIX_MOTION_FUNCS, SixAxisCommand, SixAxisStatus, VrWriteRequest, VrReadRequest, six_func_slot
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
 from .system_config import (
@@ -103,11 +103,15 @@ MOVE_TYPE_LABELS = {
     0: "直线插补",
     1: "PTP关节",
 }
-SIX_ECHO_RETRY_INTERVAL_SEC = 0.05
-SIX_ECHO_MAX_RETRY_COUNT = 100
-SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD = 5
-SIX_ECHO_COMPARE_EPSILON = 0.01
+SIX_ECHO_RETRY_INTERVAL_SEC = 0.005
+SIX_ECHO_MAX_RETRY_COUNT = 3
+SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD = 3
+SIX_ECHO_COMPARE_EPSILON = 0.001
+SIX_ECHO_WRITE_ROUNDS = 2
 SIX_POST_TRIGGER_SETTLE_SEC = 0.08
+SIX_CMD_BUSY_RECOVERY_MAX_RETRIES = 2
+SIX_READY_RECOVERY_TIMEOUT_SEC = 5.0
+SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC = 5.0
 SYSTEM_COMMANDS = {
     "上电": ("power_on", "系统已上电"),
     "启动": ("auto_start", "系统启动"),
@@ -116,6 +120,31 @@ SYSTEM_COMMANDS = {
     "继续": ("sys_resume", "当前任务继续运行"),
     "急停": ("sys_estop", "急停触发，系统锁定"),
 }
+
+
+class SixAxisCommandRuntimeError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_raw: int,
+        system_state: int,
+        alarm_raw: int,
+        func_num: int,
+        curr_func: int,
+        motion_state: int,
+    ) -> None:
+        super().__init__(message)
+        self.status_raw = int(status_raw)
+        self.system_state = int(system_state)
+        self.alarm_raw = int(alarm_raw)
+        self.func_num = int(func_num)
+        self.curr_func = int(curr_func)
+        self.motion_state = int(motion_state)
+
+    @property
+    def is_cmd_busy(self) -> bool:
+        return (self.alarm_raw & 0x04) != 0
 SYSTEM_COMMAND_CODES = {
     "power_on": 4001,
     "auto_start": 6001,
@@ -1492,6 +1521,10 @@ class RobotQtWindow(QMainWindow):
             safe_acc_max=num(self.safe_acc_max_edit.text()),
             safe_dec_max=num(self.safe_dec_max_edit.text()),
             motion_timeout_sec=num(self.motion_timeout_edit.text()),
+            echo_retry_interval_sec=self.axis_ranges.echo_retry_interval_sec,
+            echo_retry_count=self.axis_ranges.echo_retry_count,
+            echo_write_rounds=self.axis_ranges.echo_write_rounds,
+            echo_compare_epsilon=self.axis_ranges.echo_compare_epsilon,
         )
 
     def _save_system_config(self) -> None:
@@ -3754,18 +3787,91 @@ class RobotQtWindow(QMainWindow):
 
     def _execute_send_six(self, client: ControllerClient, record: QueryRecord) -> list[float]:
         """六轴机械手协议执行流程。"""
-        six_cmd = self._trigger_six_no_wait(client, record)
-        if six_cmd.func_num == 104:
-            self._wait_func104_done(client, six_cmd, record.query_key)
-            return []
-        self._wait_six_command_done(client, six_cmd, record)
-        return self._read_six_command_feedback(client, six_cmd, record)
+        recovery_attempts = 0
+        while True:
+            six_cmd = self._trigger_six_no_wait(client, record)
+            if six_cmd.func_num == 104:
+                self._wait_func104_done(client, six_cmd, record.query_key)
+                return []
+            try:
+                self._wait_six_command_done(client, six_cmd, record)
+                return self._read_six_command_feedback(client, six_cmd, record)
+            except SixAxisCommandRuntimeError as exc:
+                if not exc.is_cmd_busy or recovery_attempts >= SIX_CMD_BUSY_RECOVERY_MAX_RETRIES:
+                    raise
+                recovery_attempts += 1
+                self._append_log(
+                    "六轴",
+                    f"指令忙自动恢复 {record.query_key}",
+                    "警告",
+                    (
+                        f"attempt={recovery_attempts}/{SIX_CMD_BUSY_RECOVERY_MAX_RETRIES}, "
+                        f"LONG(34)={exc.status_raw}, LONG(38)={exc.alarm_raw}"
+                    ),
+                )
+                self._recover_six_cmd_busy(client, six_cmd, record, recovery_attempts)
 
     def _trigger_six_no_wait(self, client: ControllerClient, record: QueryRecord) -> SixAxisCommand:
         """写入并触发六轴命令，不等待完成。"""
         six_cmd = self.service.build_six_command_from_record(record)
         self._write_six_command(client, six_cmd, record)
         return six_cmd
+
+    def _recover_six_cmd_busy(
+        self,
+        client: ControllerClient,
+        six_cmd: SixAxisCommand,
+        record: QueryRecord,
+        attempt: int,
+    ) -> None:
+        self._wait_six_slot_not_busy(client, six_func_slot(six_cmd.func_num), record.query_key)
+        reset_cmd = SixAxisCommand(func_num=104, desc="AUTO_CMD_BUSY_RESET", reset_ctrl=1)
+        reset_record = QueryRecord(
+            query_key=f"{record.query_key}__auto_cmd_busy_reset_{attempt}",
+            func_num=104,
+            params={"estop_ctrl": 0, "pause_ctrl": 0, "cancel_ctrl": 0, "reset_ctrl": 1},
+            description="指令忙自动报警复位",
+        )
+        try:
+            self._write_six_command(client, reset_cmd, reset_record)
+            self._wait_func104_done(client, reset_cmd, reset_record.query_key)
+            self._wait_six_ready_after_reset(client, reset_record.query_key)
+        except Exception as exc:
+            raise RuntimeError(
+                f"指令忙恢复失败: reset 失败 attempt={attempt} | {record.query_key} | reason={exc}"
+            ) from exc
+
+    def _wait_six_slot_not_busy(self, client: ControllerClient, slot: str, label: str) -> None:
+        if slot in ("system", "unknown"):
+            return
+        status_read = self.service.build_six_status_read()
+        poll_interval_sec = 0.05
+        max_wait_sec = max(SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC, poll_interval_sec)
+        deadline = time.monotonic() + max_wait_sec
+        while time.monotonic() < deadline:
+            vals = client.read_modbus_long(status_read)
+            six_status = self.service.parse_six_status(vals)
+            if not six_status.slot_busy(slot):
+                return
+            time.sleep(poll_interval_sec)
+        raise RuntimeError(f"指令忙恢复失败: 等待 {slot} slot 空闲超时 | {label} | timeout={self._fmt(max_wait_sec)}s")
+
+    def _wait_six_ready_after_reset(self, client: ControllerClient, label: str) -> None:
+        status_read = self.service.build_six_status_read()
+        poll_interval_sec = 0.05
+        deadline = time.monotonic() + SIX_READY_RECOVERY_TIMEOUT_SEC
+        last_status = 0
+        while time.monotonic() < deadline:
+            vals = client.read_modbus_long(status_read)
+            six_status = self.service.parse_six_status(vals)
+            last_status = six_status.raw
+            if six_status.is_ready and not six_status.has_alarm:
+                self._append_log("六轴", f"指令忙恢复就绪 {label}", "成功", f"LONG(34)={six_status.raw}")
+                return
+            time.sleep(poll_interval_sec)
+        raise RuntimeError(
+            f"指令忙恢复失败: 等待就绪超时 | {label} | timeout={self._fmt(SIX_READY_RECOVERY_TIMEOUT_SEC)}s | LONG(34)={last_status}"
+        )
 
     def _precheck_six_command(self, client: ControllerClient, six_cmd: SixAxisCommand) -> None:
         if six_cmd.func_num < 0:
@@ -3777,8 +3883,19 @@ class RobotQtWindow(QMainWindow):
         six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
         if six_status.function_state(six_cmd.func_num) == SixAxisStatus.STATE_ERR:
             raise RuntimeError(f"六轴前置检查失败: Func{six_cmd.func_num} 处于 ERR，需先复位 | LONG(34)={six_status.raw}")
+        if six_cmd.func_num == 110 and self._can_update_func110_delay(six_status):
+            return
         if not six_status.can_send_for(six_cmd.func_num):
             raise RuntimeError(f"六轴前置检查失败: LONG(34)={six_status.raw} 目标 slot 未就绪")
+
+    @staticmethod
+    def _can_update_func110_delay(six_status: SixAxisStatus) -> bool:
+        if six_status.has_alarm or six_status.is_estop or not six_status.is_ready:
+            return False
+        return (
+            six_status.function_state(110) == SixAxisStatus.STATE_EXEC
+            and six_status.function_state(120) != SixAxisStatus.STATE_EXEC
+        )
 
     @staticmethod
     def _expected_echo_map(six_cmd: SixAxisCommand) -> dict[int, float]:
@@ -3791,11 +3908,24 @@ class RobotQtWindow(QMainWindow):
             snapshot[addr] = float(vals[0]) if vals else 0.0
         return snapshot
 
-    def _collect_six_echo_mismatches(self, expected_map: dict[int, float], snapshot: dict[int, float]) -> list[str]:
+    def _six_echo_settings(self) -> tuple[float, int, int, float]:
+        retry_interval_sec = max(float(getattr(self.axis_ranges, "echo_retry_interval_sec", SIX_ECHO_RETRY_INTERVAL_SEC)), 0.0)
+        retry_count = max(1, int(getattr(self.axis_ranges, "echo_retry_count", SIX_ECHO_MAX_RETRY_COUNT)))
+        write_rounds = max(1, int(getattr(self.axis_ranges, "echo_write_rounds", SIX_ECHO_WRITE_ROUNDS)))
+        compare_epsilon = max(float(getattr(self.axis_ranges, "echo_compare_epsilon", SIX_ECHO_COMPARE_EPSILON)), 0.0)
+        return retry_interval_sec, retry_count, write_rounds, compare_epsilon
+
+    def _collect_six_echo_mismatches(
+        self,
+        expected_map: dict[int, float],
+        snapshot: dict[int, float],
+        *,
+        epsilon: float,
+    ) -> list[str]:
         mismatches: list[str] = []
         for addr, expected in expected_map.items():
             actual = float(snapshot.get(addr, 0.0))
-            if abs(actual - expected) > SIX_ECHO_COMPARE_EPSILON:
+            if abs(actual - expected) > epsilon:
                 mismatches.append(f"IEEE({addr})期望={self._fmt(expected)} 实际={self._fmt(actual)}")
         return mismatches
 
@@ -3803,119 +3933,106 @@ class RobotQtWindow(QMainWindow):
         target_addrs = addrs if addrs is not None else sorted(snapshot)
         return ", ".join(f"{addr}={self._fmt(float(snapshot.get(addr, 0.0)))}" for addr in target_addrs)
 
-    def _wait_six_command_echo_ready(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
-        expected_map = self._expected_echo_map(six_cmd)
+    def _verify_six_echo_once(
+        self,
+        client: ControllerClient,
+        expected_map: dict[int, float],
+        *,
+        epsilon: float,
+    ) -> tuple[dict[int, float], list[str]]:
+        snapshot = self._read_six_echo_snapshot(client)
+        return snapshot, self._collect_six_echo_mismatches(expected_map, snapshot, epsilon=epsilon)
+
+    def _write_six_params_only(self, client: ControllerClient, six_cmd: SixAxisCommand) -> None:
+        for wr in six_cmd.to_func_writes():
+            client.write_modbus_float(wr)
+            self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
+
+    def _wait_six_command_echo_ready(
+        self,
+        client: ControllerClient,
+        expected_map: dict[int, float],
+        record: QueryRecord,
+        *,
+        write_round: int,
+        retry_interval_sec: float,
+        retry_count: int,
+        compare_epsilon: float,
+    ) -> None:
         if not expected_map:
             return
 
-        retry_interval_sec = max(SIX_ECHO_RETRY_INTERVAL_SEC, 0.0)
-        max_retry_count = max(1, int(SIX_ECHO_MAX_RETRY_COUNT))
-        fail_threshold = max(1, int(SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD))
-        derived_wait_sec = retry_interval_sec * max_retry_count
+        fail_threshold = max(1, min(int(SIX_ECHO_CONSECUTIVE_FAIL_THRESHOLD), retry_count))
+        derived_wait_sec = retry_interval_sec * retry_count
         expected_addrs = sorted(expected_map)
         start_monotonic = time.monotonic()
         last_snapshot = {addr: 0.0 for addr in range(280, 314, 2)}
-        last_precheck_snapshot = dict(last_snapshot)
-        last_precheck_error = ""
         last_echo_failures: list[str] = []
-        saw_echo_ready = False
         consecutive_echo_fail = 0
-        consecutive_precheck_fail = 0
         total_echo_fail_count = 0
-        total_precheck_fail_count = 0
 
         self._append_log(
             "六轴",
             f"回显等待开始 {record.query_key}",
             "进行中",
             (
-                f"retry_interval={retry_interval_sec:.2f}s, max_retries={max_retry_count}, "
-                f"fail_threshold={fail_threshold}, derived_wait={derived_wait_sec:.2f}s, "
+                f"round={write_round}, retry_interval={retry_interval_sec:.3f}s, "
+                f"max_retries={retry_count}, fail_threshold={fail_threshold}, "
+                f"epsilon={compare_epsilon:g}, derived_wait={derived_wait_sec:.3f}s, "
                 f"expected={self._format_six_echo_snapshot(expected_map, expected_addrs)}"
             ),
         )
 
-        for attempt in range(1, max_retry_count + 1):
+        for attempt in range(1, retry_count + 1):
             read_error = ""
             try:
-                last_snapshot = self._read_six_echo_snapshot(client)
-                last_echo_failures = self._collect_six_echo_mismatches(expected_map, last_snapshot)
+                last_snapshot, last_echo_failures = self._verify_six_echo_once(
+                    client,
+                    expected_map,
+                    epsilon=compare_epsilon,
+                )
             except Exception as exc:
                 read_error = f"{type(exc).__name__}: {exc}"
                 last_echo_failures = [f"回显读取异常 {read_error}"]
 
             if not read_error and not last_echo_failures:
-                saw_echo_ready = True
-                consecutive_echo_fail = 0
-                try:
-                    self._precheck_six_command(client, six_cmd)
-                    elapsed_sec = time.monotonic() - start_monotonic
-                    self._append_log(
-                        "六轴",
-                        f"回显等待成功 {record.query_key}",
-                        "成功",
-                        (
-                            f"elapsed={elapsed_sec:.3f}s, attempts={attempt}, "
-                            f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}"
-                        ),
-                    )
-                    return
-                except Exception as exc:
-                    last_precheck_error = str(exc)
-                    last_precheck_snapshot = dict(last_snapshot)
-                    consecutive_precheck_fail += 1
-                    total_precheck_fail_count += 1
-                    if consecutive_precheck_fail == fail_threshold:
-                        elapsed_sec = time.monotonic() - start_monotonic
-                        self._append_log(
-                            "六轴",
-                            f"前置检查连续失败 {record.query_key}",
-                            "警告",
-                            (
-                                f"count={consecutive_precheck_fail}, elapsed={elapsed_sec:.3f}s, "
-                                f"reason={last_precheck_error}, "
-                                f"snapshot={self._format_six_echo_snapshot(last_precheck_snapshot, expected_addrs)}"
-                            ),
-                        )
+                elapsed_sec = time.monotonic() - start_monotonic
+                self._append_log(
+                    "六轴",
+                    f"回显等待成功 {record.query_key}",
+                    "成功",
+                    (
+                        f"round={write_round}, elapsed={elapsed_sec:.3f}s, attempts={attempt}, "
+                        f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}"
+                    ),
+                )
+                return
             else:
-                consecutive_precheck_fail = 0
                 consecutive_echo_fail += 1
                 total_echo_fail_count += 1
                 if consecutive_echo_fail == fail_threshold:
                     elapsed_sec = time.monotonic() - start_monotonic
                     detail = (
-                        f"count={consecutive_echo_fail}, elapsed={elapsed_sec:.3f}s, "
+                        f"round={write_round}, count={consecutive_echo_fail}, elapsed={elapsed_sec:.3f}s, "
                         f"reason={last_echo_failures[0] if last_echo_failures else '未知'}, "
                         f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}"
                     )
                     self._append_log("六轴", f"回显连续错误 {record.query_key}", "警告", detail)
 
-            if attempt < max_retry_count:
+            if attempt < retry_count:
                 time.sleep(retry_interval_sec)
 
         elapsed_sec = time.monotonic() - start_monotonic
-        if saw_echo_ready:
-            detail_parts = [
-                f"retry_interval={retry_interval_sec:.2f}s",
-                f"max_retries={max_retry_count}",
-                f"attempts={max_retry_count}",
-                f"total_precheck_fail={total_precheck_fail_count}",
-                f"consecutive_precheck_fail={consecutive_precheck_fail}",
-                f"threshold={fail_threshold}",
-                f"reason={last_precheck_error or '前置条件未满足'}",
-                f"elapsed={elapsed_sec:.3f}s",
-                f"snapshot={self._format_six_echo_snapshot(last_precheck_snapshot, expected_addrs)}",
-            ]
-            raise RuntimeError("六轴回显正常但执行条件不满足: " + " | ".join(detail_parts))
-
         reason = "; ".join(last_echo_failures[:6]) if last_echo_failures else "回显未收敛"
         detail_parts = [
-            f"retry_interval={retry_interval_sec:.2f}s",
-            f"max_retries={max_retry_count}",
-            f"attempts={max_retry_count}",
+            f"round={write_round}",
+            f"retry_interval={retry_interval_sec:.3f}s",
+            f"max_retries={retry_count}",
+            f"attempts={retry_count}",
             f"total_echo_fail={total_echo_fail_count}",
             f"consecutive_echo_fail={consecutive_echo_fail}",
             f"threshold={fail_threshold}",
+            f"epsilon={compare_epsilon:g}",
             f"reason={reason}",
             f"elapsed={elapsed_sec:.3f}s",
             f"snapshot={self._format_six_echo_snapshot(last_snapshot, expected_addrs)}",
@@ -3930,12 +4047,44 @@ class RobotQtWindow(QMainWindow):
                 "成功",
                 self._describe_six_motion_options(six_cmd),
             )
-        for wr in six_cmd.to_func_writes():
-            client.write_modbus_float(wr)
-            self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
-        # 6. 参数回显等待: 按重试间隔和重试次数持续轮询回显区，收敛后立即继续执行。
-        self._wait_six_command_echo_ready(client, six_cmd, record)
+        self._precheck_six_command(client, six_cmd)
+
+        expected_map = self._expected_echo_map(six_cmd)
+        retry_interval_sec, retry_count, write_rounds, compare_epsilon = self._six_echo_settings()
+        last_error: Exception | None = None
+        for write_round in range(1, write_rounds + 1):
+            self._write_six_params_only(client, six_cmd)
+            try:
+                self._wait_six_command_echo_ready(
+                    client,
+                    expected_map,
+                    record,
+                    write_round=write_round,
+                    retry_interval_sec=retry_interval_sec,
+                    retry_count=retry_count,
+                    compare_epsilon=compare_epsilon,
+                )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                if write_round < write_rounds:
+                    self._append_log(
+                        "六轴",
+                        f"回显失败重写参数 {record.query_key}",
+                        "警告",
+                        f"round={write_round}/{write_rounds}, reason={exc}",
+                    )
+                    continue
+                raise RuntimeError(
+                    f"六轴回显通讯失败: write_rounds={write_rounds}, "
+                    f"retry_count={retry_count}, retry_interval={retry_interval_sec:.3f}s, "
+                    f"epsilon={compare_epsilon:g}, reason={exc}"
+                ) from exc
+
+        if last_error is not None:
+            raise last_error
 
         # 7. 写触发 IEEE(32)=1
         trigger = six_cmd.to_trigger_write()
@@ -3987,10 +4136,20 @@ class RobotQtWindow(QMainWindow):
 
             if st.has_error:
                 alarm_vals = client.read_modbus_long(alarm_read)
+                alarm_raw = alarm_vals[0] if alarm_vals else 0
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
-                raise RuntimeError(
+                message = (
                     f"六轴执行错误: LONG(34)={st.raw}, LONG(36)={system_state}, LONG(38)={alarm_vals[0] if alarm_vals else 0}, "
                     f"IEEE(322)={curr_func}, IEEE(56)={motion_state}, 详情={alarm_detail}"
+                )
+                raise SixAxisCommandRuntimeError(
+                    message,
+                    status_raw=st.raw,
+                    system_state=system_state,
+                    alarm_raw=alarm_raw,
+                    func_num=six_cmd.func_num,
+                    curr_func=curr_func,
+                    motion_state=motion_state,
                 )
             if st.is_complete and not st.has_alarm:
                 if not saw_received and not saw_executing:

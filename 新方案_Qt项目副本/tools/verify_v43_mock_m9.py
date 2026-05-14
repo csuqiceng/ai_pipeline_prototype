@@ -151,6 +151,17 @@ def scenario_program_mutex(client: MockZMotionVrClient) -> tuple[bool, str]:
     return ok, f"func120_err={program_busy}, cmd_busy_alarm={alarm_busy}"
 
 
+def scenario_delay_update(client: MockZMotionVrClient) -> tuple[bool, str]:
+    trigger(client, delay(0.8))
+    first_exec = wait_until(lambda: func_state(client, 110) == SixAxisStatus.STATE_EXEC, timeout_sec=0.1)
+    trigger(client, delay(0.2))
+    no_busy_alarm = (read_alarm(client) & (1 << 2)) == 0
+    still_exec = func_state(client, 110) == SixAxisStatus.STATE_EXEC
+    done = wait_done(client, 110, timeout_sec=0.5)
+    ok = first_exec and still_exec and done and no_busy_alarm
+    return ok, f"first_exec={first_exec}, still_exec={still_exec}, done={done}, cmd_busy={not no_busy_alarm}"
+
+
 def scenario_motion_mutex_joint(client: MockZMotionVrClient) -> tuple[bool, str]:
     trigger(client, line_move())
     trigger(client, joint_jog())
@@ -197,6 +208,7 @@ def main() -> int:
     scenarios: list[tuple[str, Callable[[MockZMotionVrClient], tuple[bool, str]]]] = [
         ("Func108 + Func110 parallel", scenario_motion_program_parallel),
         ("Func110 + Func120 mutex", scenario_program_mutex),
+        ("Func110 update while running", scenario_delay_update),
         ("Func108 + Func106 mutex", scenario_motion_mutex_joint),
         ("Func108 + Func109 mutex", scenario_motion_mutex_timer),
         ("Func104 during motion", scenario_func104_during_motion),
