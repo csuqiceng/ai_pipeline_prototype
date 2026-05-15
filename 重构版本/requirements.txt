@@ -1,0 +1,15 @@
+# Runtime dependencies
+PySide6
+requests
+cryptography
+
+# Voice features
+sounddevice
+numpy
+
+# Packaging
+pyinstaller
+
+# Optional, installed only when using local iFlytek SDK mode.
+# xfyunsdkspeech
+# pyaudio
