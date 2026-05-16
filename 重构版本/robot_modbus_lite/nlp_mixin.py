@@ -107,6 +107,10 @@ class NlpMixin:
         if self.nlp_sequence_running:
             self._show_info("自然语言执行中", "当前自然语言动作序列正在执行。")
             return
+        if self.flow_running:
+            self._show_info("流程运行中", "当前流程执行中，请先停止流程或等待流程完成。")
+            self._append_log("自然语言", "执行解析", "失败", "流程执行中，拒绝自然语言执行")
+            return
         use_deepseek = self.nlp_use_deepseek_check.isChecked()
         self._set_nlp_execute_busy(True)
         self.status_label.setText("自然语言执行准备中，请稍候...")
@@ -200,6 +204,9 @@ class NlpMixin:
             QTimer.singleShot(0, self._run_next_nlp_action)
 
         if action.action_type == "template" and action.target:
+            if self.flow_running:
+                on_step_done(False)
+                return
             self._execute_query_key(action.target, on_done=on_step_done)
             return
         if action.action_type == "system" and action.target:

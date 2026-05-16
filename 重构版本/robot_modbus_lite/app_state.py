@@ -40,6 +40,7 @@ class FlowExecutionState:
     status: str = "空闲"
     running: bool = False
     current_step: str = "-"
+    run_id: int = 0
 
 
 @dataclass

@@ -1,0 +1,12 @@
+{
+  "flows": [
+    {
+      "name": "A到B",
+      "steps": [
+        "位置A",
+        "位置B"
+      ],
+      "step_delay_ms": 1000
+    }
+  ]
+}

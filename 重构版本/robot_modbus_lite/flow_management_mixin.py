@@ -70,6 +70,18 @@ class FlowManagementMixin:
 
     def _on_flow_selected(self, name: str) -> None:
         """处理流程选中。"""
+        if self.flow_running and name != self.current_flow_name:
+            previous = self.current_flow_name or ""
+            self._show_info("流程运行中", "当前流程执行中，不允许切换流程。")
+            self._append_log("流程", "切换流程", "失败", f"流程运行中，拒绝切换: {previous or '-'} -> {name or '-'}")
+            if hasattr(self, "flow_combo"):
+                self.flow_combo.blockSignals(True)
+                if previous:
+                    self.flow_combo.setCurrentText(previous)
+                self.flow_combo.blockSignals(False)
+            self._refresh_flow_steps()
+            self._refresh_flow_status_panel()
+            return
         self.current_flow_name = name or None
         if not self.flow_running:
             self.flow_step_index = 0

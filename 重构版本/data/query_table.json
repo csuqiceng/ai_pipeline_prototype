@@ -1,0 +1,353 @@
+{
+  "records": [
+    {
+      "query_key": "IO0关闭",
+      "func_num": 120,
+      "keywords": "IO0 关闭 输出 夹爪",
+      "description": "Func120 设置 Y0 输出为 OFF",
+      "safety_level": 5,
+      "params": {
+        "io_no": 0,
+        "io_action": 0
+      }
+    },
+    {
+      "query_key": "IO0打开",
+      "func_num": 120,
+      "keywords": "IO0 打开 输出 夹爪",
+      "description": "Func120 设置 Y0 输出为 ON",
+      "safety_level": 5,
+      "params": {
+        "io_no": 0,
+        "io_action": 1
+      }
+    },
+    {
+      "query_key": "J1到10度",
+      "func_num": 106,
+      "keywords": "J1 关节1 到10度 关节点动",
+      "description": "J1 轴绝对定位到 10 度",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 0,
+        "pos_val": 10.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "J2回正",
+      "func_num": 106,
+      "keywords": "J2 回正 关节2 关节点动",
+      "description": "J2 轴回到 0 度",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 1,
+        "pos_val": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "T0延时1秒",
+      "func_num": 109,
+      "keywords": "T0 延时 检测 1秒",
+      "description": "Func109 T0 延时 1 秒",
+      "safety_level": 5,
+      "params": {
+        "check_value": 1,
+        "delay_sec": 1.0
+      }
+    },
+    {
+      "query_key": "T1延时1秒",
+      "func_num": 110,
+      "keywords": "T1 延时 1秒",
+      "description": "Func110 T1 延时 1 秒，可与运动函数并行",
+      "safety_level": 5,
+      "params": {
+        "delay_sec": 1.0
+      }
+    },
+    {
+      "query_key": "X前进50",
+      "func_num": 107,
+      "keywords": "X 前进50 虚拟轴",
+      "description": "虚拟 X 轴相对前进 50mm",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 6,
+        "pos_val": 50.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "fuzzy_pos": 1,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "Z上升50",
+      "func_num": 108,
+      "keywords": "Z上升 抬高 虚拟轴Z",
+      "description": "Z 轴相对上升 50mm",
+      "safety_level": 5,
+      "params": {
+        "target_x": 0.0,
+        "target_y": 0.0,
+        "target_z": 50.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 1,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "home",
+      "func_num": 108,
+      "keywords": "home 回零 原点",
+      "description": "回到 Home 位",
+      "safety_level": 5,
+      "params": {
+        "target_x": 1400.0,
+        "target_y": 0.0,
+        "target_z": 1270.0,
+        "target_rx": 0.0,
+        "target_ry": 90.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "位置A",
+      "func_num": 108,
+      "keywords": "A点 位置A",
+      "description": "移动到位置A",
+      "safety_level": 5,
+      "params": {
+        "target_x": 1000.0,
+        "target_y": 0.0,
+        "target_z": 800.0,
+        "target_rx": 0.0,
+        "target_ry": 90.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "位置B",
+      "func_num": 108,
+      "keywords": "B点 位置B",
+      "description": "移动到位置B",
+      "safety_level": 5,
+      "params": {
+        "target_x": 600.0,
+        "target_y": 0.0,
+        "target_z": 1000.0,
+        "target_rx": 0.0,
+        "target_ry": 90.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "位置C",
+      "func_num": 108,
+      "keywords": "C点 位置C",
+      "description": "移动到位置C",
+      "safety_level": 5,
+      "params": {
+        "target_x": 1500.0,
+        "target_y": 0.0,
+        "target_z": 600.0,
+        "target_rx": 0.0,
+        "target_ry": 90.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "急停",
+      "func_num": 104,
+      "keywords": "急停 stop",
+      "description": "Func104 急停按下",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 0,
+        "estop_ctrl": 1,
+        "pause_ctrl": 0,
+        "cancel_ctrl": 0,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "急停解除",
+      "func_num": 104,
+      "keywords": "急停松开 解除急停 estop release",
+      "description": "Func104 急停松开",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 0,
+        "estop_ctrl": 2,
+        "pause_ctrl": 0,
+        "cancel_ctrl": 0,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "报警复位",
+      "func_num": 104,
+      "keywords": "报警复位 reset",
+      "description": "Func104 报警复位",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 0,
+        "estop_ctrl": 0,
+        "pause_ctrl": 0,
+        "cancel_ctrl": 0,
+        "reset_ctrl": 1
+      }
+    },
+    {
+      "query_key": "暂停",
+      "func_num": 104,
+      "keywords": "暂停 pause",
+      "description": "Func104 暂停按下",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 1,
+        "estop_ctrl": 0,
+        "pause_ctrl": 1,
+        "cancel_ctrl": 0,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "结束",
+      "func_num": 104,
+      "keywords": "结束 cancel stop",
+      "description": "Func104 结束按下",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 1,
+        "estop_ctrl": 0,
+        "pause_ctrl": 0,
+        "cancel_ctrl": 1,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "结束解除",
+      "func_num": 104,
+      "keywords": "结束松开 cancel release",
+      "description": "Func104 结束松开",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 1,
+        "estop_ctrl": 0,
+        "pause_ctrl": 0,
+        "cancel_ctrl": 2,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "继续",
+      "func_num": 104,
+      "keywords": "继续 恢复 resume",
+      "description": "Func104 暂停解除",
+      "safety_level": 5,
+      "params": {
+        "stop_mode": 1,
+        "estop_ctrl": 0,
+        "pause_ctrl": 2,
+        "cancel_ctrl": 0,
+        "reset_ctrl": 0
+      }
+    },
+    {
+      "query_key": "连续插补示例",
+      "func_num": 11,
+      "keywords": "连续插补 多点 示例",
+      "description": "Func11 两点连续插补示例",
+      "safety_level": 5,
+      "params": {
+        "point_count": 2,
+        "spd_pct": 50.0,
+        "acc_pct": 60.0,
+        "dec_pct": 60.0,
+        "points": [
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            10.0,
+            10.0,
+            10.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        ]
+      }
+    }
+  ]
+}

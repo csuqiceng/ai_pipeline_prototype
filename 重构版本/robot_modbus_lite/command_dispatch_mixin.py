@@ -41,7 +41,14 @@ class CommandDispatchMixin:
             return
         self._execute_query_key(query_key)
 
-    def _execute_query_key(self, query_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
+    def _execute_query_key(
+        self,
+        query_key: str,
+        *,
+        on_done: Callable[[bool], None] | None = None,
+        show_error_dialog: bool = True,
+        should_process: Callable[[], bool] | None = None,
+    ) -> None:
         """执行查询。"""
         host = self.host_edit.text().strip()
         dispatch_id = self._next_dispatch_id()
@@ -93,6 +100,7 @@ class CommandDispatchMixin:
                             "func_num": fallback.func_num,
                             **self._log_exception_fields(exc),
                         },
+                        show_error_dialog=show_error_dialog,
                     )
             if on_done:
                 on_done(False)
@@ -134,6 +142,8 @@ class CommandDispatchMixin:
         def on_result(result):
             """处理结果。"""
             self._resume_polling()
+            if should_process is not None and not should_process():
+                return
             if isinstance(result, Exception):
                 self._disconnect_client()
                 fallback = plan_records[0] if plan_records else self.table.get(query_key)
@@ -149,13 +159,21 @@ class CommandDispatchMixin:
                                 "func_num": fallback.func_num,
                                 **self._log_exception_fields(result),
                             },
+                            show_error_dialog=show_error_dialog,
                         )
                 if on_done:
                     on_done(False)
                 return
             results, step_failed = result
             for plan_record, step_ok, step_error, feedback, step_extra in results:
-                self._after_send(plan_record, step_ok, step_error, feedback, log_extra={**dispatch_extra, **step_extra})
+                self._after_send(
+                    plan_record,
+                    step_ok,
+                    step_error,
+                    feedback,
+                    log_extra={**dispatch_extra, **step_extra},
+                    show_error_dialog=show_error_dialog,
+                )
             if on_done:
                 on_done(not step_failed)
 
@@ -169,6 +187,7 @@ class CommandDispatchMixin:
         feedback: list[float] | None = None,
         *,
         log_extra: dict[str, Any] | None = None,
+        show_error_dialog: bool = True,
     ) -> None:
         """处理相关数据。"""
         self.history.insert(0, {
@@ -212,7 +231,8 @@ class CommandDispatchMixin:
                 self.alarm_code = "ERR_SEND"
                 self.alarm_text = error
             self.status_label.setText(f"发送失败: {error}")
-            self._show_critical("发送失败", error)
+            if show_error_dialog:
+                self._show_critical("发送失败", error)
             self._append_log(
                 "执行",
                 f"发送指令 {record.query_key}",

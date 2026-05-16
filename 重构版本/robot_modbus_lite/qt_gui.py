@@ -152,6 +152,7 @@ class RobotQtWindow(GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixi
         self.flow_status = flow_state.status
         self.flow_running = flow_state.running
         self.flow_current_step = flow_state.current_step
+        self.flow_run_id = flow_state.run_id
         realtime_state = RobotRealtimeState()
         self.robot_x = realtime_state.robot_x
         self.robot_y = realtime_state.robot_y
