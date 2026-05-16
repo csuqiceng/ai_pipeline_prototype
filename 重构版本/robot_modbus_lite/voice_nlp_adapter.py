@@ -12,12 +12,8 @@ from .models import QueryRecord
 
 
 SYSTEM_ACTION_ALIASES = {
-    "上电": "power_on",
-    "开机": "power_on",
-    "启动": "auto_start",
-    "开始": "auto_start",
-    "停机": "auto_stop",
-    "停止": "auto_stop",
+    "报警复位": "alarm_reset",
+    "复位": "alarm_reset",
     "暂停": "sys_pause",
     "继续": "sys_resume",
     "恢复": "sys_resume",
@@ -181,7 +177,7 @@ class VoiceNlpAdapter:
         """构建大模型。"""
         template_names = "、".join(sorted(self.table))
         flow_names = "、".join(self.flow_names) or "无"
-        system_names = "power_on、auto_start、auto_stop、sys_pause、sys_resume、sys_estop"
+        system_names = "alarm_reset、sys_pause、sys_resume、sys_estop"
         return (
             "你负责把自然语言归类到现有 Qt 控制系统动作。\n"
             "如果用户输入包含顺序动作（例如“先...再...”或“然后...”），请输出 actions 数组，保持执行顺序。\n"

@@ -46,18 +46,14 @@ SIX_READY_RECOVERY_TIMEOUT_SEC = 5.0
 SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC = 5.0
 
 SYSTEM_COMMANDS = {
-    "上电": ("power_on", "系统已上电"),
-    "启动": ("auto_start", "系统启动"),
-    "停机": ("auto_stop", "系统停机"),
+    "报警复位": ("alarm_reset", "报警已复位"),
     "暂停": ("sys_pause", "当前任务已暂停"),
     "继续": ("sys_resume", "当前任务继续运行"),
     "急停": ("sys_estop", "急停触发，系统锁定"),
 }
 
 SYSTEM_COMMAND_CODES = {
-    "power_on": 4001,
-    "auto_start": 6001,
-    "auto_stop": 6002,
+    "alarm_reset": 4001,
     "sys_pause": 4003,
     "sys_resume": 4004,
     "sys_estop": 4002,

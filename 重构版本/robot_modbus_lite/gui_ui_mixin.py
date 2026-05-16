@@ -176,9 +176,7 @@ class GuiUiMixin:
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
         for text, key, klass in [
-            ("上电", "power_on", ""),
-            ("启动", "auto_start", "green"),
-            ("停机", "auto_stop", ""),
+            ("报警复位", "alarm_reset", ""),
             ("暂停", "sys_pause", "yellow"),
             ("继续", "sys_resume", ""),
             ("急停", "sys_estop", "red"),

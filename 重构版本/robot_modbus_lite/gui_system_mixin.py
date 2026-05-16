@@ -126,15 +126,9 @@ class GuiSystemMixin:
 
     def _apply_legacy_system_action(self, action_key: str, *, update_status: bool = True) -> None:
         """应用系统。"""
-        if action_key == "power_on":
+        if action_key == "alarm_reset":
             if update_status:
-                self._set_status("系统已上电")
-            return
-        if action_key == "auto_start":
-            self._set_mode_busy("自动", True, "系统启动")
-            return
-        if action_key == "auto_stop":
-            self._set_mode_busy(self.mode_label.text(), False, "系统停机")
+                self._set_status("报警已复位")
             return
         if action_key == "sys_pause":
             self._set_mode_busy(self.mode_label.text(), False, "当前任务已暂停")
