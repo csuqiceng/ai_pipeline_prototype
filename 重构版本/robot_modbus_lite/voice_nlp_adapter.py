@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .command_parser import CommandParseError, parse_command
 from .deepseek_client import DeepSeekClient
@@ -66,10 +66,15 @@ class VoiceNlpAdapter:
         self.table = table
         self.flow_names = tuple(sorted(str(name) for name in flow_names))
         self._external_deepseek_client = None
+        self._diagnostic_callback: Callable[[str, str, str], None] | None = None
 
     def set_deepseek_client(self, client) -> None:
         """设置大模型客户端。"""
         self._external_deepseek_client = client
+
+    def set_diagnostic_callback(self, callback: Callable[[str, str, str], None]) -> None:
+        """设置诊断回调，用于把大模型回退原因写入 GUI 日志。"""
+        self._diagnostic_callback = callback
 
     def parse(self, text: str, *, use_deepseek: bool = False) -> VoiceNlpPlan:
         """解析相关数据。"""
@@ -135,6 +140,7 @@ class VoiceNlpAdapter:
             prompt = self._build_deepseek_prompt(text)
             payload = client.parse_json(prompt)
             if not payload:
+                self._emit_diagnostic("DeepSeek解析", "失败", "未返回可解析 JSON，已回退本地规则")
                 return None
             reason = str(payload.get("reason", "")).strip() or "DeepSeek解析"
             raw_actions = payload.get("actions")
@@ -143,18 +149,31 @@ class VoiceNlpAdapter:
                 for item in raw_actions:
                     action = self._validate_deepseek_action(item, text, reason)
                     if action is None:
+                        self._emit_diagnostic("DeepSeek解析", "失败", "返回动作未通过本地白名单校验，已回退本地规则")
                         return None
                     actions.append(action)
             else:
                 action = self._validate_deepseek_action(payload, text, reason)
                 if action is None:
+                    self._emit_diagnostic("DeepSeek解析", "失败", "返回动作未通过本地白名单校验，已回退本地规则")
                     return None
                 actions.append(action)
             if not actions:
+                self._emit_diagnostic("DeepSeek解析", "失败", "未返回有效动作，已回退本地规则")
                 return None
             return VoiceNlpPlan(actions=tuple(actions), source="deepseek", raw_text=text, reason=reason)
-        except Exception:
+        except Exception as exc:
+            self._emit_diagnostic("DeepSeek解析", "失败", f"{type(exc).__name__}: {exc}；已回退本地规则")
             return None
+
+    def _emit_diagnostic(self, action: str, result: str, detail: str) -> None:
+        """发出诊断信息。"""
+        if self._diagnostic_callback is None:
+            return
+        try:
+            self._diagnostic_callback(action, result, detail)
+        except Exception:
+            pass
 
     def _validate_deepseek_action(self, payload: object, raw_text: str, default_reason: str) -> VoiceNlpAction | None:
         """校验大模型。"""

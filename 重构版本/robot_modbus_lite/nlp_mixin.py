@@ -14,6 +14,9 @@ class NlpMixin:
         adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names())
         if self._deepseek_client:
             adapter.set_deepseek_client(self._deepseek_client)
+        adapter.set_diagnostic_callback(
+            lambda action, result, detail: self._append_log("自然语言", action, result, detail)
+        )
         return adapter
 
     def _set_nlp_result_plan(self, plan: VoiceNlpPlan) -> None:
