@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import time
+from array import array
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,13 @@ from .voice_ipc import cleanup_stop_flag, make_voice_worker_files, reset_stop_fl
 
 class VoiceMixin:
     """为主窗口增加语音识别和语音指令执行能力。"""
+
+    _VOICE_SAMPLE_RATE = 16000
+    _VOICE_SAMPLE_WIDTH_BYTES = 2
+    _VOICE_SILENCE_THRESHOLD = 350
+    _VOICE_FRAME_MS = 20
+    _VOICE_PADDING_MS = 180
+    _VOICE_STREAM_MIN_RECORD_SEC = 1.0
 
     def _create_iflytek_client(self):
         """创建客户端。"""
@@ -37,6 +45,119 @@ class VoiceMixin:
                 f"{exc}\n请在以下任一文件配置讯飞凭证后重试：\n{env_locations}\n"
                 "需要的键：IFLYTEK_APP_ID、IFLYTEK_API_KEY、IFLYTEK_API_SECRET"
             ) from exc
+
+    def _get_local_iflytek_client(self, *, reset: bool = False):
+        """获取并缓存本地讯飞客户端。"""
+        from .iflytek_iat import IFlytekIATClient, IFlytekIATConfig
+
+        lock = getattr(self, "_iflytek_local_client_lock", None)
+        if lock is None:
+            config = IFlytekIATConfig.from_env()
+            return IFlytekIATClient(config), 0
+
+        start = time.perf_counter()
+        with lock:
+            if reset:
+                self._iflytek_local_client = None
+            if self._iflytek_local_client is None:
+                config = IFlytekIATConfig.from_env()
+                self._iflytek_local_client = IFlytekIATClient(config)
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                return self._iflytek_local_client, elapsed_ms
+            return self._iflytek_local_client, 0
+
+    def _trim_pcm_silence(self, pcm_data: bytes) -> tuple[bytes, dict[str, int]]:
+        """裁掉首尾静音，减少上传和识别的无效音频。"""
+        bytes_per_frame = int(self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES * self._VOICE_FRAME_MS / 1000)
+        bytes_per_frame = max(self._VOICE_SAMPLE_WIDTH_BYTES, bytes_per_frame)
+        frame_count = len(pcm_data) // bytes_per_frame
+        original_ms = int(len(pcm_data) / (self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES) * 1000)
+        stats = {
+            "voice_audio_original_ms": original_ms,
+            "voice_audio_trimmed_ms": original_ms,
+            "voice_audio_trimmed_head_ms": 0,
+            "voice_audio_trimmed_tail_ms": 0,
+        }
+        if frame_count <= 2:
+            return pcm_data, stats
+
+        active_frames: list[int] = []
+        for index in range(frame_count):
+            chunk = pcm_data[index * bytes_per_frame:(index + 1) * bytes_per_frame]
+            samples = array("h")
+            samples.frombytes(chunk)
+            if samples and max(abs(sample) for sample in samples) >= self._VOICE_SILENCE_THRESHOLD:
+                active_frames.append(index)
+
+        if not active_frames:
+            return pcm_data, stats
+
+        padding_frames = max(1, self._VOICE_PADDING_MS // self._VOICE_FRAME_MS)
+        start_frame = max(0, active_frames[0] - padding_frames)
+        end_frame = min(frame_count, active_frames[-1] + padding_frames + 1)
+        start = start_frame * bytes_per_frame
+        end = end_frame * bytes_per_frame
+        if start <= 0 and end >= len(pcm_data):
+            return pcm_data, stats
+
+        trimmed = pcm_data[start:end]
+        trimmed_ms = int(len(trimmed) / (self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES) * 1000)
+        stats.update(
+            {
+                "voice_audio_trimmed_ms": trimmed_ms,
+                "voice_audio_trimmed_head_ms": int(start / (self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES) * 1000),
+                "voice_audio_trimmed_tail_ms": max(0, original_ms - trimmed_ms - int(start / (self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES) * 1000)),
+            }
+        )
+        return trimmed, stats
+
+    def _format_voice_timing_detail(self, timings: dict[str, int], *, text: str | None = None) -> str:
+        """格式化语音识别耗时。"""
+        parts = [
+            f"音频 {timings.get('voice_audio_original_ms', 0)}ms",
+            f"裁剪后 {timings.get('voice_audio_trimmed_ms', 0)}ms",
+            f"裁剪 {timings.get('voice_trim_ms', 0)}ms",
+            f"写文件 {timings.get('voice_temp_file_ms', 0)}ms",
+            f"client初始化 {timings.get('voice_client_init_ms', 0)}ms",
+            f"识别 {timings.get('voice_transcribe_ms', 0)}ms",
+            f"总耗时 {timings.get('voice_total_ms', 0)}ms",
+        ]
+        if text is not None:
+            parts.append(f"文本: {text or '-'}")
+        return " | ".join(parts)
+
+    def _transcribe_pcm_via_local_client(self, pcm_data: bytes) -> dict[str, object]:
+        """在后台线程中复用本地讯飞客户端识别 PCM。"""
+        import tempfile
+
+        total_start = time.perf_counter()
+        trim_start = time.perf_counter()
+        trimmed_pcm, timing = self._trim_pcm_silence(pcm_data)
+        timing["voice_trim_ms"] = int((time.perf_counter() - trim_start) * 1000)
+
+        file_start = time.perf_counter()
+        tmp = tempfile.NamedTemporaryFile(suffix=".pcm", delete=False)
+        tmp.write(trimmed_pcm)
+        tmp_name = tmp.name
+        tmp.close()
+        timing["voice_temp_file_ms"] = int((time.perf_counter() - file_start) * 1000)
+
+        try:
+            client, init_ms = self._get_local_iflytek_client()
+            timing["voice_client_init_ms"] = init_ms
+            transcribe_start = time.perf_counter()
+            try:
+                result = client.transcribe_file(tmp_name)
+            except Exception:
+                client, retry_init_ms = self._get_local_iflytek_client(reset=True)
+                timing["voice_client_retry"] = 1
+                timing["voice_client_retry_init_ms"] = retry_init_ms
+                result = client.transcribe_file(tmp_name)
+            timing["voice_transcribe_ms"] = int((time.perf_counter() - transcribe_start) * 1000)
+            timing["voice_total_ms"] = int((time.perf_counter() - total_start) * 1000)
+            return {"text": result.text.strip(), "timing": timing}
+        finally:
+            Path(tmp_name).unlink(missing_ok=True)
 
     def _run_iflytek_worker(self, args: list[str]) -> str:
         """运行子进程。"""
@@ -140,6 +261,9 @@ class VoiceMixin:
 
     def _toggle_microphone_recording(self) -> None:
         """切换麦克风。"""
+        if getattr(self, "_local_voice_streaming", False):
+            self._stop_local_streaming_recognition()
+            return
         # 持久线程：正在采集 → 停止
         if self._proxy_mic_capturing and self._mic_recorder_thread is not None:
             self._mic_recorder_thread.stop_capturing()
@@ -161,7 +285,13 @@ class VoiceMixin:
         if self._proxy_mic_capturing:
             return
         try:
+            if hasattr(self, "nlp_input_edit"):
+                self.nlp_input_edit.clear()
             self._create_iflytek_client()
+
+            if not self._use_license_voice:
+                self._start_local_streaming_recognition()
+                return
 
             # 优先使用持久线程（零延迟）
             if self._mic_recorder_thread is not None:
@@ -176,6 +306,123 @@ class VoiceMixin:
         except Exception as exc:
             self._show_critical("开始录音失败", str(exc))
             self._append_log("语音", "开始录音", "失败", str(exc))
+
+    def _start_local_streaming_recognition(self) -> None:
+        """本地讯飞实时流式识别：录音时同步上传音频。"""
+        if getattr(self, "_local_voice_streaming", False):
+            return
+
+        log_dir = self.runtime_root / "data" / "exported_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stop_flag = log_dir / f"voice_stream_stop_{timestamp}.flag"
+        debug_pcm = log_dir / f"voice_stream_debug_{timestamp}.pcm"
+        reset_stop_flag(stop_flag)
+
+        selected_device = self._selected_microphone_device()
+        self._local_voice_streaming = True
+        self._local_voice_stream_started_perf = time.perf_counter()
+        self._local_voice_stream_stop_pending = False
+        self._local_voice_stream_stop_flag_path = stop_flag
+        self._local_voice_stream_debug_path = debug_pcm
+        self.mic_toggle_btn.setText("停止录音")
+        self.mic_toggle_btn.setEnabled(True)
+        self.status_label.setText("实时语音识别中，请说话...")
+        detail = "实时流式模式（系统默认）" if selected_device is None else f"实时流式模式（设备 {selected_device}）"
+        self._append_log("语音", "开始录音", "成功", detail)
+
+        def work():
+            """后台执行本地流式识别。"""
+            from .iflytek_iat import IFlytekMicrophoneConfig
+
+            total_start = time.perf_counter()
+            client, init_ms = self._get_local_iflytek_client(reset=True)
+            transcribe_start = time.perf_counter()
+            try:
+                result = client.transcribe_microphone(
+                    IFlytekMicrophoneConfig(
+                        duration_sec=3600.0,
+                        sample_rate=self._VOICE_SAMPLE_RATE,
+                        channels=1,
+                        sample_width_bytes=self._VOICE_SAMPLE_WIDTH_BYTES,
+                        device=selected_device,
+                        warmup_sec=0.1,
+                        debug_save_path=str(debug_pcm),
+                        stop_flag_path=str(stop_flag),
+                    )
+                )
+            except Exception:
+                self._get_local_iflytek_client(reset=True)
+                raise
+
+            total_ms = int((time.perf_counter() - total_start) * 1000)
+            audio_ms = 0
+            if debug_pcm.exists():
+                audio_ms = int(debug_pcm.stat().st_size / (self._VOICE_SAMPLE_RATE * self._VOICE_SAMPLE_WIDTH_BYTES) * 1000)
+            timing = {
+                "voice_mode": "local_streaming",
+                "voice_audio_original_ms": audio_ms,
+                "voice_audio_trimmed_ms": audio_ms,
+                "voice_trim_ms": 0,
+                "voice_temp_file_ms": 0,
+                "voice_client_init_ms": init_ms,
+                "voice_transcribe_ms": int((time.perf_counter() - transcribe_start) * 1000),
+                "voice_total_ms": total_ms,
+            }
+            return {"text": result.text.strip(), "timing": timing}
+
+        def on_result(result):
+            """处理流式识别结果。"""
+            if self._local_voice_stream_stop_flag_path and self._local_voice_stream_stop_flag_path.exists():
+                try:
+                    cleanup_stop_flag(self._local_voice_stream_stop_flag_path)
+                except Exception:
+                    pass
+            self._local_voice_streaming = False
+            self._local_voice_stream_stop_pending = False
+            self._local_voice_stream_stop_flag_path = None
+            self.mic_toggle_btn.setEnabled(True)
+            self.mic_toggle_btn.setText("开始录音")
+
+            if isinstance(result, Exception):
+                message = str(result)
+                if "10165" in message or "invalid handle" in message.lower():
+                    message = "录音时间过短或讯飞连接句柄未就绪，请稍等到按钮可用后再停止录音。"
+                self.status_label.setText("麦克风识别失败")
+                self._show_critical("麦克风识别失败", message)
+                self._append_log("语音", "麦克风识别", "失败", message)
+                return
+
+            text = str(result.get("text", "") if isinstance(result, dict) else result).strip()
+            timing = result.get("timing", {}) if isinstance(result, dict) else {}
+            self.nlp_input_edit.setPlainText(text)
+            self.status_label.setText("麦克风识别完成")
+            self._append_log("语音", "识别耗时", "成功", self._format_voice_timing_detail(timing, text=text), extra=timing)
+            self._append_log("语音", "麦克风识别", "成功", text or "-")
+
+        self._run_in_background(work, on_result)
+
+    def _stop_local_streaming_recognition(self, *, force: bool = False) -> None:
+        """停止本地流式识别。"""
+        if getattr(self, "_local_voice_stream_stop_pending", False) and not force:
+            return
+
+        elapsed = time.perf_counter() - float(getattr(self, "_local_voice_stream_started_perf", 0.0) or 0.0)
+        if not force and elapsed < self._VOICE_STREAM_MIN_RECORD_SEC:
+            remaining_ms = int((self._VOICE_STREAM_MIN_RECORD_SEC - elapsed) * 1000)
+            self._local_voice_stream_stop_pending = True
+            self.mic_toggle_btn.setEnabled(False)
+            self.status_label.setText("录音时间过短，正在补足最短录音时长。")
+            self._append_log("语音", "停止录音延迟", "警告", f"点击过快，延迟 {remaining_ms}ms 后停止")
+            QTimer.singleShot(max(100, remaining_ms), lambda: self._stop_local_streaming_recognition(force=True))
+            return
+
+        stop_flag = getattr(self, "_local_voice_stream_stop_flag_path", None)
+        if stop_flag:
+            write_stop_flag(stop_flag)
+        self.mic_toggle_btn.setEnabled(False)
+        self.status_label.setText("正在停止实时识别并等待最终文本。")
+        self._append_log("语音", "停止录音", "成功", "实时流式停止信号已写入")
 
     def _ensure_mic_stream(self) -> None:
         """确保麦克风。"""
@@ -287,7 +534,11 @@ class VoiceMixin:
 
         def work():
             """处理相关数据。"""
-            audio_b64 = base64.b64encode(pcm_data).decode()
+            total_start = time.perf_counter()
+            trim_start = time.perf_counter()
+            trimmed_pcm, timing = self._trim_pcm_silence(pcm_data)
+            timing["voice_trim_ms"] = int((time.perf_counter() - trim_start) * 1000)
+            audio_b64 = base64.b64encode(trimmed_pcm).decode()
             token = self.license_manager.get_access_token()
             if not token:
                 raise RuntimeError("授权已过期")
@@ -301,13 +552,16 @@ class VoiceMixin:
                 "sample_rate": 16000,
             }
             proxy_url = f"{self.license_manager.SERVER_URL}/api/v1/proxy/voice/transcribe"
+            request_start = time.perf_counter()
             resp = _requests.post(proxy_url, headers=headers, json=payload, timeout=60)
+            timing["voice_transcribe_ms"] = int((time.perf_counter() - request_start) * 1000)
             if resp.status_code == 401:
                 raise RuntimeError("授权已过期")
             elif resp.status_code == 429:
                 raise RuntimeError("今日语音配额已用尽")
             resp.raise_for_status()
-            return resp.json().get("data", {}).get("text", "").strip()
+            timing["voice_total_ms"] = int((time.perf_counter() - total_start) * 1000)
+            return {"text": resp.json().get("data", {}).get("text", "").strip(), "timing": timing}
 
         def on_result(result):
             """处理结果。"""
@@ -317,15 +571,17 @@ class VoiceMixin:
                 self._show_critical("麦克风识别失败", str(result))
                 self._append_log("语音", "麦克风识别", "失败", str(result))
             else:
-                self.nlp_input_edit.setPlainText(result)
+                text = str(result.get("text", "") if isinstance(result, dict) else result).strip()
+                timing = result.get("timing", {}) if isinstance(result, dict) else {}
+                self.nlp_input_edit.setPlainText(text)
                 self.status_label.setText("麦克风识别完成")
-                self._append_log("语音", "麦克风识别", "成功", result or "-")
+                self._append_log("语音", "识别耗时", "成功", self._format_voice_timing_detail(timing, text=text), extra=timing)
+                self._append_log("语音", "麦克风识别", "成功", text or "-")
 
         self._run_in_background(work, on_result)
 
     def _recognize_via_local(self, pcm_data: bytes) -> None:
         """识别本地。"""
-        import tempfile
 
         self.status_label.setText("正在识别语音...")
         self.mic_toggle_btn.setEnabled(False)
@@ -333,14 +589,7 @@ class VoiceMixin:
 
         def work():
             """处理相关数据。"""
-            tmp = tempfile.NamedTemporaryFile(suffix='.pcm', delete=False)
-            tmp.write(pcm_data)
-            tmp_name = tmp.name
-            tmp.close()
-            try:
-                return self._run_iflytek_worker(["--mode", "audio", "--input", tmp_name])
-            finally:
-                Path(tmp_name).unlink(missing_ok=True)
+            return self._transcribe_pcm_via_local_client(pcm_data)
 
         def on_result(result):
             """处理结果。"""
@@ -350,9 +599,12 @@ class VoiceMixin:
                 self._show_critical("麦克风识别失败", str(result))
                 self._append_log("语音", "麦克风识别", "失败", str(result))
             else:
-                self.nlp_input_edit.setPlainText(result)
+                text = str(result.get("text", "") if isinstance(result, dict) else result).strip()
+                timing = result.get("timing", {}) if isinstance(result, dict) else {}
+                self.nlp_input_edit.setPlainText(text)
                 self.status_label.setText("麦克风识别完成")
-                self._append_log("语音", "麦克风识别", "成功", result or "-")
+                self._append_log("语音", "识别耗时", "成功", self._format_voice_timing_detail(timing, text=text), extra=timing)
+                self._append_log("语音", "麦克风识别", "成功", text or "-")
 
         self._run_in_background(work, on_result)
 

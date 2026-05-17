@@ -204,6 +204,13 @@ class RobotQtWindow(GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixi
         self._mic_result_path: Path | None = voice_state.result_path
         self._mic_recorder_thread = voice_state.recorder_thread  # 代理模式持久录音线程
         self._proxy_mic_capturing = voice_state.proxy_capturing  # 代理模式是否正在采集
+        self._iflytek_local_client = None
+        self._iflytek_local_client_lock = threading.Lock()
+        self._local_voice_streaming = False
+        self._local_voice_stream_stop_flag_path: Path | None = None
+        self._local_voice_stream_debug_path: Path | None = None
+        self._local_voice_stream_started_perf = 0.0
+        self._local_voice_stream_stop_pending = False
 
         # 授权相关
         self.license_manager = LicenseManager(self.runtime_root / "data")

@@ -60,6 +60,15 @@ class ControllerRuntimeMixin:
             self._mic_recorder_thread.shutdown()
             self._mic_recorder_thread.wait(3000)
             self._mic_recorder_thread = None
+        if getattr(self, "_local_voice_stream_stop_flag_path", None):
+            try:
+                from .voice_ipc import write_stop_flag
+
+                write_stop_flag(self._local_voice_stream_stop_flag_path)
+            except Exception:
+                pass
+        if hasattr(self, "_iflytek_local_client"):
+            self._iflytek_local_client = None
         self._disconnect_client()
         super().closeEvent(event)
 
