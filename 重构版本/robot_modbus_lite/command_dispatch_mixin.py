@@ -48,6 +48,7 @@ class CommandDispatchMixin:
         on_done: Callable[[bool], None] | None = None,
         show_error_dialog: bool = True,
         should_process: Callable[[], bool] | None = None,
+        log_extra: dict[str, Any] | None = None,
     ) -> None:
         """执行查询。"""
         host = self.host_edit.text().strip()
@@ -59,6 +60,8 @@ class CommandDispatchMixin:
             "task_id": self.task_id,
             "root_query_key": query_key,
         }
+        if log_extra:
+            dispatch_extra.update({key: value for key, value in log_extra.items() if value is not None})
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
             self._append_log("执行", f"发送指令 {query_key}", "失败", "地址为空", extra=dispatch_extra)

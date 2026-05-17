@@ -608,7 +608,6 @@ class GuiUiMixin:
         point_buttons_layout.setContentsMargins(0, 0, 0, 0)
         for button in (self.point_add_btn, self.point_delete_btn, self.point_up_btn, self.point_down_btn):
             point_buttons_layout.addWidget(button)
-        self.check_value_edit = QLineEdit("1")
         self.delay_sec_edit = QLineEdit("1")
         self.io_no_edit = QLineEdit("0")
         self.io_action_combo = QComboBox()
@@ -654,7 +653,6 @@ class GuiUiMixin:
         add_record_row("point_count", "点数 (point_count)", self.point_count_edit)
         add_record_row("points", "插补点 (points)", self.points_table)
         add_record_row("point_buttons", "点位操作", self.point_buttons)
-        add_record_row("check_value", "校验值 (check_value)", self.check_value_edit)
         add_record_row("delay_sec", "延时秒 (delay_sec)", self.delay_sec_edit)
         add_record_row("io_no", "IO编号 (io_no)", self.io_no_edit)
         add_record_row("io_action", "IO动作 (io_action)", self.io_action_combo)
@@ -903,7 +901,6 @@ class GuiUiMixin:
             self.ry_edit,
             self.rz_edit,
             self.point_count_edit,
-            self.check_value_edit,
             self.delay_sec_edit,
             self.io_no_edit,
         ]:

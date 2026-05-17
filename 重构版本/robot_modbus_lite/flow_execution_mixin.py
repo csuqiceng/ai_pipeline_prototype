@@ -22,6 +22,64 @@ class FlowExecutionMixin:
         """判断后台回调是否仍属于当前流程批次。"""
         return bool(self.flow_running and int(getattr(self, "flow_run_id", 0)) == int(run_id))
 
+    def _mark_flow_run_started(self, run_id: int) -> None:
+        """记录流程批次起始时间。"""
+        self._flow_run_started_perf = time.perf_counter()
+        self._flow_run_started_id = int(run_id)
+
+    def _flow_elapsed_ms(self, run_id: int) -> int:
+        """计算流程批次耗时。"""
+        if int(getattr(self, "_flow_run_started_id", -1)) != int(run_id):
+            return 0
+        started = getattr(self, "_flow_run_started_perf", None)
+        if started is None:
+            return 0
+        return int((time.perf_counter() - float(started)) * 1000)
+
+    def _flow_log_extra(self, flow=None, run_id: int | None = None, **extra: Any) -> dict[str, Any]:
+        """构建流程日志上下文字段。"""
+        flow_name = getattr(flow, "name", None) or self.current_flow_name
+        payload: dict[str, Any] = {
+            "flow_name": flow_name,
+            "flow_run_id": int(getattr(self, "flow_run_id", 0)) if run_id is None else int(run_id),
+        }
+        payload.update({key: value for key, value in extra.items() if value is not None})
+        return payload
+
+    def _append_flow_summary(
+        self,
+        flow,
+        run_id: int,
+        status: str,
+        *,
+        result: str,
+        completed_steps: int,
+        current_step: str = "-",
+        detail: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """追加流程结束摘要，方便按批次复盘。"""
+        total_steps = len(getattr(flow, "steps", []) or [])
+        elapsed_ms = self._flow_elapsed_ms(run_id)
+        summary = (
+            f"status={status} | completed={completed_steps}/{total_steps} | "
+            f"last_step={current_step} | elapsed_ms={elapsed_ms}"
+        )
+        if detail:
+            summary = f"{summary} | {detail}"
+        log_extra = self._flow_log_extra(
+            flow,
+            run_id,
+            flow_status=status,
+            completed_steps=completed_steps,
+            total_steps=total_steps,
+            current_step=current_step,
+            elapsed_ms=elapsed_ms,
+        )
+        if extra:
+            log_extra.update({key: value for key, value in extra.items() if value is not None})
+        self._append_log("流程", f"流程结束摘要 {getattr(flow, 'name', '-')}", result, summary, extra=log_extra)
+
     def _finish_flow_run(self, status: str, *, current_step: str = "-") -> None:
         """结束当前流程批次并刷新状态。"""
         self.flow_running = False
@@ -120,13 +178,15 @@ class FlowExecutionMixin:
             return
 
         run_id = self._next_flow_run_id()
+        self._mark_flow_run_started(run_id)
         self._flow_done_callback = on_done
         self.flow_running = True
         self.flow_status = "等待控制器就绪"
         self.flow_current_step = "-"
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
-        self._append_log("流程", f"流程启动等待 {flow.name}", "成功", "开始等待控制器就绪")
+        start_extra = self._flow_log_extra(flow, run_id, total_steps=len(flow.steps), start_step_index=self.flow_step_index + 1)
+        self._append_log("流程", f"流程启动等待 {flow.name}", "成功", "开始等待控制器就绪", extra=start_extra)
         self._pause_polling()
 
         def work():
@@ -142,7 +202,17 @@ class FlowExecutionMixin:
                 self._disconnect_client()
                 self._finish_flow_run("失败")
                 self._show_critical("流程启动失败", str(result))
-                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", str(result))
+                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", str(result), extra=start_extra)
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "失败",
+                    result="失败",
+                    completed_steps=self.flow_step_index,
+                    current_step="-",
+                    detail=str(result),
+                    extra=self._log_exception_fields(result),
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -153,7 +223,16 @@ class FlowExecutionMixin:
             if not ready:
                 self._finish_flow_run("失败")
                 self._show_warning("流程启动失败", detail)
-                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", detail)
+                self._append_log("流程", f"流程启动失败 {flow.name}", "失败", detail, extra=start_extra)
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "失败",
+                    result="失败",
+                    completed_steps=self.flow_step_index,
+                    current_step="-",
+                    detail=detail,
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -163,7 +242,7 @@ class FlowExecutionMixin:
             self.flow_status = "运行中"
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
-            self._append_log("流程", f"开始流程 {flow.name}", "成功", f"共 {len(flow.steps)} 步 | {detail}")
+            self._append_log("流程", f"开始流程 {flow.name}", "成功", f"共 {len(flow.steps)} 步 | {detail}", extra=start_extra)
             QTimer.singleShot(0, lambda: self._run_next_flow_step(run_id=run_id))
 
         self._run_in_background(work, on_result)
@@ -191,20 +270,48 @@ class FlowExecutionMixin:
         if self.flow_step_index >= len(flow.steps):
             self.flow_step_index = 0
         run_id = self._next_flow_run_id()
+        self._mark_flow_run_started(run_id)
         self._flow_done_callback = None
         self.flow_running = True
         self.flow_status = "单步执行"
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
+        self._append_log(
+            "流程",
+            f"单步流程开始 {flow.name}",
+            "成功",
+            f"第 {self.flow_step_index + 1}/{len(flow.steps)} 步",
+            extra=self._flow_log_extra(flow, run_id, total_steps=len(flow.steps), start_step_index=self.flow_step_index + 1),
+        )
         self._run_current_flow_step(auto_continue=False, run_id=run_id)
 
     def _stop_flow(self) -> None:
         """停止流程。"""
         if not self.flow_running:
             return
+        flow = self._current_flow_definition()
+        run_id = int(getattr(self, "flow_run_id", 0))
+        stopped_step = self.flow_step_index + 1
+        stopped_current_step = self.flow_current_step
         self._cancel_flow_run("已停止")
         if self.current_flow_name:
-            self._append_log("流程", f"停止流程 {self.current_flow_name}", "成功", f"停止于第 {self.flow_step_index + 1} 步")
+            self._append_log(
+                "流程",
+                f"停止流程 {self.current_flow_name}",
+                "成功",
+                f"停止于第 {stopped_step} 步",
+                extra=self._flow_log_extra(flow, run_id, flow_status="已停止", current_step=stopped_current_step),
+            )
+        if flow is not None:
+            self._append_flow_summary(
+                flow,
+                run_id,
+                "已停止",
+                result="警告",
+                completed_steps=self.flow_step_index,
+                current_step=stopped_current_step,
+                detail=f"operator_stop_step={stopped_step}",
+            )
         callback = self._flow_done_callback
         self._flow_done_callback = None
         if callback:
@@ -212,6 +319,11 @@ class FlowExecutionMixin:
 
     def _reset_flow(self) -> None:
         """复位流程。"""
+        flow = self._current_flow_definition()
+        run_id = int(getattr(self, "flow_run_id", 0))
+        was_running = bool(self.flow_running)
+        completed_steps = self.flow_step_index
+        current_step = self.flow_current_step
         if self.flow_running:
             callback = self._flow_done_callback
             self._flow_done_callback = None
@@ -225,7 +337,23 @@ class FlowExecutionMixin:
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
         if self.current_flow_name:
-            self._append_log("流程", f"重置流程 {self.current_flow_name}", "成功", "流程已重置到第 1 步")
+            self._append_log(
+                "流程",
+                f"重置流程 {self.current_flow_name}",
+                "成功",
+                "流程已重置到第 1 步",
+                extra=self._flow_log_extra(flow, run_id, flow_status="已重置", current_step=current_step),
+            )
+        if was_running and flow is not None:
+            self._append_flow_summary(
+                flow,
+                run_id,
+                "已重置",
+                result="警告",
+                completed_steps=completed_steps,
+                current_step=current_step,
+                detail="operator_reset",
+            )
 
     def _run_next_flow_step(self, *, run_id: int | None = None) -> None:
         """运行流程步骤。"""
@@ -242,6 +370,13 @@ class FlowExecutionMixin:
         flow = self._current_flow_definition()
         if flow is None:
             self._finish_flow_run("失败")
+            self._append_log(
+                "流程",
+                "流程步骤失败",
+                "失败",
+                "当前流程定义不存在",
+                extra=self._flow_log_extra(None, active_run_id, flow_status="失败"),
+            )
             callback = self._flow_done_callback
             self._flow_done_callback = None
             if callback:
@@ -249,29 +384,54 @@ class FlowExecutionMixin:
             return
         if self.flow_step_index >= len(flow.steps):
             self._finish_flow_run("完成")
-            self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+            done_extra = self._flow_log_extra(flow, active_run_id, completed_steps=len(flow.steps), total_steps=len(flow.steps))
+            self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步", extra=done_extra)
+            self._append_flow_summary(
+                flow,
+                active_run_id,
+                "完成",
+                result="成功",
+                completed_steps=len(flow.steps),
+                current_step="-",
+            )
             callback = self._flow_done_callback
             self._flow_done_callback = None
             if callback:
                 callback(True)
             return
 
-        step_name = flow.steps[self.flow_step_index]
+        current_step_index = self.flow_step_index
+        step_name = flow.steps[current_step_index]
         self.flow_current_step = step_name
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
-        self._append_log("流程", f"流程第{self.flow_step_index + 1}步开始", "成功", step_name)
+        step_extra = self._flow_log_extra(
+            flow,
+            active_run_id,
+            flow_step_index=self.flow_step_index + 1,
+            total_steps=len(flow.steps),
+            current_step=step_name,
+        )
+        self._append_log("流程", f"流程第{self.flow_step_index + 1}步开始", "成功", step_name, extra=step_extra)
 
         if step_name not in self.table:
             self._finish_flow_run("失败")
-            self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", f"模板不存在: {step_name}")
+            self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", f"模板不存在: {step_name}", extra=step_extra)
+            self._append_flow_summary(
+                flow,
+                active_run_id,
+                "失败",
+                result="失败",
+                completed_steps=current_step_index,
+                current_step=step_name,
+                detail=f"模板不存在: {step_name}",
+            )
             callback = self._flow_done_callback
             self._flow_done_callback = None
             if callback:
                 callback(False)
             return
 
-        current_step_index = self.flow_step_index
         parallel_group = self._build_parallel_flow_group(flow, current_step_index)
         if parallel_group is not None:
             # 四点三协议允许运动槽与程序槽并行。这里把相邻的
@@ -285,19 +445,50 @@ class FlowExecutionMixin:
                 return
             if not ok:
                 self._finish_flow_run("失败")
-                self._append_log("流程", f"流程第{current_step_index + 1}步失败", "失败", step_name)
+                fail_extra = self._flow_log_extra(
+                    flow,
+                    active_run_id,
+                    flow_step_index=current_step_index + 1,
+                    total_steps=len(flow.steps),
+                    current_step=step_name,
+                )
+                self._append_log("流程", f"流程第{current_step_index + 1}步失败", "失败", step_name, extra=fail_extra)
+                self._append_flow_summary(
+                    flow,
+                    active_run_id,
+                    "失败",
+                    result="失败",
+                    completed_steps=current_step_index,
+                    current_step=step_name,
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
                     callback(False)
                 return
 
-            self._append_log("流程", f"流程第{current_step_index + 1}步成功", "成功", step_name)
+            success_extra = self._flow_log_extra(
+                flow,
+                active_run_id,
+                flow_step_index=current_step_index + 1,
+                total_steps=len(flow.steps),
+                current_step=step_name,
+            )
+            self._append_log("流程", f"流程第{current_step_index + 1}步成功", "成功", step_name, extra=success_extra)
             self.flow_step_index = current_step_index + 1
             current_flow = self._current_flow_definition()
             if current_flow is None or self.flow_step_index >= len(current_flow.steps):
                 self._finish_flow_run("完成")
-                self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+                done_extra = self._flow_log_extra(flow, active_run_id, completed_steps=len(flow.steps), total_steps=len(flow.steps))
+                self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步", extra=done_extra)
+                self._append_flow_summary(
+                    flow,
+                    active_run_id,
+                    "完成",
+                    result="成功",
+                    completed_steps=len(flow.steps),
+                    current_step="-",
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -311,6 +502,15 @@ class FlowExecutionMixin:
                 self.flow_current_step = "-"
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
+            if not auto_continue:
+                self._append_flow_summary(
+                    flow,
+                    active_run_id,
+                    "单步完成",
+                    result="成功",
+                    completed_steps=self.flow_step_index,
+                    current_step="-",
+                )
             if auto_continue and self.flow_running:
                 delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
                 if delay_ms > 0:
@@ -321,6 +521,13 @@ class FlowExecutionMixin:
                         f"流程步间等待 {flow.name}",
                         "成功",
                         f"第{current_step_index + 1}步后等待 {delay_ms}ms，再执行 {current_flow.steps[self.flow_step_index]}",
+                        extra=self._flow_log_extra(
+                            flow,
+                            active_run_id,
+                            flow_step_index=current_step_index + 1,
+                            next_step=current_flow.steps[self.flow_step_index],
+                            delay_ms=delay_ms,
+                        ),
                     )
                     QTimer.singleShot(delay_ms, lambda: self._run_next_flow_step(run_id=active_run_id))
                 else:
@@ -331,6 +538,13 @@ class FlowExecutionMixin:
             on_done=on_step_done,
             show_error_dialog=False,
             should_process=lambda run_id=active_run_id: self._is_flow_run_current(run_id),
+            log_extra=self._flow_log_extra(
+                flow,
+                active_run_id,
+                flow_step_index=current_step_index + 1,
+                total_steps=len(flow.steps),
+                current_step=step_name,
+            ),
         )
 
     def _build_parallel_flow_group(self, flow, start_index: int) -> list[QueryRecord] | None:
@@ -382,7 +596,9 @@ class FlowExecutionMixin:
             "controller_mode": self._controller_mode_value(),
             "task_id": self.task_id,
             "flow_name": flow.name,
+            "flow_run_id": run_id,
             "flow_step_index": start_index + 1,
+            "total_steps": len(flow.steps),
             "parallel_group": [record.query_key for record in group],
         }
         self._append_log("流程", f"并行组开始 第{start_index + 1}步", "成功", names, extra=dispatch_extra)
@@ -446,6 +662,16 @@ class FlowExecutionMixin:
                 self._disconnect_client()
                 self._finish_flow_run("失败")
                 self._append_log("流程", f"并行组失败 第{start_index + 1}步", "失败", str(result), extra={**dispatch_extra, **self._log_exception_fields(result)})
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "失败",
+                    result="失败",
+                    completed_steps=start_index,
+                    current_step=names,
+                    detail=str(result),
+                    extra=self._log_exception_fields(result),
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -459,6 +685,16 @@ class FlowExecutionMixin:
                     failed = True
             if failed:
                 self._finish_flow_run("失败")
+                failed_names = [record.query_key for record, step_ok, _step_error, _feedback, _step_extra in result if not step_ok]
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "失败",
+                    result="失败",
+                    completed_steps=start_index,
+                    current_step=names,
+                    detail=f"failed_steps={failed_names}",
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -470,7 +706,16 @@ class FlowExecutionMixin:
             current_flow = self._current_flow_definition()
             if current_flow is None or self.flow_step_index >= len(current_flow.steps):
                 self._finish_flow_run("完成")
-                self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步")
+                done_extra = self._flow_log_extra(flow, run_id, completed_steps=len(flow.steps), total_steps=len(flow.steps))
+                self._append_log("流程", f"流程完成 {flow.name}", "成功", f"共完成 {len(flow.steps)} 步", extra=done_extra)
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "完成",
+                    result="成功",
+                    completed_steps=len(flow.steps),
+                    current_step="-",
+                )
                 callback = self._flow_done_callback
                 self._flow_done_callback = None
                 if callback:
@@ -484,6 +729,16 @@ class FlowExecutionMixin:
                 self.flow_current_step = "-"
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
+            if not auto_continue:
+                self._append_flow_summary(
+                    flow,
+                    run_id,
+                    "单步完成",
+                    result="成功",
+                    completed_steps=self.flow_step_index,
+                    current_step="-",
+                    detail=f"parallel_group={dispatch_extra['parallel_group']}",
+                )
             if auto_continue and self.flow_running:
                 delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
                 QTimer.singleShot(delay_ms, lambda: self._run_next_flow_step(run_id=run_id))

@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     client: ZMotionVrClient | None = None
 
     print("V4.3 M0.5 地址映射验证")
-    print("默认只读: 本脚本不会写 LONG(34/36/38)、IEEE(320/322/1600~1622) 或任何控制器地址。")
+    print("默认只读: 本脚本不会写 LONG(34/36/38)、IEEE(320/324/1600~1622) 或任何控制器地址。")
     print("提示: 通过/失败仅代表本次地址可读性和一致性检查，不等同于硬件固件行为完全验证通过。")
     if args.write_test:
         print("WARN --write-test 当前仅为预留参数，第一版不执行任何写入。")
@@ -232,10 +232,10 @@ def main(argv: list[str] | None = None) -> int:
         _read_check(
             results,
             section="ieee-system",
-            name="read IEEE(322)",
-            address="IEEE(322), count=1",
-            reader=lambda: client.read_modbus_float(VrReadRequest(322, 1)),
-            validator=_len_validator(1, "IEEE(322) 当前函数号"),
+            name="read IEEE(324)",
+            address="IEEE(324), count=1",
+            reader=lambda: client.read_modbus_float(VrReadRequest(324, 1)),
+            validator=_len_validator(1, "IEEE(324) 当前内部函数号"),
         )
 
         _print_section("mpos")

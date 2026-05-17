@@ -174,7 +174,6 @@ class TemplateMixin:
         self.move_type_combo.setCurrentIndex(self.move_type_combo.findData(record.int_param("move_type")))
         self.point_count_edit.setText(str(record.int_param("point_count")))
         self._set_points_table_values(record.params.get("points", []))
-        self.check_value_edit.setText(str(record.int_param("check_value", 1)))
         self.delay_sec_edit.setText(self._fmt(record.float_param("delay_sec")))
         self.io_no_edit.setText(str(record.int_param("io_no")))
         self.io_action_combo.setCurrentIndex(self.io_action_combo.findData(record.int_param("io_action")))
@@ -281,7 +280,6 @@ class TemplateMixin:
             }
         elif func_num == 109:
             params = {
-                "check_value": int(float(self.check_value_edit.text() or "0")),
                 "delay_sec": num(self.delay_sec_edit.text()),
             }
         elif func_num == 110:
@@ -659,19 +657,19 @@ class TemplateMixin:
             ]:
                 if value not in (0, 1):
                     return f"{label} 只能是 0 或 1。"
-            if record.int_param("fuzzy_spd") == 0 and not (0 <= record.spd_pct_value() <= 150):
-                return "速度百分比必须在 0 到 150 之间。"
-            if record.int_param("fuzzy_acc") == 0 and not (0 <= record.acc_pct_value() <= 150):
-                return "加速度百分比必须在 0 到 150 之间。"
-            if record.int_param("fuzzy_dec") == 0 and not (0 <= record.dec_pct_value() <= 150):
-                return "减速度百分比必须在 0 到 150 之间。"
+            if record.int_param("fuzzy_spd") == 0 and not (0 <= record.spd_pct_value() <= 100):
+                return "速度百分比必须在 0 到 100 之间。"
+            if record.int_param("fuzzy_acc") == 0 and not (0 <= record.acc_pct_value() <= 100):
+                return "加速度百分比必须在 0 到 100 之间。"
+            if record.int_param("fuzzy_dec") == 0 and not (0 <= record.dec_pct_value() <= 100):
+                return "减速度百分比必须在 0 到 100 之间。"
         if record.func_num == 11:
-            if not (0 <= record.spd_pct_value() <= 150):
-                return "Func11 的速度百分比必须在 0 到 150 之间。"
-            if not (0 <= record.acc_pct_value() <= 150):
-                return "Func11 的加速度百分比必须在 0 到 150 之间。"
-            if not (0 <= record.dec_pct_value() <= 150):
-                return "Func11 的减速度百分比必须在 0 到 150 之间。"
+            if not (0 <= record.spd_pct_value() <= 100):
+                return "Func11 的速度百分比必须在 0 到 100 之间。"
+            if not (0 <= record.acc_pct_value() <= 100):
+                return "Func11 的加速度百分比必须在 0 到 100 之间。"
+            if not (0 <= record.dec_pct_value() <= 100):
+                return "Func11 的减速度百分比必须在 0 到 100 之间。"
         if record.func_num == 106:
             if not (0 <= record.int_param("axis_no") <= 5):
                 return "Func106 的轴号只能是 0 到 5。"
@@ -697,8 +695,6 @@ class TemplateMixin:
             if not isinstance(points, list) or len(points) < record.int_param("point_count"):
                 return "Func11 的 points 数量不足。"
         if record.func_num == 109:
-            if record.int_param("check_value", 1) == 0:
-                return "Func109 的 check_value 不能为 0。"
             if record.float_param("delay_sec") <= 0:
                 return "Func109 的 delay_sec 必须大于 0。"
         if record.func_num == 110:
@@ -730,8 +726,6 @@ class TemplateMixin:
         func_num = int(self.func_num_combo.currentData() or 108)
         if func_num == 11 and self.points_table.rowCount() <= 0:
             self._set_points_table_values([[0, 0, 0, 0, 0, 0], [10, 10, 10, 0, 0, 0]])
-        elif func_num == 109 and int(float(self.check_value_edit.text() or "0")) == 0:
-            self.check_value_edit.setText("1")
         visible_keys = {"name", "func_num", "func_name", "keywords", "safety", "desc"}
         if func_num == 104:
             visible_keys |= {"system_action", "estop_ctrl", "pause_ctrl", "cancel_ctrl", "reset_ctrl"}
@@ -769,7 +763,7 @@ class TemplateMixin:
                 "move_type",
             }
         elif func_num == 109:
-            visible_keys |= {"check_value", "delay_sec"}
+            visible_keys |= {"delay_sec"}
         elif func_num == 110:
             visible_keys |= {"delay_sec"}
         elif func_num == 120:

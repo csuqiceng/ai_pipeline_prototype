@@ -471,7 +471,7 @@ class VoiceMixin:
         if not result_path or not Path(result_path).exists():
             error_text = (stderr or "").strip() or "麦克风识别未返回结果。"
             error_text = f"{error_text}\n调试日志: {worker_log}"
-    
+
             self._show_critical("麦克风识别失败", error_text)
             self._append_log("语音", "麦克风识别", "失败", error_text)
             return
@@ -479,13 +479,13 @@ class VoiceMixin:
             payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             message = f"麦克风识别结果文件不是合法 JSON。\n调试日志: {worker_log}"
-    
+
             self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
         if not payload.get("ok"):
             message = f"{payload.get('error', '麦克风识别失败。')}\n调试日志: {worker_log}"
-    
+
             self._show_critical("麦克风识别失败", message)
             self._append_log("语音", "麦克风识别", "失败", message)
             return
@@ -495,4 +495,3 @@ class VoiceMixin:
 
         self.status_label.setText("麦克风识别完成")
         self._append_log("语音", "麦克风识别", "成功", text or "-")
-

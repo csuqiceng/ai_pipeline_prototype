@@ -16,11 +16,66 @@ from .gui_constants import (
     SIX_POST_TRIGGER_SETTLE_SEC,
     SIX_READY_RECOVERY_TIMEOUT_SEC,
 )
-from .models import ControllerClient, QueryRecord, SixAxisCommand, SixAxisStatus, VrReadRequest, six_func_slot
+from .models import ControllerClient, QueryRecord, SixAxisCommand, SixAxisStatus, VrReadRequest, VrWriteRequest, six_func_slot
 
 
 class SixAxisCommandMixin:
     """执行六轴协议完整事务的主窗口能力。"""
+
+    def _read_six_command_final_snapshot(self, client: ControllerClient, six_cmd: SixAxisCommand) -> dict[str, object]:
+        """读取命令结束时的关键诊断寄存器。"""
+        try:
+            status_vals = client.read_modbus_long(self.service.build_six_status_read())
+            six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+            system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
+            alarm_vals = client.read_modbus_long(self.service.build_six_alarm_detail_read())
+            accept_vals = client.read_modbus_float(self.service.build_six_accept_confirm_read())
+            curr_func_vals = client.read_modbus_float(self.service.build_six_current_func_read())
+            motion_state_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
+            system_state = self.service.parse_six_system_state(system_state_vals)
+            alarm_raw = int(alarm_vals[0]) if alarm_vals else 0
+            curr_func = self.service.parse_six_current_func(curr_func_vals)
+            motion_state = self.service.parse_six_motion_state(motion_state_vals)
+            return {
+                "six_long34": six_status.raw,
+                "six_long36": system_state,
+                "six_long38": alarm_raw,
+                "six_ieee312": float(accept_vals[0]) if accept_vals else 0.0,
+                "six_ieee324": curr_func,
+                "six_ieee56": motion_state,
+                "six_func_num": six_cmd.func_num,
+                "six_func_state": six_status.function_state(six_cmd.func_num),
+                "six_slot": six_func_slot(six_cmd.func_num),
+                "six_ready": six_status.is_ready,
+                "six_alarm": six_status.has_alarm,
+                "six_estop": six_status.is_estop,
+                "six_paused": six_status.is_paused,
+                "six_cancelled": six_status.is_cancelled,
+            }
+        except Exception as exc:
+            return {"six_snapshot_error": f"{type(exc).__name__}: {exc}", "six_func_num": six_cmd.func_num}
+
+    def _append_six_command_final_snapshot(
+        self,
+        client: ControllerClient,
+        six_cmd: SixAxisCommand,
+        record: QueryRecord,
+        result: str,
+        detail: str = "",
+    ) -> None:
+        """记录命令结束时的寄存器快照。"""
+        snapshot = self._read_six_command_final_snapshot(client, six_cmd)
+        if detail:
+            detail_text = detail
+        elif "six_snapshot_error" in snapshot:
+            detail_text = str(snapshot["six_snapshot_error"])
+        else:
+            detail_text = (
+                f"LONG(34)={snapshot.get('six_long34')}, LONG(36)={snapshot.get('six_long36')}, "
+                f"LONG(38)={snapshot.get('six_long38')}, IEEE(312)={snapshot.get('six_ieee312')}, "
+                f"IEEE(324)={snapshot.get('six_ieee324')}, state={snapshot.get('six_func_state')}"
+            )
+        self._append_log("六轴", f"命令最终快照 {record.query_key}", result, detail_text, extra=snapshot)
 
     def _execute_send_six(self, client: ControllerClient, record: QueryRecord) -> list[float]:
         """执行六轴。"""
@@ -28,15 +83,24 @@ class SixAxisCommandMixin:
         while True:
             six_cmd = self._trigger_six_no_wait(client, record)
             if six_cmd.func_num == 104:
-                self._wait_func104_done(client, six_cmd, record.query_key)
-                return []
+                try:
+                    self._wait_func104_done(client, six_cmd, record.query_key)
+                    self._append_six_command_final_snapshot(client, six_cmd, record, "成功")
+                    return []
+                except Exception as exc:
+                    self._append_six_command_final_snapshot(client, six_cmd, record, "失败", str(exc))
+                    raise
             try:
                 self._wait_six_command_done(client, six_cmd, record)
-                return self._read_six_command_feedback(client, six_cmd, record)
+                feedback = self._read_six_command_feedback(client, six_cmd, record)
+                self._append_six_command_final_snapshot(client, six_cmd, record, "成功")
+                return feedback
             except SixAxisCommandRuntimeError as exc:
                 if not exc.is_cmd_busy or recovery_attempts >= SIX_CMD_BUSY_RECOVERY_MAX_RETRIES:
+                    self._append_six_command_final_snapshot(client, six_cmd, record, "失败", str(exc))
                     raise
                 recovery_attempts += 1
+                self._append_six_command_final_snapshot(client, six_cmd, record, "警告", f"cmd_busy attempt={recovery_attempts}")
                 self._append_log(
                     "六轴",
                     f"指令忙自动恢复 {record.query_key}",
@@ -47,6 +111,9 @@ class SixAxisCommandMixin:
                     ),
                 )
                 self._recover_six_cmd_busy(client, six_cmd, record, recovery_attempts)
+            except Exception as exc:
+                self._append_six_command_final_snapshot(client, six_cmd, record, "失败", str(exc))
+                raise
 
     def _trigger_six_no_wait(self, client: ControllerClient, record: QueryRecord) -> SixAxisCommand:
         """触发六轴。"""
@@ -115,26 +182,55 @@ class SixAxisCommandMixin:
             f"指令忙恢复失败: 等待就绪超时 | {label} | timeout={self._fmt(SIX_READY_RECOVERY_TIMEOUT_SEC)}s | LONG(34)={last_status}"
         )
 
+    def _wait_six_precheck_ready(self, client: ControllerClient, six_cmd: SixAxisCommand, label: str) -> None:
+        """第一道门：等待暂停解除和目标通道空闲。"""
+        status_read = self.service.build_six_status_read()
+        poll_interval_sec = 0.05
+        max_wait_sec = max(SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC, poll_interval_sec)
+        deadline = time.monotonic() + max_wait_sec
+        last_status = SixAxisStatus(raw=0, func_num=six_cmd.func_num)
+        wait_logged = False
+
+        while time.monotonic() < deadline:
+            status_vals = client.read_modbus_long(status_read)
+            six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+            last_status = six_status
+            if six_status.function_state(six_cmd.func_num) == SixAxisStatus.STATE_ERR:
+                raise RuntimeError(f"六轴前置检查失败: Func{six_cmd.func_num} 处于 ERR，需先复位 | LONG(34)={six_status.raw}")
+            if six_cmd.func_num == 110 and self._can_update_func110_delay(six_status):
+                return
+            if six_status.has_alarm or six_status.is_estop:
+                raise RuntimeError(f"六轴前置检查失败: 报警或急停未解除，需人工处理 | LONG(34)={six_status.raw}")
+            if six_status.can_send_for(six_cmd.func_num):
+                return
+            if not wait_logged:
+                reason = "暂停中" if six_status.is_paused else f"{six_func_slot(six_cmd.func_num)} slot 忙或未就绪"
+                self._append_log(
+                    "六轴",
+                    f"第一道门等待 {label}",
+                    "警告",
+                    f"{reason} | LONG(34)={six_status.raw} | timeout={self._fmt(max_wait_sec)}s",
+                )
+                wait_logged = True
+            time.sleep(poll_interval_sec)
+
+        raise RuntimeError(
+            f"六轴前置检查失败: 等待暂停解除或目标 slot 空闲超时 | {label} | "
+            f"timeout={self._fmt(max_wait_sec)}s | LONG(34)={last_status.raw}"
+        )
+
     def _precheck_six_command(self, client: ControllerClient, six_cmd: SixAxisCommand) -> None:
         """处理六轴命令。"""
         if six_cmd.func_num < 0:
             raise RuntimeError(f"V4.3 不支持本地负函数号命令: func={six_cmd.func_num}")
         if six_cmd.func_num == 104:
             return
-        status_read = self.service.build_six_status_read()
-        status_vals = client.read_modbus_long(status_read)
-        six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
-        if six_status.function_state(six_cmd.func_num) == SixAxisStatus.STATE_ERR:
-            raise RuntimeError(f"六轴前置检查失败: Func{six_cmd.func_num} 处于 ERR，需先复位 | LONG(34)={six_status.raw}")
-        if six_cmd.func_num == 110 and self._can_update_func110_delay(six_status):
-            return
-        if not six_status.can_send_for(six_cmd.func_num):
-            raise RuntimeError(f"六轴前置检查失败: LONG(34)={six_status.raw} 目标 slot 未就绪")
+        self._wait_six_precheck_ready(client, six_cmd, six_cmd.desc or f"Func{six_cmd.func_num}")
 
     @staticmethod
     def _can_update_func110_delay(six_status: SixAxisStatus) -> bool:
         """更新函数延时。"""
-        if six_status.has_alarm or six_status.is_estop or not six_status.is_ready:
+        if six_status.has_alarm or six_status.is_estop or six_status.is_paused or not six_status.is_ready:
             return False
         return (
             six_status.function_state(110) == SixAxisStatus.STATE_EXEC
@@ -149,7 +245,7 @@ class SixAxisCommandMixin:
     def _read_six_echo_snapshot(self, client: ControllerClient) -> dict[int, float]:
         """读取六轴回显快照。"""
         snapshot: dict[int, float] = {}
-        for addr in range(280, 314, 2):
+        for addr in range(280, 322, 2):
             vals = client.read_modbus_float(VrReadRequest(start_vr=addr, count=1))
             snapshot[addr] = float(vals[0]) if vals else 0.0
         return snapshot
@@ -199,6 +295,71 @@ class SixAxisCommandMixin:
             client.write_modbus_float(wr)
             self._append_log("六轴", f"写入IEEE({wr.start_vr})", "成功", f"values={list(wr.values)}")
 
+    def _validate_six_trigger_gate(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> bool:
+        """第三道门：回显通过后、触发前再次确认系统安全状态。"""
+        if six_cmd.func_num == 104:
+            return False
+
+        waited_for_pause = False
+        while True:
+            status_vals = client.read_modbus_long(self.service.build_six_status_read())
+            six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+            system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
+            system_state = self.service.parse_six_system_state(system_state_vals)
+            if six_status.has_alarm or six_status.is_estop:
+                raise RuntimeError(
+                    f"六轴第三道门失败: 触发前状态变化 | {record.query_key} | "
+                    f"LONG(34)={six_status.raw}, LONG(36)={system_state}"
+                )
+            if not six_status.is_paused:
+                return waited_for_pause
+            self._append_log(
+                "六轴",
+                f"第三道门等待暂停解除 {record.query_key}",
+                "警告",
+                f"LONG(34)={six_status.raw}, LONG(36)={system_state}",
+            )
+            self._wait_six_precheck_ready(client, six_cmd, record.query_key)
+            waited_for_pause = True
+
+    def _verify_six_trigger_gate_with_echo(
+        self,
+        client: ControllerClient,
+        six_cmd: SixAxisCommand,
+        record: QueryRecord,
+        expected_map: dict[int, float],
+        *,
+        write_round: int,
+        retry_interval_sec: float,
+        retry_count: int,
+        compare_epsilon: float,
+    ) -> None:
+        """第三道门若遇暂停，等待恢复后重新做回显和第三道门校验。"""
+        gate_rounds = max(1, retry_count)
+        for gate_round in range(1, gate_rounds + 1):
+            waited_for_pause = self._validate_six_trigger_gate(client, six_cmd, record)
+            if not waited_for_pause:
+                return
+            self._wait_six_command_echo_ready(
+                client,
+                expected_map,
+                record,
+                write_round=write_round,
+                retry_interval_sec=retry_interval_sec,
+                retry_count=retry_count,
+                compare_epsilon=compare_epsilon,
+            )
+        status_vals = client.read_modbus_long(self.service.build_six_status_read())
+        six_status = self.service.parse_six_status(status_vals, six_cmd.func_num)
+        system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
+        system_state = self.service.parse_six_system_state(system_state_vals)
+        if six_status.is_paused:
+            raise RuntimeError(
+                f"六轴第三道门失败: 暂停反复出现，等待恢复后仍无法触发 | {record.query_key} | "
+                f"LONG(34)={six_status.raw}, LONG(36)={system_state}"
+            )
+        self._validate_six_trigger_gate(client, six_cmd, record)
+
     def _wait_six_command_echo_ready(
         self,
         client: ControllerClient,
@@ -218,7 +379,7 @@ class SixAxisCommandMixin:
         derived_wait_sec = retry_interval_sec * retry_count
         expected_addrs = sorted(expected_map)
         start_monotonic = time.monotonic()
-        last_snapshot = {addr: 0.0 for addr in range(280, 314, 2)}
+        last_snapshot = {addr: 0.0 for addr in range(280, 322, 2)}
         last_echo_failures: list[str] = []
         consecutive_echo_fail = 0
         total_echo_fail_count = 0
@@ -341,11 +502,57 @@ class SixAxisCommandMixin:
         if last_error is not None:
             raise last_error
 
+        self._verify_six_trigger_gate_with_echo(
+            client,
+            six_cmd,
+            record,
+            expected_map,
+            write_round=write_round,
+            retry_interval_sec=retry_interval_sec,
+            retry_count=retry_count,
+            compare_epsilon=compare_epsilon,
+        )
+
         # 第七步：写触发寄存器。
         trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
         time.sleep(SIX_POST_TRIGGER_SETTLE_SEC)
+
+    def _wait_six_command_accepted(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
+        """等待 IEEE(312)=1 命令接受确认。"""
+        accept_read = self.service.build_six_accept_confirm_read()
+        status_read = self.service.build_six_status_read()
+        system_state_read = self.service.build_six_system_state_read()
+        retry_interval_sec, retry_count, _write_rounds, _compare_epsilon = self._six_echo_settings()
+        poll_interval_sec = max(0.02, min(retry_interval_sec, 0.05))
+        max_wait_sec = max(retry_interval_sec * retry_count, poll_interval_sec)
+        deadline = time.monotonic() + max_wait_sec
+        last_ack = 0.0
+        last_status = 0
+        last_system_state = 0
+
+        while time.monotonic() < deadline:
+            ack_vals = client.read_modbus_float(accept_read)
+            last_ack = float(ack_vals[0]) if ack_vals else 0.0
+            status_vals = client.read_modbus_long(status_read)
+            last_status = int(status_vals[0]) if status_vals else 0
+            system_state_vals = client.read_modbus_long(system_state_read)
+            last_system_state = self.service.parse_six_system_state(system_state_vals)
+            if int(last_ack) == 1:
+                self._append_log(
+                    "六轴",
+                    f"接受确认 {record.query_key}",
+                    "成功",
+                    f"IEEE(312)=1, LONG(34)={last_status}, LONG(36)={last_system_state}",
+                )
+                return
+            time.sleep(poll_interval_sec)
+
+        raise RuntimeError(
+            f"六轴接受确认超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | "
+            f"IEEE(312)={self._fmt(last_ack)}, LONG(34)={last_status}, LONG(36)={last_system_state}"
+        )
 
     def _wait_six_command_done(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         """等待六轴命令完成。"""
@@ -360,6 +567,7 @@ class SixAxisCommandMixin:
         saw_received = False
         saw_executing = False
         last_motion_state = 0
+        self._wait_six_command_accepted(client, six_cmd, record)
         # 三十四号长整型寄存器是主状态来源；其它寄存器作为诊断信息。
         # 只作为诊断信息同步读取，方便现场复盘卡在收到/执行/报警的哪一步。
         for _ in range(max_attempts):
@@ -381,7 +589,7 @@ class SixAxisCommandMixin:
                         "六轴",
                         f"收到确认 {record.query_key}",
                         "成功",
-                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}",
+                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(324)={curr_func}",
                     )
                 if st.is_executing and not saw_executing:
                     saw_executing = True
@@ -389,16 +597,17 @@ class SixAxisCommandMixin:
                         "六轴",
                         f"执行中确认 {record.query_key}",
                         "成功",
-                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(322)={curr_func}, IEEE(56)={motion_state}",
+                        f"LONG(34)={st.raw}, LONG(36)={system_state}, IEEE(324)={curr_func}, IEEE(56)={motion_state}",
                     )
 
             if st.has_error:
                 alarm_vals = client.read_modbus_long(alarm_read)
                 alarm_raw = alarm_vals[0] if alarm_vals else 0
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
+                system_detail = self.service.parse_six_system_state_detail(system_state_vals)
                 message = (
                     f"六轴执行错误: LONG(34)={st.raw}, LONG(36)={system_state}, LONG(38)={alarm_vals[0] if alarm_vals else 0}, "
-                    f"IEEE(322)={curr_func}, IEEE(56)={motion_state}, 详情={alarm_detail}"
+                    f"IEEE(324)={curr_func}, IEEE(56)={motion_state}, 系统={system_detail}, 报警={alarm_detail}"
                 )
                 raise SixAxisCommandRuntimeError(
                     message,
@@ -413,6 +622,8 @@ class SixAxisCommandMixin:
                 if not saw_received and not saw_executing:
                     self._append_log("六轴", f"快速完成 {record.query_key}", "成功", f"LONG(34)={st.raw}")
                 self._append_log("六轴", f"执行完成 {record.query_key}", "成功", f"LONG(34)={st.raw}")
+                if six_cmd.func_num == 109:
+                    self._clear_func109_done(client, record.query_key)
                 break
             if st.is_complete and st.has_alarm:
                 # 完成加报警：运动已结束，读取报警详情并记录警告，不中断流程。
@@ -421,11 +632,18 @@ class SixAxisCommandMixin:
                 alarm_detail = self.service.parse_six_alarm_detail(alarm_vals)
                 self._append_log("六轴", f"完成+报警 {record.query_key}", "警告",
                                  f"LONG(34)={st.raw}, 详情: {alarm_detail}")
+                if six_cmd.func_num == 109:
+                    self._clear_func109_done(client, record.query_key)
                 break
         else:
             raise RuntimeError(
                 f"六轴执行超时: {record.query_key} | timeout={self._fmt(max_wait_sec)}s | IEEE(56)={last_motion_state}"
             )
+
+    def _clear_func109_done(self, client: ControllerClient, label: str) -> None:
+        """按 V5.0 要求清除 109 延时完成标志。"""
+        client.write_modbus_float(VrWriteRequest(start_vr=8, values=(1.0,)))
+        self._append_log("六轴", f"清除 Func109 DONE {label}", "成功", "IEEE(8)=1")
 
     @staticmethod
     def _system_state_bit(val: int, bit: int) -> int:
@@ -521,10 +739,11 @@ class SixAxisCommandMixin:
             self._append_log("六轴", f"Func110 反馈 {record.query_key}", "成功",
                              f"状态={delay_state[0] if delay_state else 0}, 延时={elapsed[0] if elapsed else 0}, 计时ms={timer_ms[0] if timer_ms else 0}")
         elif six_cmd.func_num == 120:
-            y_state = client.read_modbus_long(VrReadRequest(start_vr=44, count=1))
+            y_state = client.read_modbus_long(VrReadRequest(start_vr=42, count=1))
+            y_echo = client.read_modbus_long(VrReadRequest(start_vr=44, count=1))
             x_state = client.read_modbus_long(VrReadRequest(start_vr=46, count=1))
             self._append_log("六轴", f"Func120 反馈 {record.query_key}", "成功",
-                             f"Y={y_state[0] if y_state else 0}, X={x_state[0] if x_state else 0}")
+                             f"Y={y_state[0] if y_state else 0}, Y回显={y_echo[0] if y_echo else 0}, X={x_state[0] if x_state else 0}")
 
         # 第九步：读取回传数据，位姿和关节优先使用四点三版本反馈区。
         xyz_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
@@ -549,11 +768,17 @@ class SixAxisCommandMixin:
             distance = client.read_modbus_float(VrReadRequest(start_vr=54, count=1))[0]
             ecat = client.read_modbus_float(VrReadRequest(start_vr=70, count=1))[0]
             frame = client.read_modbus_float(VrReadRequest(start_vr=72, count=1))[0]
+            status_echo = client.read_modbus_float(VrReadRequest(start_vr=314, count=1))[0]
+            system_echo = client.read_modbus_float(VrReadRequest(start_vr=316, count=1))[0]
+            alarm_echo = client.read_modbus_float(VrReadRequest(start_vr=318, count=1))[0]
+            system_mirror = client.read_modbus_float(VrReadRequest(start_vr=320, count=1))[0]
         except Exception:
             return ""
         return (
             " | 可选反馈(待固件确认): "
             f"IEEE(52)={speed:.1f}, IEEE(54)={distance:.1f}, "
-            f"IEEE(70)={int(ecat)}, IEEE(72)={int(frame)}"
+            f"IEEE(70)={int(ecat)}, IEEE(72)={int(frame)}, "
+            f"IEEE(314)={int(status_echo)}, IEEE(316)={int(system_echo)}, "
+            f"IEEE(318)={int(alarm_echo)}, IEEE(320)={int(system_mirror)}"
         )
 

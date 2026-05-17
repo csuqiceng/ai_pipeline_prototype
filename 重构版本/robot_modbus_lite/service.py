@@ -16,6 +16,7 @@ from .models import (
     SixAxisCommand,
     SixAxisRealtimeData,
     SixAxisStatus,
+    SixAxisSystemState,
     StandardProtocolCommand,
     StandardMirrorAck,
     StandardRealtimeStatus,
@@ -285,7 +286,6 @@ class RobotModbusService:
             return SixAxisCommand(
                 func_num=109,
                 desc=record.description or record.query_key,
-                check_value=int(float(params.get("check_value", params.get("valid_check", 1)))),
                 delay_sec=float(params.get("delay_sec", params.get("delay", 0.0))),
             )
 
@@ -336,6 +336,10 @@ class RobotModbusService:
         """解析六轴系统状态。"""
         return int(values[0] if values else 0)
 
+    def parse_six_system_state_detail(self, values: list[float] | list[int]) -> SixAxisSystemState:
+        """解析六轴系统状态位。"""
+        return SixAxisSystemState.from_value(values[0] if values else 0)
+
     def build_six_alarm_detail_read(self) -> VrReadRequest:
         """构建六轴报警详情。"""
         return VrReadRequest(start_vr=38, count=1)
@@ -346,7 +350,11 @@ class RobotModbusService:
 
     def build_six_current_func_read(self) -> VrReadRequest:
         """构建六轴当前函数。"""
-        return VrReadRequest(start_vr=322, count=1)
+        return VrReadRequest(start_vr=324, count=1)
+
+    def build_six_accept_confirm_read(self) -> VrReadRequest:
+        """构建六轴命令接受确认读取。"""
+        return VrReadRequest(start_vr=312, count=1)
 
     def parse_six_current_func(self, values: list[float] | list[int]) -> int:
         """解析六轴当前函数。"""
@@ -401,9 +409,17 @@ class RobotModbusService:
         """构建六轴位姿反馈。"""
         return VrReadRequest(start_vr=1612, count=6)
 
+    def build_six_joint_dpos_read(self) -> VrReadRequest:
+        """构建六轴关节指令位置反馈。"""
+        return VrReadRequest(start_vr=1500, count=6)
+
+    def build_six_pose_dpos_read(self) -> VrReadRequest:
+        """构建六轴笛卡尔指令位置反馈。"""
+        return VrReadRequest(start_vr=1512, count=6)
+
     def build_six_safety_limits_read(self) -> VrReadRequest:
         """构建六轴。"""
-        return VrReadRequest(start_vr=1700, count=16)
+        return VrReadRequest(start_vr=1700, count=22)
 
     def build_six_safety_limits_write(self, config) -> VrWriteRequest:
         """构建六轴。"""
@@ -431,7 +447,7 @@ class RobotModbusService:
 
     def parse_six_safety_limits(self, values: list[float]) -> dict[str, float]:
         """解析六轴。"""
-        padded = list(values[:16]) + [0.0] * max(0, 16 - len(values))
+        padded = list(values[:22]) + [0.0] * max(0, 22 - len(values))
         return {
             "safe_r_min": float(padded[0]),
             "safe_r_max": float(padded[1]),
@@ -440,7 +456,15 @@ class RobotModbusService:
             "safe_speed_max": float(padded[4]),
             "safe_acc_max": float(padded[5]),
             "safe_dec_max": float(padded[6]),
-            "reserved": [float(value) for value in padded[7:16]],
+            "joint_speed_pct": float(padded[10]),
+            "joint_acc_pct": float(padded[11]),
+            "joint_dec_pct": float(padded[12]),
+            "cartesian_speed_pct": float(padded[13]),
+            "cartesian_acc_pct": float(padded[14]),
+            "cartesian_dec_pct": float(padded[15]),
+            "current_r3d": float(padded[20]),
+            "current_z": float(padded[21]),
+            "reserved": [float(value) for value in padded[7:10]] + [float(value) for value in padded[16:20]],
         }
 
     def build_six_realtime_xyz_read(self) -> VrReadRequest:

@@ -147,7 +147,7 @@ SIX_ALARM_BIT = 151              # 已废弃：四点三版本使用一零四函
 
 # 浮点寄存器地址
 SIX_ALARM_DETAIL_ADDR = 38       # 三十八号浮点寄存器：报警详情位组合
-SIX_CURR_FUNC_ADDR = 322         # 三二二号浮点寄存器：当前函数号
+SIX_CURR_FUNC_ADDR = 324         # 三二四号浮点寄存器：当前内部函数号
 
 # 模拟控制器内部运行态缓存；对外同步到四点三版本文档反馈区。
 SIX_RT_J_START = 58

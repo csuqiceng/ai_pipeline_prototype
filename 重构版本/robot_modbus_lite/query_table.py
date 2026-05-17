@@ -219,7 +219,6 @@ def _default_params_for_func(func_num: int) -> dict[str, Any]:
         }
     if func_num == 109:
         return {
-            "check_value": 1,
             "delay_sec": 1.0,
         }
     if func_num == 110:
@@ -245,7 +244,7 @@ def _normalize_pct_params(func_num: int, params: dict[str, Any]) -> dict[str, An
             continue
         if legacy_key in normalized:
             value = float(normalized.pop(legacy_key))
-            normalized[pct_key] = value if value <= 150 else PCT_DEFAULTS[pct_key]
+            normalized[pct_key] = value if value <= 100 else PCT_DEFAULTS[pct_key]
     for pct_key, default in PCT_DEFAULTS.items():
         normalized.setdefault(pct_key, default)
     return normalized

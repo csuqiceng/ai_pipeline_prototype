@@ -67,7 +67,6 @@
       "description": "Func109 T0 延时 1 秒",
       "safety_level": 5,
       "params": {
-        "check_value": 1,
         "delay_sec": 1.0
       }
     },

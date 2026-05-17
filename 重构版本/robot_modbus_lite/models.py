@@ -153,7 +153,7 @@ class QueryRecord:
             if self.func_num == 11:
                 return f"points={self.int_param('point_count')} spd_pct={self.float_param('spd_pct')}"
             if self.func_num == 109:
-                return f"check={self.int_param('check_value')} delay={self.float_param('delay_sec')}s"
+                return f"delay={self.float_param('delay_sec')}s"
             if self.func_num == 110:
                 return f"delay={self.float_param('delay_sec')}s"
             if self.func_num == 120:
@@ -408,7 +408,6 @@ class SixAxisCommand:
     io_door: int = 0
     ext_p1: float = 0.0
     # 一零九、一一零和一二零函数。
-    check_value: int = 0
     delay_sec: float = 0.0
     io_no: int = 0
     io_action: int = 0
@@ -474,13 +473,12 @@ class SixAxisCommand:
         if self.func_num == 109:
             return [
                 VrWriteRequest(start_vr=0, values=(109.0,)),
-                VrWriteRequest(start_vr=2, values=(float(self.check_value),)),
-                VrWriteRequest(start_vr=4, values=(self.delay_sec,)),
+                VrWriteRequest(start_vr=2, values=(self.delay_sec,)),
             ]
         if self.func_num == 110:
             return [
                 VrWriteRequest(start_vr=0, values=(110.0,)),
-                VrWriteRequest(start_vr=6, values=(self.delay_sec,)),
+                VrWriteRequest(start_vr=2, values=(self.delay_sec,)),
             ]
         if self.func_num == 120:
             return [
@@ -596,7 +594,7 @@ class SixAxisStatus:
     @property
     def can_send(self) -> bool:
         """处理相关数据。"""
-        if self.has_alarm or self.is_estop or not self.is_ready:
+        if self.has_alarm or self.is_estop or self.is_paused or not self.is_ready:
             return False
         return all(state != self.STATE_EXEC for state in self._active_states())
 
@@ -616,7 +614,7 @@ class SixAxisStatus:
         """处理相关数据。"""
         if func_num in self.SYSTEM_FUNCS:
             return True
-        if self.has_alarm or self.is_estop or not self.is_ready:
+        if self.has_alarm or self.is_estop or self.is_paused or not self.is_ready:
             return False
         if self.function_state(func_num) == self.STATE_ERR:
             return False
@@ -626,6 +624,55 @@ class SixAxisStatus:
     def from_value(cls, val: float | int, func_num: int | None = None) -> "SixAxisStatus":
         """处理相关数据。"""
         return cls(raw=int(val), func_num=func_num)
+
+
+@dataclass(frozen=True)
+class SixAxisSystemState:
+    """LONG(36) 系统状态位解析结果。"""
+    raw: int
+    estop_button: bool = False
+    pause_button: bool = False
+    cancel_button: bool = False
+    estop_latched: bool = False
+    pause_latched: bool = False
+    cancel_latched: bool = False
+    jog_mode: bool = False
+    calibration_busy: bool = False
+    func_id_invalid: bool = False
+    func120_param_invalid: bool = False
+
+    @classmethod
+    def from_value(cls, val: float | int) -> "SixAxisSystemState":
+        """解析 LONG(36) 系统状态。"""
+        raw = int(val)
+        return cls(
+            raw=raw,
+            estop_button=(raw & (1 << 0)) != 0,
+            pause_button=(raw & (1 << 1)) != 0,
+            cancel_button=(raw & (1 << 2)) != 0,
+            estop_latched=(raw & (1 << 3)) != 0,
+            pause_latched=(raw & (1 << 4)) != 0,
+            cancel_latched=(raw & (1 << 5)) != 0,
+            jog_mode=(raw & (1 << 6)) != 0,
+            calibration_busy=(raw & (1 << 7)) != 0,
+            func_id_invalid=(raw & (1 << 8)) != 0,
+            func120_param_invalid=(raw & (1 << 9)) != 0,
+        )
+
+    def __str__(self) -> str:
+        """返回面向用户的文本说明。"""
+        parts = []
+        if self.estop_button: parts.append("急停按钮按下")
+        if self.pause_button: parts.append("暂停按钮按下")
+        if self.cancel_button: parts.append("取消按钮按下")
+        if self.estop_latched: parts.append("急停锁存")
+        if self.pause_latched: parts.append("暂停锁存")
+        if self.cancel_latched: parts.append("取消锁存")
+        if self.jog_mode: parts.append("点动模式")
+        if self.calibration_busy: parts.append("标定忙")
+        if self.func_id_invalid: parts.append("函数号无效")
+        if self.func120_param_invalid: parts.append("120参数无效")
+        return "、".join(parts) if parts else "无系统状态"
 
 
 @dataclass(frozen=True)
@@ -639,8 +686,6 @@ class SixAxisAlarmDetail:
     decel: bool = False       # 五位：减速度超限
     ecat_exceeded: bool = False  # 六位：总线通讯异常
     drive_alarm: bool = False       # 七位：驱动器报警
-    func_id_invalid: bool = False   # 八位：函数号非法
-    param_invalid: bool = False     # 九位：参数非法
 
     @classmethod
     def from_value(cls, val: float | int) -> "SixAxisAlarmDetail":
@@ -655,8 +700,6 @@ class SixAxisAlarmDetail:
             decel=(raw & 32) != 0,
             ecat_exceeded=(raw & 64) != 0,
             drive_alarm=(raw & 128) != 0,
-            func_id_invalid=(raw & 256) != 0,
-            param_invalid=(raw & 512) != 0,
         )
 
     def __str__(self) -> str:
@@ -670,8 +713,6 @@ class SixAxisAlarmDetail:
         if self.decel: parts.append("减速度超限")
         if self.ecat_exceeded: parts.append("ECAT异常")
         if self.drive_alarm: parts.append("驱动器报警")
-        if self.func_id_invalid: parts.append("函数号非法")
-        if self.param_invalid: parts.append("参数非法")
         return "、".join(parts) if parts else "无报警详情"
 
 

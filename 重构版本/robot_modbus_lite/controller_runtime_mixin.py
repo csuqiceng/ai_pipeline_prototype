@@ -141,7 +141,7 @@ class ControllerRuntimeMixin:
                 "long34_raw": six_status.raw,
                 "long36_raw": system_state,
                 "long38_raw": alarm_detail,
-                "ieee322_raw": current_func,
+                "ieee324_raw": current_func,
                 "motion_state_56": motion_state,
             }
             self._log_realtime_state_change_if_needed()

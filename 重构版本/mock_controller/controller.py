@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import math
 from typing import Callable
 
 from .protocol import (
@@ -106,8 +107,8 @@ class MockController:
         self._modbus_ieee[MODBUS_STATUS_ADDR] = 0.0
         self._modbus_long[MODBUS_STATUS_ADDR] = 1 << 28
         self._modbus_long[36] = 0
+        self._six_system_latched_bits = 0
         self._modbus_ieee[320] = 0.0
-        self._modbus_ieee[322] = 0.0
         self._modbus_ieee[324] = 0.0
         self._modbus_bit[SIX_ALARM_BIT] = 0
         self._lock = threading.RLock()
@@ -119,6 +120,7 @@ class MockController:
             "system": None,
         }
         self._six_delay_deadline: float | None = None
+        self._six_timer_deadline: float | None = None
         self._x_range = x_range if x_range is not None else X_RANGE
         self._y_range = y_range if y_range is not None else Y_RANGE
         self._z_range = z_range if z_range is not None else Z_RANGE
@@ -199,6 +201,14 @@ class MockController:
                 self._modbus_ieee[idx] = float(v)
             if start <= MODBUS_TRIGGER_ADDR:
                 self._mirror_six_echo_locked()
+            if (
+                start == 8
+                and values
+                and int(float(values[0])) == 1
+                and int(self._modbus_ieee[MODBUS_FUNC_ADDR]) == FuncSixAxis.TIMER_CHECK
+            ):
+                self._clear_six_func_state_locked(FuncSixAxis.TIMER_CHECK)
+                self._modbus_ieee[8] = 0.0
             if start == MODBUS_TRIGGER_ADDR and values and values[0] != 0:
                 should_dispatch = True
 
@@ -217,6 +227,7 @@ class MockController:
         """镜像六轴回显。"""
         for src_addr in range(0, 34, 2):
             self._modbus_ieee[280 + src_addr] = self._modbus_ieee[src_addr]
+        self._sync_six_diagnostic_echo_locked()
 
     def write_modbus_long(self, start: int, values: list[int] | tuple[int, ...]) -> None:
         """写入通信寄存器长整型寄存器。"""
@@ -248,6 +259,7 @@ class MockController:
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
                 self._modbus_long[MODBUS_STATUS_ADDR] = 1 << 28
                 self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 0
+                self._six_system_latched_bits = 0
                 self._sync_six_system_state_locked()
 
     def read_modbus_bit(self, start: int, count: int) -> list[int]:
@@ -623,7 +635,7 @@ class MockController:
     def _sync_six_system_state_locked(self, current_func: int | None = None) -> None:
         """同步六轴系统状态。"""
         status_raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
-        system_raw = 0
+        system_raw = int(self._six_system_latched_bits)
         if status_raw & self._SIX_ESTOP_BIT:
             system_raw |= 1 << 3
         if status_raw & self._SIX_PAUSE_BIT:
@@ -636,18 +648,30 @@ class MockController:
                 system_raw |= 1 << 6
                 break
         self._modbus_long[36] = system_raw
+        self._modbus_ieee[316] = float(system_raw)
         self._modbus_ieee[320] = float(system_raw)
         if current_func is not None:
-            self._modbus_ieee[322] = float(current_func)
-        self._modbus_ieee[324] = 0.0
+            self._modbus_ieee[SIX_CURR_FUNC_ADDR] = float(current_func)
+        self._sync_six_diagnostic_echo_locked()
+
+    def _sync_six_diagnostic_echo_locked(self) -> None:
+        """同步 V5.0 诊断浮点回显区。"""
+        self._modbus_ieee[314] = float(self._modbus_long[MODBUS_STATUS_ADDR])
+        self._modbus_ieee[316] = float(self._modbus_long[36])
+        self._modbus_ieee[318] = float(self._modbus_long[SIX_ALARM_DETAIL_ADDR])
+        self._modbus_ieee[320] = float(self._modbus_long[36])
 
     def _sync_six_monitor_regions_locked(self) -> None:
         """同步六轴。"""
         for axis in range(12):
-            self._modbus_ieee[200 + axis * 2] = 0.0
-            self._modbus_ieee[240 + axis * 2] = 0.0
+            if axis < 6:
+                self._modbus_ieee[200 + axis * 2] = 1.0
+                self._modbus_ieee[240 + axis * 2] = 1.0
+            else:
+                self._modbus_ieee[200 + axis * 2] = 1.0
+                self._modbus_ieee[240 + axis * 2] = 2.0
         self._modbus_ieee[1800] = self._modbus_ieee[320]
-        self._modbus_ieee[1802] = self._modbus_ieee[322]
+        self._modbus_ieee[1802] = self._modbus_ieee[SIX_CURR_FUNC_ADDR]
         self._modbus_ieee[1804] = self._modbus_ieee[324]
 
     def _six_func_state_locked(self, func_num: int) -> int:
@@ -663,12 +687,29 @@ class MockController:
         raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
         if mask:
             raw = (raw & ~mask) | ((int(state) << shift) & mask)
+        system_bits = int(alarm_bits) & ((1 << 8) | (1 << 9))
+        alarm_bits = int(alarm_bits) & ~system_bits
+        if system_bits:
+            self._six_system_latched_bits |= system_bits
         if alarm_bits:
             raw |= self._SIX_ALARM_BIT
             self._modbus_long[SIX_ALARM_DETAIL_ADDR] |= int(alarm_bits)
             self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = float(self._modbus_long[SIX_ALARM_DETAIL_ADDR])
         self._modbus_long[MODBUS_STATUS_ADDR] = raw
         self._modbus_ieee[MODBUS_STATUS_ADDR] = float(raw)
+        self._sync_six_system_state_locked(func_num)
+
+    def _clear_six_func_state_locked(self, func_num: int) -> None:
+        """清除单个六轴函数状态位。"""
+        shift, mask = self._SIX_FUNC_STATE_FIELDS.get(func_num, (0, 0))
+        if not mask:
+            return
+        raw = int(self._modbus_long[MODBUS_STATUS_ADDR])
+        raw &= ~mask
+        self._modbus_long[MODBUS_STATUS_ADDR] = raw
+        self._modbus_ieee[MODBUS_STATUS_ADDR] = float(raw)
+        if func_num == FuncSixAxis.TIMER_CHECK:
+            self._modbus_ieee[326] = 0.0
         self._sync_six_system_state_locked(func_num)
 
     def _fail_six_func_locked(self, func_num: int, alarm_bits: int) -> None:
@@ -689,16 +730,16 @@ class MockController:
         """应用六轴。"""
         alarm_bits = 0
         if fuzzy_spd:
-            spd_pct = min(max(spd_pct, 0.0), 150.0)
-        elif spd_pct < 0 or spd_pct > 150:
+            spd_pct = min(max(spd_pct, 0.0), 100.0)
+        elif spd_pct < 0 or spd_pct > 100:
             alarm_bits |= 1 << 3
         if fuzzy_acc:
-            acc_pct = min(max(acc_pct, 0.0), 150.0)
-        elif acc_pct < 0 or acc_pct > 150:
+            acc_pct = min(max(acc_pct, 0.0), 100.0)
+        elif acc_pct < 0 or acc_pct > 100:
             alarm_bits |= 1 << 4
         if fuzzy_dec:
-            dec_pct = min(max(dec_pct, 0.0), 150.0)
-        elif dec_pct < 0 or dec_pct > 150:
+            dec_pct = min(max(dec_pct, 0.0), 100.0)
+        elif dec_pct < 0 or dec_pct > 100:
             alarm_bits |= 1 << 5
         if alarm_bits:
             self._fail_six_func_locked(func_num, alarm_bits)
@@ -731,10 +772,11 @@ class MockController:
                 # 文档要求一一零函数在自身执行中可覆盖延时时间，这是程序槽
                 # 同槽互斥的唯一特例；其它同槽命令仍按指令忙失败。
                 if func_num == FuncSixAxis.DELAY and self._six_func_state_locked(FuncSixAxis.DELAY) == self._SIX_STATE_EXEC:
-                    delay_sec = float(self._modbus_ieee[6])
+                    delay_sec = float(self._modbus_ieee[2])
                     if delay_sec <= 0:
                         self._fail_six_func_locked(func_num, 1 << 9)
                     else:
+                        self._modbus_ieee[332] = delay_sec
                         self._six_delay_deadline = time.monotonic() + min(delay_sec, 2.0)
                         self._set_six_func_state_locked(FuncSixAxis.DELAY, self._SIX_STATE_EXEC)
                     return
@@ -753,7 +795,6 @@ class MockController:
         """执行六轴命令。"""
         with self._lock:
             self._modbus_ieee[SIX_CURR_FUNC_ADDR] = float(func_num)
-            self._modbus_ieee[322] = float(func_num)
             self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
 
         try:
@@ -812,12 +853,13 @@ class MockController:
             elif cancel_ctrl == 2:
                 raw &= ~self._SIX_CANCEL_BIT
             if reset_ctrl == 1:
-                for _shift, mask in self._SIX_FUNC_STATE_FIELDS.values():
-                    raw &= ~mask
+                for shift, mask in self._SIX_FUNC_STATE_FIELDS.values():
+                    raw = (raw & ~mask) | ((self._SIX_STATE_DONE << shift) & mask)
                 raw &= ~(self._SIX_ALARM_BIT | self._SIX_ESTOP_BIT | self._SIX_PAUSE_BIT | self._SIX_CANCEL_BIT)
                 raw |= self._SIX_READY_BIT
                 self._modbus_long[SIX_ALARM_DETAIL_ADDR] = 0
                 self._modbus_ieee[SIX_ALARM_DETAIL_ADDR] = 0.0
+                self._six_system_latched_bits = 0
                 self._exec_threads_six["motion"] = None
                 self._exec_threads_six["program"] = None
             self._modbus_long[MODBUS_STATUS_ADDR] = raw
@@ -854,39 +896,50 @@ class MockController:
     def _do_six_timer_check(self) -> None:
         """处理六轴定时器。"""
         with self._lock:
-            check_value = int(self._modbus_ieee[2])
-            delay_sec = float(self._modbus_ieee[4])
-            if check_value == 0 or delay_sec <= 0:
+            delay_sec = float(self._modbus_ieee[2])
+            if delay_sec <= 0:
                 self._fail_six_func_locked(FuncSixAxis.TIMER_CHECK, 1 << 9)
                 return
-        time.sleep(min(delay_sec, 2.0))
-        with self._lock:
-            self._modbus_ieee[326] = 1.0
             self._modbus_ieee[330] = delay_sec
+            self._six_timer_deadline = time.monotonic() + min(delay_sec, 2.0)
+        while self._running:
+            with self._lock:
+                deadline = self._six_timer_deadline
+                remaining = max(0.0, (deadline or time.monotonic()) - time.monotonic())
+                self._modbus_ieee[326] = remaining
+            if deadline is None or remaining <= 0:
+                break
+            time.sleep(min(remaining, 0.02))
+        with self._lock:
+            self._modbus_ieee[326] = 0.0
+            self._six_timer_deadline = None
 
     def _do_six_delay(self) -> None:
         """处理六轴延时。"""
         with self._lock:
-            delay_sec = float(self._modbus_ieee[6])
+            delay_sec = float(self._modbus_ieee[2])
             if delay_sec <= 0:
                 self._fail_six_func_locked(FuncSixAxis.DELAY, 1 << 9)
                 return
-            self._modbus_ieee[328] = 1.0
+            self._modbus_ieee[328] = delay_sec
+            self._modbus_ieee[332] = delay_sec
+            self._modbus_long[40] = int(delay_sec * 1000)
             self._six_delay_deadline = time.monotonic() + min(delay_sec, 2.0)
         # 不用一次性休眠，是为了让执行中的一一零函数覆盖更新能实时修改截止时间。
         while self._running:
             with self._lock:
                 deadline = self._six_delay_deadline
+                remaining = max(0.0, (deadline or time.monotonic()) - time.monotonic())
+                self._modbus_ieee[328] = remaining
+                self._modbus_long[40] = int(remaining * 1000)
             if deadline is None:
                 break
-            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
             time.sleep(min(remaining, 0.02))
         with self._lock:
-            elapsed_sec = float(self._modbus_ieee[6])
-            self._modbus_ieee[332] = elapsed_sec
-            self._modbus_long[40] = int(elapsed_sec * 1000)
+            self._modbus_ieee[328] = 0.0
+            self._modbus_long[40] = 0
             self._six_delay_deadline = None
 
     def _do_six_io_ctrl(self) -> None:
@@ -898,10 +951,11 @@ class MockController:
                 self._fail_six_func_locked(FuncSixAxis.IO_CTRL, 1 << 9)
                 return
             if action:
+                self._modbus_long[42] |= 1 << io_no
                 self._modbus_long[44] |= 1 << io_no
             else:
+                self._modbus_long[42] &= ~(1 << io_no)
                 self._modbus_long[44] &= ~(1 << io_no)
-            self._modbus_long[46] = int(io_no)
 
     def _do_six_joint_jog(self) -> None:
         """处理六轴关节点动。"""
@@ -1235,6 +1289,17 @@ class MockController:
             self._modbus_ieee[1600 + i * 2] = self._modbus_ieee[SIX_RT_J_START + i]
             self._modbus_ieee[1512 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
             self._modbus_ieee[1612 + i * 2] = self._modbus_ieee[SIX_RT_XYZ_START + i]
+        self._modbus_ieee[1720] = self._modbus_ieee[52]
+        self._modbus_ieee[1722] = self._modbus_ieee[SIX_P_ACC_V]
+        self._modbus_ieee[1724] = self._modbus_ieee[SIX_P_DEC_V]
+        self._modbus_ieee[1726] = self._modbus_ieee[52]
+        self._modbus_ieee[1728] = self._modbus_ieee[SIX_108_ACC]
+        self._modbus_ieee[1730] = self._modbus_ieee[SIX_108_DEC]
+        x = self._modbus_ieee[SIX_RT_XYZ_START]
+        y = self._modbus_ieee[SIX_RT_XYZ_START + 1]
+        z = self._modbus_ieee[SIX_RT_XYZ_START + 2]
+        self._modbus_ieee[1740] = math.sqrt(x * x + y * y + z * z)
+        self._modbus_ieee[1742] = z
         self._sync_six_monitor_regions_locked()
         self._vr[VR_OFFSET["CUR_X"].index] = self._modbus_ieee[SIX_RT_XYZ_START]
         self._vr[VR_OFFSET["CUR_Y"].index] = self._modbus_ieee[SIX_RT_XYZ_START + 1]

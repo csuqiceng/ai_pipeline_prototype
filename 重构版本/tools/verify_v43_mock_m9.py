@@ -128,7 +128,7 @@ def joint_jog() -> SixAxisCommand:
 
 def timer_check(seconds: float = 0.5) -> SixAxisCommand:
     """检查定时器。"""
-    return SixAxisCommand(func_num=109, desc="mock timer", check_value=1, delay_sec=seconds)
+    return SixAxisCommand(func_num=109, desc="mock timer", delay_sec=seconds)
 
 
 def scenario_result(name: str, client: MockZMotionVrClient, ok: bool, detail: str) -> ScenarioResult:
