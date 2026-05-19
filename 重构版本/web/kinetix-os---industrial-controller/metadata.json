@@ -1,0 +1,6 @@
+{
+  "name": "KINETIX OS 工业机械手控制系统",
+  "description": "面向机械手自然语言交互、状态看板、安全预检、执行监控和工程师后台维护的本地 Web 前端。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

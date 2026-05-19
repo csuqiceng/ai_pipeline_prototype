@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>机械手自然语言交互系统 Demo</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <div>
+          <h1>机械手自然语言交互系统</h1>
+          <p>智能问答 · 看板状态 · 安全预检 · 人工确认 · V5.0执行链路</p>
+        </div>
+      </div>
+      <section class="status-strip" aria-label="设备状态">
+        <div class="status-item ok"><span>通讯</span><b>正常</b></div>
+        <div class="status-item ok"><span>急停</span><b>关闭</b></div>
+        <div class="status-item ok"><span>报警</span><b>无</b></div>
+        <div class="status-item idle"><span>通道</span><b>T0/T1空闲</b></div>
+        <div class="status-item"><span>当前模式</span><b>智能协同</b></div>
+      </section>
+    </header>
+
+    <section class="main-grid">
+      <aside class="sidebar">
+        <button class="nav-item active" data-scene="idle">智能对话</button>
+        <button class="nav-item" data-scene="precheck">安全预检</button>
+        <button class="nav-item" data-scene="execute">执行监控</button>
+        <button class="nav-item" data-scene="alarm">报警处理</button>
+        <button class="nav-item" data-scene="settings">参数设置</button>
+
+        <div class="emergency-box">
+          <h2>安全操作</h2>
+          <button class="danger">急停</button>
+          <button>暂停</button>
+          <button>继续</button>
+          <button>取消</button>
+          <button>报警复位</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="scene-bar">
+          <div>
+            <span class="scene-tag">待机</span>
+            <strong id="sceneTitle">智能协同对话</strong>
+          </div>
+          <div class="quick-actions">
+            <button>完整状态</button>
+            <button>小窗口</button>
+          </div>
+        </div>
+
+        <div class="chat-panel" aria-label="智能协同对话">
+          <div class="message-row assistant">
+            <div class="avatar">AI</div>
+            <article class="bubble">
+              <p>我已在线。你可以直接问设备状态，也可以描述操作目标。我会先读取看板状态，再给出建议；有动作时必须经你确认才执行。</p>
+            </article>
+          </div>
+
+          <div class="message-row user">
+            <article class="bubble">
+              <p>把机械手移动到位置D，速度慢一点。</p>
+            </article>
+            <div class="avatar">我</div>
+          </div>
+
+          <div class="message-row assistant">
+            <div class="avatar">AI</div>
+            <article class="bubble">
+              <p>收到。我检查了当前状态和本地模板，位置D存在，当前设备可规划。</p>
+              <div class="state-card">
+                <div class="card-head">
+                  <strong>当前状态快照</strong>
+                  <span class="pill ok">可规划</span>
+                </div>
+                <div class="state-grid">
+                  <span>控制器</span><b>mock · 192.168.1.11</b>
+                  <span>安全状态</span><b>无报警 / 未急停 / 未暂停</b>
+                  <span>通道状态</span><b>T0空闲 / T1空闲</b>
+                  <span>当前位置</span><b>X 120.0 · Y 40.0 · Z 180.0</b>
+                </div>
+              </div>
+              <p>建议生成一个低速移动计划。执行前我会再次读取状态并走 V5.0 三道门。</p>
+            </article>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <button class="icon-btn" title="开始录音">🎙</button>
+          <textarea id="chatInput" placeholder="输入问题或操作目标，例如：现在机械手安全吗？"></textarea>
+          <button class="send-btn" id="sendBtn">发送</button>
+        </footer>
+      </section>
+
+      <aside class="inspector">
+        <section class="panel plan-panel">
+          <div class="panel-head">
+            <h2>待确认计划</h2>
+            <span class="pill warn">等待确认</span>
+          </div>
+          <ol class="plan-list">
+            <li>
+              <span class="step-index">1</span>
+              <div>
+                <b>移动到位置D</b>
+                <p>Func108 · 速度 40% · 白名单模板</p>
+              </div>
+            </li>
+          </ol>
+          <div class="plan-actions">
+            <button class="primary">确认执行</button>
+            <button>取消</button>
+            <button>解释风险</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>七类看板</h2></div>
+          <div class="dashboard-list">
+            <div><span>设备基础状态</span><b>就绪</b></div>
+            <div><span>动作可行性</span><b>可发T0</b></div>
+            <div><span>安全边界</span><b>R/Z正常</b></div>
+            <div><span>运动极限</span><b>速度40%</b></div>
+            <div><span>预演进度</span><b>未开始</b></div>
+            <div><span>工艺适配</span><b>模板命中</b></div>
+            <div><span>通讯故障</span><b>无</b></div>
+          </div>
+        </section>
+
+        <section class="panel progress-panel">
+          <div class="panel-head"><h2>执行/预检进度</h2></div>
+          <div class="progress-row"><span>安全预检</span><b>100%</b></div>
+          <div class="progress-track"><i style="width:100%"></i></div>
+          <div class="check-list">
+            <span class="pass">限位检查通过</span>
+            <span class="pass">报警状态通过</span>
+            <span class="pass">通道忙闲通过</span>
+            <span class="wait">等待人工确认</span>
+          </div>
+        </section>
+
+        <section class="panel log-panel">
+          <div class="panel-head"><h2>最近日志</h2></div>
+          <ul>
+            <li>15:31:02 收到文本输入</li>
+            <li>15:31:02 回执：正在分析</li>
+            <li>15:31:03 DeepSeek 回复完成</li>
+            <li>15:31:03 计划等待确认</li>
+          </ul>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

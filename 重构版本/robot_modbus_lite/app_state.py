@@ -14,6 +14,7 @@ class RobotRealtimeState:
     robot_y: str = "0.0"
     robot_z: str = "860.0"
     robot_r: str = "0.0 / 0.0 / 0.0"
+    robot_joints: tuple[float, float, float, float, float, float] = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     robot_speed: str = "30% / 40%"
     claw_enable: str = "0"
     claw_brake: str = "0"

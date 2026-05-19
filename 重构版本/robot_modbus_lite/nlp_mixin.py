@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 
-from .voice_nlp_adapter import VoiceNlpAdapter, VoiceNlpPlan
+from PySide6.QtCore import QTimer
+
+from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter, VoiceNlpPlan
 
 
 class NlpMixin:

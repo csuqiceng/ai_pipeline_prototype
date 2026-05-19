@@ -93,6 +93,7 @@ from .avoidance_config import (
 )
 from .models import ControllerClient, QueryRecord, SIX_MOTION_FUNCS, SixAxisCommand, SixAxisStatus, VrWriteRequest, VrReadRequest, six_func_slot
 from .nlp_mixin import NlpMixin
+from .operator_ui_mixin import OperatorUiMixin
 from .query_table import bootstrap_query_table_json, load_query_table, save_query_table_json
 from .service import RobotModbusService
 from .settings_mixin import SettingsMixin
@@ -110,7 +111,7 @@ from .license_manager import LicenseManager
 from .license_dialog import LicenseDialog
 
 
-class RobotQtWindow(GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixin, CommandDispatchMixin, AvoidanceExecutionMixin, NlpMixin, FlowExecutionMixin, VoiceMixin, GuiSystemMixin, ControllerRuntimeMixin, SixAxisCommandMixin, GuiLoggingMixin, QMainWindow):
+class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixin, CommandDispatchMixin, AvoidanceExecutionMixin, NlpMixin, FlowExecutionMixin, VoiceMixin, GuiSystemMixin, ControllerRuntimeMixin, SixAxisCommandMixin, GuiLoggingMixin, QMainWindow):
     """图形界面主窗口，组合各个职责模块。"""
     _main_thread_call = Signal(object)
 
@@ -158,6 +159,7 @@ class RobotQtWindow(GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixi
         self.robot_y = realtime_state.robot_y
         self.robot_z = realtime_state.robot_z
         self.robot_r = realtime_state.robot_r
+        self.robot_joints = realtime_state.robot_joints
         self.robot_speed = realtime_state.robot_speed
         self.claw_enable = realtime_state.claw_enable
         self.claw_brake = realtime_state.claw_brake
@@ -167,6 +169,9 @@ class RobotQtWindow(GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixi
         self.motion_percent = realtime_state.motion_percent
         self.echo_cmd = realtime_state.echo_cmd
         self.exec_state = realtime_state.exec_state
+        self.current_func_text = "空闲"
+        self.estop_active = False
+        self.pause_active = False
         self.mode = realtime_state.mode
         self.busy = realtime_state.busy
         self.result = realtime_state.result

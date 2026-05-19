@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -97,6 +99,10 @@ class GuiUiMixin:
         root_layout = QVBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
+        self._authenticated_role = ""
+        self._login_target_role = "engineer"
+        self._login_role = "engineer"
+        self.resize(900, 620)
 
         main = QWidget()
         main_layout = QHBoxLayout(main)
@@ -118,7 +124,16 @@ class GuiUiMixin:
         main_layout.addWidget(nav)
         main_layout.addWidget(content, 1)
         main_layout.addWidget(right_panel)
-        root_layout.addWidget(main, 1)
+
+        self.workspace_pages = QStackedWidget()
+        self.workspace_pages.addWidget(main)
+        self.workspace_pages.addWidget(self._build_operator_page())
+
+        shell = QWidget()
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.workspace_pages, 1)
 
         self.status_label = QLabel(f"系统就绪 | 数据源: {self.json_path}")
         self.status_label.setObjectName("footerStatus")
@@ -127,17 +142,202 @@ class GuiUiMixin:
         footer = QHBoxLayout()
         footer.setContentsMargins(8, 0, 8, 0)
         footer.addWidget(self.status_label, 1)
+        self.workspace_toggle_btn = QPushButton("切换到用户页面")
+        self.workspace_toggle_btn.setObjectName("workspaceToggleButton")
+        self.workspace_toggle_btn.clicked.connect(self._toggle_workspace_mode)
+        footer.addWidget(self.workspace_toggle_btn)
         self._license_status_label = QLabel("")
         self._license_status_label.setObjectName("footerStatus")
         self._license_status_label.setMinimumHeight(28)
         self._update_license_status_label()
         footer.addWidget(self._license_status_label)
+        self.logout_btn = QPushButton("退出登录")
+        self.logout_btn.setObjectName("workspaceToggleButton")
+        self.logout_btn.clicked.connect(self._show_login_page)
+        footer.addWidget(self.logout_btn)
 
         footer_widget = QWidget()
         footer_widget.setLayout(footer)
-        root_layout.addWidget(footer_widget)
+        shell_layout.addWidget(footer_widget)
+        self._main_shell = shell
+
+        self.app_pages = QStackedWidget()
+        self.app_pages.addWidget(self._build_login_page())
+        root_layout.addWidget(self.app_pages, 1)
 
         self._apply_styles()
+        self.workspace_pages.setCurrentIndex(0)
+        self._workspace_mode = "engineer"
+        self.app_pages.setCurrentIndex(0)
+
+    def _build_login_page(self) -> QWidget:
+        page = QFrame()
+        page.setObjectName("loginPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setSpacing(0)
+
+        layout.addStretch(1)
+        center_row = QHBoxLayout()
+        center_row.addStretch(1)
+
+        card = QFrame()
+        card.setObjectName("loginCard")
+        card.setFixedWidth(420)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(32, 30, 32, 30)
+        card_layout.setSpacing(12)
+
+        logo = QLabel("K")
+        logo.setObjectName("loginLogo")
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        title = QLabel("KINETIX OS")
+        title.setObjectName("loginTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(title)
+
+        subtitle = QLabel("安全系统认证")
+        subtitle.setObjectName("loginSubtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(subtitle)
+
+        divider = QFrame()
+        divider.setObjectName("loginDivider")
+        divider.setFrameShape(QFrame.Shape.HLine)
+        card_layout.addWidget(divider)
+        card_layout.addSpacing(8)
+
+        access_label = QLabel("访问级别")
+        access_label.setObjectName("loginFieldLabel")
+        card_layout.addWidget(access_label)
+
+        role_row = QFrame()
+        role_row.setObjectName("loginSegment")
+        role_layout = QHBoxLayout(role_row)
+        role_layout.setContentsMargins(4, 4, 4, 4)
+        role_layout.setSpacing(4)
+        self.login_engineer_btn = QPushButton("工程师")
+        self.login_operator_btn = QPushButton("用户")
+        self.login_role_buttons = {
+            "engineer": self.login_engineer_btn,
+            "operator": self.login_operator_btn,
+        }
+        for role, btn in self.login_role_buttons.items():
+            btn.setObjectName("loginSegmentButton")
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked=False, r=role: self._set_login_role(r))
+            role_layout.addWidget(btn)
+        card_layout.addWidget(role_row)
+
+        operator_label = QLabel("操作员编号")
+        operator_label.setObjectName("loginFieldLabel")
+        card_layout.addWidget(operator_label)
+        self.login_operator_id_edit = QLineEdit()
+        self.login_operator_id_edit.setObjectName("loginInput")
+        self.login_operator_id_edit.setPlaceholderText("ENG-0001")
+        self.login_operator_id_edit.returnPressed.connect(self._authenticate_login)
+        card_layout.addWidget(self.login_operator_id_edit)
+
+        pin_label = QLabel("安全 PIN")
+        pin_label.setObjectName("loginFieldLabel")
+        card_layout.addWidget(pin_label)
+        self.login_pin_edit = QLineEdit()
+        self.login_pin_edit.setObjectName("loginInput")
+        self.login_pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.login_pin_edit.setPlaceholderText("0000")
+        self.login_pin_edit.returnPressed.connect(self._authenticate_login)
+        card_layout.addWidget(self.login_pin_edit)
+
+        self.login_error_label = QLabel("")
+        self.login_error_label.setObjectName("loginError")
+        self.login_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.login_error_label)
+
+        self.login_auth_btn = QPushButton("认证登录")
+        self.login_auth_btn.setObjectName("loginAuthButton")
+        self.login_auth_btn.clicked.connect(self._authenticate_login)
+        card_layout.addWidget(self.login_auth_btn)
+
+        center_row.addWidget(card)
+        center_row.addStretch(1)
+        layout.addLayout(center_row)
+        layout.addStretch(1)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        ready = QLabel("● 系统就绪")
+        ready.setObjectName("loginReady")
+        version = QLabel("V3.4.1-STABLE")
+        version.setObjectName("loginVersion")
+        footer.addWidget(ready)
+        footer.addStretch(1)
+        footer.addWidget(version)
+        layout.addLayout(footer)
+
+        self._set_login_role("engineer")
+        return page
+
+    def _set_login_role(self, role: str) -> None:
+        self._login_role = "operator" if role == "operator" else "engineer"
+        if hasattr(self, "login_role_buttons"):
+            for name, btn in self.login_role_buttons.items():
+                active = name == self._login_role
+                btn.setChecked(active)
+                btn.setProperty("active", "true" if active else "false")
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+        if hasattr(self, "login_operator_id_edit"):
+            self.login_operator_id_edit.setPlaceholderText("ENG-0001" if self._login_role == "engineer" else "OP-0001")
+        if hasattr(self, "login_pin_edit"):
+            self.login_pin_edit.setPlaceholderText("0000" if self._login_role == "engineer" else "1234")
+        if hasattr(self, "login_error_label"):
+            self.login_error_label.setText("")
+
+    def _show_login_page(self, target_role: str | None = None) -> None:
+        if target_role in {"engineer", "operator"}:
+            self._login_target_role = target_role
+            self._set_login_role(target_role)
+        elif not getattr(self, "_login_target_role", ""):
+            self._login_target_role = "engineer"
+        self._authenticated_role = ""
+        if hasattr(self, "login_pin_edit"):
+            self.login_pin_edit.clear()
+            self.login_pin_edit.setFocus()
+        if hasattr(self, "login_error_label"):
+            self.login_error_label.setText("")
+        if hasattr(self, "app_pages"):
+            if hasattr(self, "_main_shell") and self.app_pages.indexOf(self._main_shell) >= 0:
+                self.app_pages.removeWidget(self._main_shell)
+            self.app_pages.setCurrentIndex(0)
+        if not self.isFullScreen():
+            self.resize(900, 620)
+
+    def _authenticate_login(self) -> None:
+        role = getattr(self, "_login_role", "engineer")
+        pin = self.login_pin_edit.text().strip() if hasattr(self, "login_pin_edit") else ""
+        operator_id = self.login_operator_id_edit.text().strip() if hasattr(self, "login_operator_id_edit") else ""
+        expected_pin = os.environ.get("ROBOT_ENGINEER_PIN" if role == "engineer" else "ROBOT_OPERATOR_PIN")
+        if expected_pin is None:
+            expected_pin = "0000" if role == "engineer" else "1234"
+        if pin != expected_pin:
+            if hasattr(self, "login_error_label"):
+                hint = "工程师默认 PIN: 0000" if role == "engineer" else "用户默认 PIN: 1234"
+                self.login_error_label.setText(f"认证失败，{hint}")
+            return
+        self._authenticated_role = role
+        self._authenticated_operator_id = operator_id or ("ENG-0001" if role == "engineer" else "OP-0001")
+        if hasattr(self, "app_pages"):
+            main_index = self.app_pages.indexOf(self._main_shell) if hasattr(self, "_main_shell") else -1
+            if main_index < 0 and hasattr(self, "_main_shell"):
+                main_index = self.app_pages.addWidget(self._main_shell)
+            self.app_pages.setCurrentIndex(main_index if main_index >= 0 else 0)
+        if not self.isFullScreen():
+            self.resize(1380, 860)
+        self._set_workspace_mode("engineer" if role == "engineer" else "operator")
+        if hasattr(self, "status_label"):
+            self.status_label.setText(f"已登录: {self._authenticated_operator_id} | 身份: {'工程师' if role == 'engineer' else '用户'}")
 
     # ---------- 授权管理 ----------
 
@@ -1066,13 +1266,13 @@ class GuiUiMixin:
             QPushButton[klass="green"] { background: #43e74f; }
             QPushButton[klass="yellow"] { background: #ffe46d; }
             QPushButton[klass="red"] { background: #ef5a5a; color: white; }
-            QLineEdit, QComboBox, QTextEdit, QTreeWidget, QTableWidget {
+            QLineEdit, QComboBox, QTextEdit, QTextBrowser, QTreeWidget, QTableWidget {
                 background: rgba(255,255,255,0.82);
                 border: 1px solid #666;
                 border-radius: 4px;
                 padding: 3px 5px;
             }
-            QTextEdit, QTreeWidget, QTableWidget {
+            QTextEdit, QTextBrowser, QTreeWidget, QTableWidget {
                 background: rgba(255,255,255,0.74);
             }
             QHeaderView::section {
@@ -1100,6 +1300,331 @@ class GuiUiMixin:
             QTableWidget {
                 background: rgba(255,255,255,0.4);
                 gridline-color: #555;
+            }
+            QPushButton#workspaceToggleButton {
+                min-height: 26px;
+                padding: 2px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                background: #f5f7fb;
+            }
+            QFrame#loginPage {
+                background: #ffffff;
+            }
+            QFrame#loginCard {
+                background: rgba(255,255,255,0.96);
+                border: 1px solid #b8c7d6;
+                border-radius: 14px;
+            }
+            QLabel#loginLogo {
+                min-width: 58px;
+                max-width: 58px;
+                min-height: 58px;
+                max-height: 58px;
+                border-radius: 29px;
+                background: #e8e8e8;
+                color: #0f6b4f;
+                font-size: 26px;
+                font-weight: 900;
+            }
+            QLabel#loginTitle {
+                color: #111827;
+                font-size: 23px;
+                font-weight: 900;
+            }
+            QLabel#loginSubtitle {
+                color: #374151;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QFrame#loginDivider {
+                color: #cbd5e1;
+                background: #cbd5e1;
+                min-height: 1px;
+                max-height: 1px;
+                border: 0;
+            }
+            QLabel#loginFieldLabel {
+                color: #111827;
+                font-size: 14px;
+                font-weight: 800;
+                letter-spacing: 0px;
+            }
+            QFrame#loginSegment {
+                background: #f4f6f9;
+                border: 1px solid #c7d2de;
+                border-radius: 8px;
+            }
+            QPushButton#loginSegmentButton {
+                min-height: 34px;
+                border: 0;
+                border-radius: 6px;
+                background: transparent;
+                color: #111827;
+                font-size: 13px;
+                font-weight: 800;
+            }
+            QPushButton#loginSegmentButton[active="true"] {
+                background: #ffffff;
+                border: 1px solid #d6dee8;
+            }
+            QLineEdit#loginInput {
+                min-height: 38px;
+                border: 1px solid #c7d2de;
+                border-radius: 0;
+                background: #f7f8fb;
+                padding: 4px 14px;
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLineEdit#loginInput:focus {
+                border: 1px solid #1f8f68;
+                background: #ffffff;
+            }
+            QLabel#loginError {
+                min-height: 20px;
+                color: #b91c1c;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton#loginAuthButton {
+                min-height: 50px;
+                border: 0;
+                border-radius: 8px;
+                background: #1f8f68;
+                color: #ffffff;
+                font-size: 17px;
+                font-weight: 900;
+            }
+            QPushButton#loginAuthButton:hover {
+                background: #177a58;
+            }
+            QLabel#loginReady {
+                color: #1f2937;
+                font-size: 16px;
+                font-weight: 800;
+            }
+            QLabel#loginVersion {
+                color: #6b7280;
+                font-size: 16px;
+                font-weight: 800;
+            }
+            QFrame#operatorPage {
+                background: #ffffff;
+            }
+            QFrame#operatorTopHeader {
+                background: #ffffff;
+                border-bottom: 1px solid #e5e7eb;
+                min-height: 46px;
+                max-height: 46px;
+            }
+            QLabel#operatorHeaderTitle {
+                font-size: 17px;
+                font-weight: 800;
+                color: #111827;
+            }
+            QLabel#operatorHeaderStatus {
+                padding: 3px 10px;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                background: #f9fafb;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            QPushButton#operatorHeaderButton {
+                min-height: 28px;
+                padding: 3px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                background: #ffffff;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QWidget#operatorBody {
+                background: #ffffff;
+            }
+            QFrame#operatorStatusBar,
+            QFrame#operatorLeftSidebar,
+            QFrame#operatorRightSidebar,
+            QFrame#operatorDialogPanel,
+            QFrame#operatorActionBar {
+                background: #f7f7f8;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+            }
+            QFrame#operatorStatusCard {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+            }
+            QFrame#operatorScene {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+            }
+            QLabel#operatorStateLabel {
+                font-size: 24px;
+                font-weight: 800;
+            }
+            QLabel#operatorSmallLabel {
+                font-size: 13px;
+                color: #4b5563;
+            }
+            QLabel#operatorMetric {
+                font-size: 13px;
+                font-weight: 600;
+                color: #111827;
+            }
+            QLabel#operatorMetricLarge {
+                font-size: 15px;
+                font-weight: 700;
+                color: #111827;
+            }
+            QLabel#operatorSidebarTitle {
+                font-size: 14px;
+                font-weight: 800;
+                color: #111827;
+            }
+            QLabel#operatorSceneTitle {
+                font-size: 20px;
+                font-weight: 800;
+                color: #111827;
+            }
+            QLabel#operatorSceneSubtitle,
+            QLabel#operatorChecklistItem,
+            QLabel#operatorDialogText,
+            QLabel#operatorAlarmText {
+                font-size: 16px;
+                font-weight: 600;
+                color: #374151;
+            }
+            QLabel#operatorAlarmText {
+                color: #991b1b;
+            }
+            QTextBrowser#operatorRecentBrowser {
+                background: #f8fafc;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            QLabel#operatorChatTitle {
+                font-size: 18px;
+                font-weight: 800;
+                color: #111827;
+            }
+            QLabel#operatorChatHint {
+                font-size: 12px;
+                color: #64748b;
+                font-weight: 600;
+            }
+            QScrollArea#operatorChatScroll {
+                background: #ffffff;
+                border: 0;
+                border-radius: 0;
+            }
+            QFrame#operatorChatContent {
+                background: #ffffff;
+            }
+            QLabel#operatorAiAvatar {
+                background: #334155;
+                color: #ffffff;
+                border-radius: 17px;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            QLabel#operatorUserAvatar {
+                background: #2563eb;
+                color: #ffffff;
+                border-radius: 17px;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            QFrame#operatorAiBubble {
+                background: #ffffff;
+                border: 0;
+                border-radius: 12px;
+            }
+            QFrame#operatorUserBubble {
+                background: #f4f4f4;
+                border: 1px solid #ececec;
+                border-radius: 16px;
+            }
+            QLabel#operatorAiSender {
+                color: #475569;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            QLabel#operatorUserSender {
+                color: #6b7280;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            QLabel#operatorChatText {
+                font-size: 15px;
+                line-height: 1.35;
+                color: #111827;
+            }
+            QFrame#operatorUserBubble QLabel#operatorChatText {
+                color: #111827;
+            }
+            QProgressBar#operatorProgress {
+                min-height: 28px;
+                border: 1px solid #64748b;
+                border-radius: 5px;
+                text-align: center;
+                background: #e2e8f0;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QProgressBar#operatorProgress::chunk {
+                background: #2563eb;
+                border-radius: 4px;
+            }
+            QPushButton#operatorActionButton {
+                min-height: 34px;
+                padding: 4px 12px;
+                border-radius: 8px;
+                border: 1px solid #d1d5db;
+                background: #ffffff;
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QPushButton#operatorActionButton:hover {
+                background: #f1f5f9;
+            }
+            QPushButton#operatorActionButton[klass="green"] {
+                background: #19c37d;
+                border-color: #19c37d;
+                color: #ffffff;
+            }
+            QPushButton#operatorActionButton[klass="red"] {
+                background: #ef4444;
+                border-color: #dc2626;
+                color: #ffffff;
+            }
+            QPushButton#operatorActionButton[klass="yellow"] {
+                background: #fde68a;
+                border-color: #f59e0b;
+                color: #111827;
+            }
+            QLineEdit#operatorChatInput {
+                min-height: 36px;
+                border: 1px solid #d1d5db;
+                border-radius: 18px;
+                background: #ffffff;
+                padding: 4px 14px;
+                font-size: 14px;
+            }
+            QLineEdit#operatorHostEdit {
+                min-height: 30px;
+                border: 1px solid #d1d5db;
+                border-radius: 7px;
+                background: #ffffff;
+                padding: 3px 9px;
+                font-size: 13px;
+                font-weight: 600;
             }
         """)
 

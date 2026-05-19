@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #006549;
+  --color-primary-container: #1d7f5f;
+  --color-on-primary-container: #d6ffea;
+  --color-on-surface: #13212c;
+  --color-on-surface-variant: #5d6872;
+  --color-secondary: #2d6481;
+  --color-secondary-container: #a7dbfd;
+  --color-danger: #B42318;
+  --color-danger-light: #ffdad6;
+  --color-warning: #A96800;
+  --color-warning-light: #fff3e0;
+  --color-info: #2d6481;
+  --color-info-light: #e3f2fd;
+  --color-success-light: #e7f5f1;
+  --color-bg-page: #EAF1F5;
+  --color-bg-card: #FFFFFF;
+  --color-border-divider: #C7D3DC;
+  --color-text-secondary: #44474E;
+  --color-status-disabled: #8A98A4;
+  --color-surface: #f9f9fc;
+  --color-surface-container-low: #f3f3f6;
+  --color-surface-container-high: #e8e8ea;
+  --color-surface-container-highest: #e2e2e5;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --spacing-sidebar: 128px;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-page text-zinc-900 font-sans antialiased;
+  }
+}
+
+@layer components {
+  .industrial-card {
+    @apply bg-bg-card border border-border-divider rounded-lg;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(199, 211, 220, 0.5);
+  }
+
+  .dot-grid {
+    background-image: radial-gradient(#C7D3DC 1.5px, transparent 1.5px);
+    background-size: 24px 24px;
+  }
+
+  .log-row-success { background-color: var(--color-success-light); }
+  .log-row-fail { background-color: var(--color-danger-light); }
+  .log-row-neutral { background-color: transparent; }
+}

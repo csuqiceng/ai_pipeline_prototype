@@ -115,6 +115,7 @@ class ControllerRuntimeMixin:
             joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
             pose_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
             rt = self.service.parse_six_realtime(joint_vals, pose_vals)
+            self.robot_joints = (rt.j1, rt.j2, rt.j3, rt.j4, rt.j5, rt.j6)
             self.robot_x = self._fmt(rt.x)
             self.robot_y = self._fmt(rt.y)
             self.robot_z = self._fmt(rt.z)
@@ -131,6 +132,9 @@ class ControllerRuntimeMixin:
             self.motion_percent = "运动中" if motion_state == 1 else "空闲"
             system_state = self.service.parse_six_system_state(system_state_vals)
             current_func = self.service.parse_six_current_func(current_func_vals)
+            self.current_func_text = "空闲" if current_func == 0 else f"Func{current_func}"
+            self.estop_active = six_status.is_estop
+            self.pause_active = six_status.is_paused
             alarm_detail = self.service.parse_six_alarm_detail(alarm_detail_vals)
             if six_status.has_alarm:
                 self.alarm_text = f"报警: {alarm_detail}"

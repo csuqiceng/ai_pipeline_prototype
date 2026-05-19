@@ -2,6 +2,9 @@
 PySide6
 requests
 cryptography
+fastapi
+uvicorn[standard]
+pydantic
 
 # Voice features
 sounddevice
