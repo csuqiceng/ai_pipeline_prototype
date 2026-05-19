@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -270,9 +271,12 @@ class GuiUiMixin:
         pin_label.setObjectName("loginFieldLabel")
         card_layout.addWidget(pin_label)
         self.login_pin_edit = QLineEdit()
-        self.login_pin_edit.setObjectName("loginInput")
+        self.login_pin_edit.setObjectName("loginPasswordInput")
         self.login_pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.login_pin_edit.setPlaceholderText("1234")
+        self.login_pin_edit.setPlaceholderText("请输入密码")
+        password_palette = self.login_pin_edit.palette()
+        password_palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#94a3b8"))
+        self.login_pin_edit.setPalette(password_palette)
         self.login_pin_edit.returnPressed.connect(self._authenticate_login)
         card_layout.addWidget(self.login_pin_edit)
 
@@ -314,7 +318,7 @@ class GuiUiMixin:
         if hasattr(self, "login_operator_id_edit"):
             self.login_operator_id_edit.setPlaceholderText("ENG-0001" if self._login_role == "engineer" else "OP-0001")
         if hasattr(self, "login_pin_edit"):
-            self.login_pin_edit.setPlaceholderText("0000" if self._login_role == "engineer" else "1234")
+            self.login_pin_edit.setPlaceholderText("请输入密码")
         if hasattr(self, "login_error_label"):
             self.login_error_label.setText("")
 
@@ -378,10 +382,15 @@ class GuiUiMixin:
         expected_pin = os.environ.get("ROBOT_ENGINEER_PIN" if role == "engineer" else "ROBOT_OPERATOR_PIN")
         if expected_pin is None:
             expected_pin = "0000" if role == "engineer" else "1234"
+        if not pin:
+            if hasattr(self, "login_error_label"):
+                self.login_error_label.setText(f"测试阶段密码: {expected_pin}")
+            if hasattr(self, "login_pin_edit"):
+                self.login_pin_edit.setFocus()
+            return
         if pin != expected_pin:
             if hasattr(self, "login_error_label"):
-                hint = "工程师默认密码: 0000" if role == "engineer" else "用户默认密码: 1234"
-                self.login_error_label.setText(f"认证失败，{hint}")
+                self.login_error_label.setText("认证失败，请检查账号或密码")
             return
         if not self._apply_login_connection_settings():
             return
@@ -1434,6 +1443,20 @@ class GuiUiMixin:
                 font-weight: 700;
             }
             QLineEdit#loginInput:focus {
+                border: 1px solid #1f8f68;
+                background: #ffffff;
+            }
+            QLineEdit#loginPasswordInput {
+                min-height: 38px;
+                border: 1px solid #c7d2de;
+                border-radius: 0;
+                background: #f7f8fb;
+                padding: 4px 14px;
+                color: #111827;
+                font-size: 14px;
+                font-weight: 400;
+            }
+            QLineEdit#loginPasswordInput:focus {
                 border: 1px solid #1f8f68;
                 background: #ffffff;
             }

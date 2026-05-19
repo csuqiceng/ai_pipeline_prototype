@@ -988,21 +988,30 @@ class OperatorUiMixin:
         if not hasattr(self, "operator_recent_browser"):
             return
         rows = []
-        for entry in list(getattr(self, "logs", []))[:50]:
-            result = str(entry.get("result", ""))
+        for entry in self._operator_recent_event_entries(limit=50):
+            result = entry["result"]
             color = "#0f8a3b" if result == "成功" else "#b45309" if result == "警告" else "#b91c1c" if result == "失败" else "#334155"
             rows.append(
-                "<div class='event'>"
-                f"<span style='color:#475569'>{html.escape(str(entry.get('time', '-')))}</span> "
-                f"<b style='color:{color}'>{html.escape(result or '-')}</b> "
-                f"{html.escape(str(entry.get('action', '-')))}"
-                f"<br><span style='color:#334155'>{html.escape(str(entry.get('detail', '-')))}</span>"
+                "<div style='margin:0 0 8px 0;padding:8px 9px;border:1px solid #dbe4ee;background:#ffffff;'>"
+                "<table width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse;'>"
+                "<tr>"
+                f"<td style='color:#0f172a;font-size:13px;font-weight:800;white-space:nowrap;'>{html.escape(entry['time'])}</td>"
+                "<td align='right' style='white-space:nowrap;'>"
+                f"<span style='color:#334155;background:#eef2f7;font-size:12px;font-weight:700;padding:1px 5px;'>{html.escape(entry['category'])}</span>"
+                f"<span style='color:{color};font-size:12px;font-weight:900;margin-left:6px;'>{html.escape(result or '-')}</span>"
+                "</td>"
+                "</tr>"
+                "</table>"
+                f"<div style='margin-top:5px;color:#111827;font-size:13px;font-weight:900;'>{html.escape(entry['action'])}</div>"
+                f"<pre style=\"margin:5px 0 0 0;color:#475569;font-size:12px;white-space:pre-wrap;font-family:Consolas,'Microsoft YaHei',monospace;\">{html.escape(entry['detail'])}</pre>"
                 "</div>"
             )
         if not rows:
             rows.append("<div class='event'><b>待执行</b><br><span>暂无操作记录</span></div>")
         html_text = (
-            "<style>.event{margin:6px 0;padding:6px 0;border-bottom:1px solid rgba(15,23,42,.18);}</style>"
+            "<style>"
+            "body{font-family:'Microsoft YaHei',Arial,sans-serif;color:#0f172a;}"
+            "</style>"
             + "".join(rows)
         )
         if html_text == getattr(self, "_operator_recent_events_html", ""):
@@ -1026,6 +1035,72 @@ class OperatorUiMixin:
                 new_bar.setValue(min(previous_value, new_bar.maximum()))
 
         QTimer.singleShot(0, restore_scroll)
+
+    def _operator_recent_event_entries(self, limit: int = 12) -> list[dict[str, str]]:
+        events = []
+        for entry in list(getattr(self, "logs", [])):
+            events.append(self._operator_format_recent_entry(entry))
+            if len(events) >= limit:
+                break
+        return events
+
+    def _operator_format_recent_entry(self, entry: dict[str, object]) -> dict[str, str]:
+        category = str(entry.get("category", ""))
+        action = str(entry.get("action", ""))
+        result = str(entry.get("result", "")) or "-"
+        detail = str(entry.get("detail", "")) or "-"
+        time_text = str(entry.get("time", "-"))
+        if action.startswith("系统命令 "):
+            key = action.replace("系统命令 ", "", 1)
+            action = self._operator_system_action_label(key)
+        elif action.startswith("系统命令准备 "):
+            key = action.replace("系统命令准备 ", "", 1)
+            action = f"准备 {self._operator_system_action_label(key)}"
+        if action == "实时状态变化":
+            action = "状态更新"
+            detail = self._operator_format_state_change_detail(detail)
+        return {
+            "time": time_text,
+            "category": category or "-",
+            "result": result,
+            "action": action or "-",
+            "detail": self._operator_format_recent_detail(detail),
+        }
+
+    def _operator_system_action_label(self, key: str) -> str:
+        labels = {
+            "sys_resume": "继续运行",
+            "sys_pause": "暂停任务",
+            "sys_estop": "急停",
+            "alarm_reset": "报警复位",
+        }
+        return labels.get(key, key or "系统命令")
+
+    def _operator_compact_state_change(self, detail: str) -> str:
+        parts = [part.strip() for part in detail.split("|") if part.strip()]
+        important = [part for part in parts if part.startswith(("系统状态", "忙闲", "报警"))]
+        return self._operator_compact_detail(" | ".join(important or parts[:2]) or detail)
+
+    def _operator_format_state_change_detail(self, detail: str) -> str:
+        parts = [part.strip() for part in detail.split("|") if part.strip()]
+        return "\n".join(parts) if parts else detail
+
+    def _operator_format_recent_detail(self, detail: str) -> str:
+        text = str(detail or "-").strip()
+        if not text:
+            return "-"
+        for separator in [" | ", ", "]:
+            if separator in text:
+                parts = [part.strip() for part in text.split(separator) if part.strip()]
+                if len(parts) > 1:
+                    return "\n".join(parts)
+        return text
+
+    def _operator_compact_detail(self, detail: str, max_len: int = 72) -> str:
+        text = " ".join(str(detail or "-").split())
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1] + "..."
 
     def _refresh_operator_dialog_labels(self) -> None:
         if not hasattr(self, "operator_chat_scroll"):
@@ -1146,20 +1221,14 @@ class OperatorUiMixin:
         bubble_layout.setContentsMargins(12, 9, 12, 10)
         bubble_layout.setSpacing(4)
 
-        sender = QLabel("用户" if is_user else "AI 助手")
-        sender.setObjectName("operatorUserSender" if is_user else "operatorAiSender")
-        sender.setTextFormat(Qt.TextFormat.PlainText)
-
         content = QLabel(text)
         content.setObjectName("operatorChatText")
         content.setWordWrap(True)
         content.setTextFormat(Qt.TextFormat.PlainText)
         content.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         if is_user:
-            sender.setStyleSheet("color: #6b7280;")
             content.setStyleSheet("color: #111827;")
 
-        bubble_layout.addWidget(sender)
         bubble_layout.addWidget(content)
 
         if is_user:
@@ -1318,11 +1387,11 @@ class OperatorUiMixin:
         return f"{current} / {total}"
 
     def _operator_recent_log_text(self) -> str:
-        entries = list(getattr(self, "logs", []))[:3]
+        entries = self._operator_recent_event_entries(limit=3)
         if not entries:
             return "暂无"
         return "；".join(
-            f"{entry.get('time', '-')} {entry.get('result', '-')} {entry.get('action', '-')}"
+            f"{entry['time']} {entry['category']} {entry['result']} {entry['action']}"
             for entry in entries
         )
 
