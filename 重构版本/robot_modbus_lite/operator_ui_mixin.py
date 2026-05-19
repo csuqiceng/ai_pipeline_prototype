@@ -47,24 +47,6 @@ class OperatorUiMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header = QFrame()
-        header.setObjectName("operatorTopHeader")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(16, 0, 16, 0)
-        header_layout.setSpacing(10)
-        title = QLabel("机械手 AI 助手")
-        title.setObjectName("operatorHeaderTitle")
-        self.operator_header_status_label = QLabel("空闲")
-        self.operator_header_status_label.setObjectName("operatorHeaderStatus")
-        header_layout.addWidget(title)
-        header_layout.addWidget(self.operator_header_status_label)
-        header_layout.addStretch(1)
-        header_engineer_btn = QPushButton("工程师")
-        header_engineer_btn.setObjectName("operatorHeaderButton")
-        header_engineer_btn.clicked.connect(lambda: self._set_workspace_mode("engineer"))
-        header_layout.addWidget(header_engineer_btn)
-        layout.addWidget(header)
-
         body = QWidget()
         body.setObjectName("operatorBody")
         body_layout = QHBoxLayout(body)
@@ -116,44 +98,25 @@ class OperatorUiMixin:
         state_layout.addWidget(self.operator_current_label)
         layout.addWidget(state_card)
 
-        connection_card = QFrame()
-        connection_card.setObjectName("operatorStatusCard")
-        connection_layout = QVBoxLayout(connection_card)
-        connection_layout.setContentsMargins(12, 10, 12, 10)
-        connection_layout.setSpacing(8)
-        connection_title = QLabel("控制器连接")
-        connection_title.setObjectName("operatorSidebarTitle")
-        self.operator_host_edit = QLineEdit()
-        self.operator_host_edit.setObjectName("operatorHostEdit")
-        self.operator_host_edit.setPlaceholderText("控制器地址")
-        self.operator_host_edit.setText(self.host_edit.text() if hasattr(self, "host_edit") else "")
-        self.operator_host_edit.returnPressed.connect(self._operator_check_connection)
-        connection_button_row = QHBoxLayout()
-        apply_host_btn = QPushButton("应用")
-        apply_host_btn.setObjectName("operatorActionButton")
-        apply_host_btn.clicked.connect(self._operator_apply_connection_settings)
-        check_host_btn = QPushButton("检测连接")
-        check_host_btn.setObjectName("operatorActionButton")
-        check_host_btn.clicked.connect(self._operator_check_connection)
-        connection_button_row.addWidget(apply_host_btn)
-        connection_button_row.addWidget(check_host_btn)
-        connection_layout.addWidget(connection_title)
-        connection_layout.addWidget(self.operator_host_edit)
-        connection_layout.addLayout(connection_button_row)
-        layout.addWidget(connection_card)
-
         flags_card = QFrame()
         flags_card.setObjectName("operatorStatusCard")
         flags_layout = QVBoxLayout(flags_card)
         flags_layout.setContentsMargins(12, 10, 12, 10)
-        self.operator_flags_label = QLabel("急停:关  暂停:关  报警:无")
-        self.operator_flags_label.setObjectName("operatorMetric")
-        self.operator_flags_label.setWordWrap(True)
-        self.operator_comm_label = QLabel("通讯:检测中")
-        self.operator_comm_label.setObjectName("operatorMetric")
-        self.operator_comm_label.setWordWrap(True)
-        flags_layout.addWidget(self.operator_flags_label)
-        flags_layout.addWidget(self.operator_comm_label)
+        flags_layout.setSpacing(8)
+        safety_title = QLabel("安全状态")
+        safety_title.setObjectName("operatorSidebarTitle")
+        flags_layout.addWidget(safety_title)
+        safety_grid = QGridLayout()
+        safety_grid.setHorizontalSpacing(6)
+        safety_grid.setVerticalSpacing(6)
+        self.operator_estop_badge = QLabel("急停\n关")
+        self.operator_pause_badge = QLabel("暂停\n关")
+        self.operator_alarm_badge = QLabel("报警\n无")
+        for idx, badge in enumerate([self.operator_estop_badge, self.operator_pause_badge, self.operator_alarm_badge]):
+            badge.setObjectName("operatorStatusBadge")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            safety_grid.addWidget(badge, 0, idx)
+        flags_layout.addLayout(safety_grid)
         layout.addWidget(flags_card)
 
         axis_card = QFrame()
@@ -164,20 +127,34 @@ class OperatorUiMixin:
         axis_title = QLabel("实时位置")
         axis_title.setObjectName("operatorSidebarTitle")
         axis_layout.addWidget(axis_title)
+        joint_title = QLabel("关节")
+        joint_title.setObjectName("operatorSmallLabel")
+        axis_layout.addWidget(joint_title)
         joint_grid = QGridLayout()
         joint_grid.setHorizontalSpacing(10)
         joint_grid.setVerticalSpacing(4)
         self.operator_joint_labels = []
         for idx in range(6):
-            label = QLabel(f"J{idx + 1}: -")
-            label.setObjectName("operatorMetric")
+            label = QLabel(f"J{idx + 1}\n-")
+            label.setObjectName("operatorPoseCell")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.operator_joint_labels.append(label)
-            joint_grid.addWidget(label, idx // 2, idx % 2)
+            joint_grid.addWidget(label, idx // 3, idx % 3)
         axis_layout.addLayout(joint_grid)
-        self.operator_pose_label = QLabel("X:-  Y:-  Z:-  RX/RY/RZ:-")
-        self.operator_pose_label.setObjectName("operatorMetric")
-        self.operator_pose_label.setWordWrap(True)
-        axis_layout.addWidget(self.operator_pose_label)
+        pose_title = QLabel("坐标")
+        pose_title.setObjectName("operatorSmallLabel")
+        axis_layout.addWidget(pose_title)
+        pose_grid = QGridLayout()
+        pose_grid.setHorizontalSpacing(6)
+        pose_grid.setVerticalSpacing(6)
+        self.operator_pose_labels = {}
+        for idx, key in enumerate(["X", "Y", "Z", "RX", "RY", "RZ"]):
+            label = QLabel(f"{key}\n-")
+            label.setObjectName("operatorPoseCell")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.operator_pose_labels[key] = label
+            pose_grid.addWidget(label, idx // 3, idx % 3)
+        axis_layout.addLayout(pose_grid)
         layout.addWidget(axis_card)
 
         action_card = QFrame()
@@ -231,7 +208,6 @@ class OperatorUiMixin:
             ("完整状态", self._operator_show_full_status),
             ("主界面", self._operator_go_home),
             ("全屏", self._operator_show_fullscreen),
-            ("工程师", lambda: self._set_workspace_mode("engineer")),
         ]):
             btn = QPushButton(text)
             btn.setObjectName("operatorActionButton")
@@ -465,7 +441,6 @@ class OperatorUiMixin:
             ("停止流程", self._operator_stop_current, ""),
             ("完整状态", self._operator_show_full_status, ""),
             ("小窗口", self._operator_toggle_compact, ""),
-            ("工程师", lambda: self._set_workspace_mode("engineer"), ""),
         ]
         for text, slot, klass in buttons:
             btn = QPushButton(text)
@@ -476,8 +451,6 @@ class OperatorUiMixin:
             layout.addWidget(btn)
             if text == "小窗口":
                 self.operator_compact_btn = btn
-            if text == "工程师":
-                self.operator_engineer_btn = btn
         return bar
 
     def _toggle_workspace_mode(self) -> None:
@@ -497,8 +470,6 @@ class OperatorUiMixin:
             return
         self._workspace_mode = "operator" if operator_mode else "engineer"
         self.workspace_pages.setCurrentIndex(1 if operator_mode else 0)
-        if hasattr(self, "workspace_toggle_btn"):
-            self.workspace_toggle_btn.setText("切换到工程师页面" if operator_mode else "切换到用户页面")
         if hasattr(self, "status_label") and previous_mode is not None:
             self.status_label.setText("已切换到用户操作页面。" if operator_mode else "已切换到工程师页面。")
         if operator_mode:
@@ -834,22 +805,15 @@ class OperatorUiMixin:
         state_text, color, detail = self._compute_overall_state()
         self.operator_state_label.setText(f"● {state_text}")
         self.operator_state_label.setStyleSheet(f"color: {color}; font-size: 24px; font-weight: 800;")
-        if hasattr(self, "operator_header_status_label"):
-            self.operator_header_status_label.setText(state_text)
-            self.operator_header_status_label.setStyleSheet(f"color: {color};")
-
         alarm_active = self._operator_alarm_active()
         pause_active = bool(getattr(self, "pause_active", False)) or self.busy == "暂停" or self.run_state == "暂停"
         estop_active = bool(getattr(self, "estop_active", False)) or "急停" in f"{self.alarm_text} {self.run_state} {self.busy}"
-        self.operator_flags_label.setText(
-            f"急停:{'开' if estop_active else '关'}  "
-            f"暂停:{'开' if pause_active else '关'}  "
-            f"报警:{'有' if alarm_active else '无'}"
-        )
+        self._set_operator_badge(self.operator_estop_badge, "急停", "开" if estop_active else "关", estop_active)
+        self._set_operator_badge(self.operator_pause_badge, "暂停", "开" if pause_active else "关", pause_active)
+        self._set_operator_badge(self.operator_alarm_badge, "报警", "有" if alarm_active else "无", alarm_active)
 
         monitor_text = self.monitor_label.text() if hasattr(self, "monitor_label") else "未启动"
         comm_text = "正常" if monitor_text == "实时监控运行中" else monitor_text
-        self.operator_comm_label.setText(f"通讯:{comm_text}  控制器:{self._operator_controller_mode_text()}")
         if hasattr(self, "operator_host_edit") and hasattr(self, "host_edit") and not self.operator_host_edit.hasFocus():
             self.operator_host_edit.setText(self.host_edit.text().strip())
 
@@ -888,14 +852,30 @@ class OperatorUiMixin:
             return "暂停"
         return "空闲"
 
+    def _set_operator_badge(self, label: QLabel, title: str, value: str, active: bool) -> None:
+        label.setText(f"{title}\n{value}")
+        label.setProperty("active", "true" if active else "false")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
     def _refresh_operator_axis_labels(self) -> None:
         joints = list(getattr(self, "robot_joints", (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)))
         joints = joints[:6] + [0.0] * max(0, 6 - len(joints))
         for idx, label in enumerate(self.operator_joint_labels):
-            label.setText(f"J{idx + 1}: {self._operator_fmt(joints[idx])}")
-        self.operator_pose_label.setText(
-            f"X:{self.robot_x}  Y:{self.robot_y}  Z:{self.robot_z}  RX/RY/RZ:{self.robot_r}"
-        )
+            label.setText(f"J{idx + 1}\n{self._operator_fmt(joints[idx])}")
+        rotation = [part.strip() for part in str(self.robot_r).replace(",", "/").split("/")]
+        rotation = rotation[:3] + ["-"] * max(0, 3 - len(rotation))
+        pose_values = {
+            "X": self.robot_x,
+            "Y": self.robot_y,
+            "Z": self.robot_z,
+            "RX": rotation[0],
+            "RY": rotation[1],
+            "RZ": rotation[2],
+        }
+        for key, value in pose_values.items():
+            if key in self.operator_pose_labels:
+                self.operator_pose_labels[key].setText(f"{key}\n{value}")
 
     def _refresh_operator_scene_content(self, state_detail: str) -> None:
         if getattr(self, "nlp_parse_running", False):
@@ -1075,6 +1055,9 @@ class OperatorUiMixin:
         if not hasattr(self, "_operator_chat_messages"):
             self._operator_chat_messages = []
         if self._operator_chat_messages and self._operator_chat_messages[-1] == (role, clean_text):
+            if scroll_to_bottom:
+                self._operator_chat_autoscroll_pending = True
+                self._operator_scroll_chat_to_bottom()
             if not getattr(self, "_operator_chat_rendered", False):
                 self._render_operator_chat()
             return
@@ -1130,13 +1113,18 @@ class OperatorUiMixin:
         if not hasattr(self, "operator_chat_scroll"):
             return
 
-        def scroll() -> None:
+        def scroll(final: bool = False) -> None:
             bar = self.operator_chat_scroll.verticalScrollBar()
+            if hasattr(self, "operator_chat_content"):
+                self.operator_chat_content.adjustSize()
             bar.setValue(bar.maximum())
-            self._operator_chat_autoscroll_pending = False
+            if final:
+                self._operator_chat_autoscroll_pending = False
 
-        QTimer.singleShot(0, scroll)
-        QTimer.singleShot(40, scroll)
+        QTimer.singleShot(0, lambda: scroll(False))
+        QTimer.singleShot(40, lambda: scroll(False))
+        QTimer.singleShot(120, lambda: scroll(False))
+        QTimer.singleShot(260, lambda: scroll(True))
 
     def _build_operator_chat_row(self, role: str, text: str) -> QWidget:
         row = QWidget()
@@ -1201,8 +1189,14 @@ class OperatorUiMixin:
                 "看板1 设备健康状态",
                 [
                     ("设备状态", self.operator_state_label.text().replace("● ", "")),
-                    ("通讯状态", self.operator_comm_label.text()),
-                    ("急停/暂停/报警", self.operator_flags_label.text()),
+                    ("通讯状态", "正常" if self.monitor_label.text() == "实时监控运行中" else self.monitor_label.text()),
+                    (
+                        "急停/暂停/报警",
+                        " / ".join(
+                            label.text().replace("\n", ":")
+                            for label in [self.operator_estop_badge, self.operator_pause_badge, self.operator_alarm_badge]
+                        ),
+                    ),
                     ("伺服使能", getattr(self, "servo_enable", "-")),
                     ("夹爪使能/刹车", f"{getattr(self, 'claw_enable', '-')} / {getattr(self, 'claw_brake', '-')}"),
                 ],
@@ -1210,8 +1204,8 @@ class OperatorUiMixin:
             self._operator_html_section(
                 "看板2 位置与运动状态",
                 [
-                    ("关节位置", "  ".join(label.text() for label in self.operator_joint_labels)),
-                    ("空间位置", self.operator_pose_label.text()),
+                    ("关节位置", "  ".join(label.text().replace("\n", ":") for label in self.operator_joint_labels)),
+                    ("空间位置", "  ".join(label.text().replace("\n", ":") for label in self.operator_pose_labels.values())),
                     ("运动进度", getattr(self, "motion_percent", "-")),
                     ("速度/加速度", getattr(self, "robot_speed", "-")),
                 ],

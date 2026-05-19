@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -111,6 +111,14 @@ from .license_manager import LicenseManager
 from .license_dialog import LicenseDialog
 
 
+def _resolve_app_icon_path() -> Path | None:
+    for base in (runtime_dir(), resource_dir()):
+        icon_path = base / "image" / "icon.png"
+        if icon_path.exists():
+            return icon_path
+    return None
+
+
 class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMixin, SettingsMixin, CommandDispatchMixin, AvoidanceExecutionMixin, NlpMixin, FlowExecutionMixin, VoiceMixin, GuiSystemMixin, ControllerRuntimeMixin, SixAxisCommandMixin, GuiLoggingMixin, QMainWindow):
     """图形界面主窗口，组合各个职责模块。"""
     _main_thread_call = Signal(object)
@@ -130,6 +138,7 @@ class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMi
 
         self.runtime_root = runtime_dir()
         self.resource_root = resource_dir()
+        self._apply_app_icon()
         self.flows_path = resolve_runtime_data_file("flows.json")
         self.json_path = bootstrap_query_table_json(json_path, csv_path)
         self.system_config_path = ensure_system_config_json(system_config_path or (self.runtime_root / "data" / "system_config.json"))
@@ -232,6 +241,18 @@ class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMi
         self._check_connection()
         self._start_realtime_polling()
 
+    def _apply_app_icon(self) -> None:
+        icon_path = _resolve_app_icon_path()
+        if icon_path is None:
+            return
+        icon = QIcon(str(icon_path))
+        if icon.isNull():
+            return
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)
+
     def _setup_license_menu(self) -> None:
         """处理授权。"""
         menu_bar = self.menuBar()
@@ -333,6 +354,11 @@ def main() -> None:
     import sys
 
     app = QApplication(sys.argv)
+    icon_path = _resolve_app_icon_path()
+    if icon_path is not None:
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            app.setWindowIcon(icon)
     resource_base = resource_dir()
     json_path = resolve_runtime_data_file("query_table.json")
     system_config_path = resolve_runtime_data_file("system_config.json")

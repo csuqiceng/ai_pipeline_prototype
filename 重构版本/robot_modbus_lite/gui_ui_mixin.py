@@ -100,8 +100,8 @@ class GuiUiMixin:
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
         self._authenticated_role = ""
-        self._login_target_role = "engineer"
-        self._login_role = "engineer"
+        self._login_target_role = "operator"
+        self._login_role = "operator"
         self.resize(900, 620)
 
         main = QWidget()
@@ -142,10 +142,6 @@ class GuiUiMixin:
         footer = QHBoxLayout()
         footer.setContentsMargins(8, 0, 8, 0)
         footer.addWidget(self.status_label, 1)
-        self.workspace_toggle_btn = QPushButton("切换到用户页面")
-        self.workspace_toggle_btn.setObjectName("workspaceToggleButton")
-        self.workspace_toggle_btn.clicked.connect(self._toggle_workspace_mode)
-        footer.addWidget(self.workspace_toggle_btn)
         self._license_status_label = QLabel("")
         self._license_status_label.setObjectName("footerStatus")
         self._license_status_label.setMinimumHeight(28)
@@ -169,6 +165,17 @@ class GuiUiMixin:
         self.workspace_pages.setCurrentIndex(0)
         self._workspace_mode = "engineer"
         self.app_pages.setCurrentIndex(0)
+        self.setWindowTitle(" ")
+        self._center_window_on_screen()
+
+    def _center_window_on_screen(self) -> None:
+        screen = self.screen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        frame = self.frameGeometry()
+        frame.moveCenter(available.center())
+        self.move(frame.topLeft())
 
     def _build_login_page(self) -> QWidget:
         page = QFrame()
@@ -188,20 +195,10 @@ class GuiUiMixin:
         card_layout.setContentsMargins(32, 30, 32, 30)
         card_layout.setSpacing(12)
 
-        logo = QLabel("K")
-        logo.setObjectName("loginLogo")
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        title = QLabel("KINETIX OS")
+        title = QLabel("机械手控制系统")
         title.setObjectName("loginTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(title)
-
-        subtitle = QLabel("安全系统认证")
-        subtitle.setObjectName("loginSubtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(subtitle)
 
         divider = QFrame()
         divider.setObjectName("loginDivider")
@@ -218,11 +215,11 @@ class GuiUiMixin:
         role_layout = QHBoxLayout(role_row)
         role_layout.setContentsMargins(4, 4, 4, 4)
         role_layout.setSpacing(4)
-        self.login_engineer_btn = QPushButton("工程师")
         self.login_operator_btn = QPushButton("用户")
+        self.login_engineer_btn = QPushButton("工程师")
         self.login_role_buttons = {
-            "engineer": self.login_engineer_btn,
             "operator": self.login_operator_btn,
+            "engineer": self.login_engineer_btn,
         }
         for role, btn in self.login_role_buttons.items():
             btn.setObjectName("loginSegmentButton")
@@ -231,22 +228,51 @@ class GuiUiMixin:
             role_layout.addWidget(btn)
         card_layout.addWidget(role_row)
 
-        operator_label = QLabel("操作员编号")
+        connection_label = QLabel("控制器连接")
+        connection_label.setObjectName("loginFieldLabel")
+        card_layout.addWidget(connection_label)
+        self.login_host_edit = QLineEdit()
+        self.login_host_edit.setObjectName("loginInput")
+        self.login_host_edit.setPlaceholderText("192.168.1.11")
+        self.login_host_edit.setText(self.host_edit.text().strip() if hasattr(self, "host_edit") else "192.168.1.11")
+        self.login_host_edit.returnPressed.connect(self._login_check_connection)
+        card_layout.addWidget(self.login_host_edit)
+
+        connection_row = QHBoxLayout()
+        connection_row.setSpacing(8)
+        self.login_controller_combo = QComboBox()
+        self.login_controller_combo.setObjectName("loginCombo")
+        self.login_controller_combo.addItems(["真实控制器", "模拟控制器"])
+        if hasattr(self, "controller_combo"):
+            self.login_controller_combo.setCurrentText(self.controller_combo.currentText())
+        connection_row.addWidget(self.login_controller_combo, 1)
+        self.login_check_btn = QPushButton("检测连接")
+        self.login_check_btn.setObjectName("loginCheckButton")
+        self.login_check_btn.clicked.connect(self._login_check_connection)
+        connection_row.addWidget(self.login_check_btn)
+        card_layout.addLayout(connection_row)
+
+        self.login_connection_label = QLabel("连接状态: 未检测")
+        self.login_connection_label.setObjectName("loginConnectionStatus")
+        self.login_connection_label.setWordWrap(True)
+        card_layout.addWidget(self.login_connection_label)
+
+        operator_label = QLabel("账号")
         operator_label.setObjectName("loginFieldLabel")
         card_layout.addWidget(operator_label)
         self.login_operator_id_edit = QLineEdit()
         self.login_operator_id_edit.setObjectName("loginInput")
-        self.login_operator_id_edit.setPlaceholderText("ENG-0001")
+        self.login_operator_id_edit.setPlaceholderText("OP-0001")
         self.login_operator_id_edit.returnPressed.connect(self._authenticate_login)
         card_layout.addWidget(self.login_operator_id_edit)
 
-        pin_label = QLabel("安全 PIN")
+        pin_label = QLabel("密码")
         pin_label.setObjectName("loginFieldLabel")
         card_layout.addWidget(pin_label)
         self.login_pin_edit = QLineEdit()
         self.login_pin_edit.setObjectName("loginInput")
         self.login_pin_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.login_pin_edit.setPlaceholderText("0000")
+        self.login_pin_edit.setPlaceholderText("1234")
         self.login_pin_edit.returnPressed.connect(self._authenticate_login)
         card_layout.addWidget(self.login_pin_edit)
 
@@ -255,7 +281,7 @@ class GuiUiMixin:
         self.login_error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self.login_error_label)
 
-        self.login_auth_btn = QPushButton("认证登录")
+        self.login_auth_btn = QPushButton("登录")
         self.login_auth_btn.setObjectName("loginAuthButton")
         self.login_auth_btn.clicked.connect(self._authenticate_login)
         card_layout.addWidget(self.login_auth_btn)
@@ -267,16 +293,13 @@ class GuiUiMixin:
 
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
-        ready = QLabel("● 系统就绪")
-        ready.setObjectName("loginReady")
-        version = QLabel("V3.4.1-STABLE")
+        version = QLabel("V1.0")
         version.setObjectName("loginVersion")
-        footer.addWidget(ready)
         footer.addStretch(1)
         footer.addWidget(version)
         layout.addLayout(footer)
 
-        self._set_login_role("engineer")
+        self._set_login_role("operator")
         return page
 
     def _set_login_role(self, role: str) -> None:
@@ -296,12 +319,15 @@ class GuiUiMixin:
             self.login_error_label.setText("")
 
     def _show_login_page(self, target_role: str | None = None) -> None:
+        self._sync_login_connection_from_main()
         if target_role in {"engineer", "operator"}:
             self._login_target_role = target_role
             self._set_login_role(target_role)
-        elif not getattr(self, "_login_target_role", ""):
-            self._login_target_role = "engineer"
+        else:
+            self._login_target_role = "operator"
+            self._set_login_role("operator")
         self._authenticated_role = ""
+        self.setWindowTitle(" ")
         if hasattr(self, "login_pin_edit"):
             self.login_pin_edit.clear()
             self.login_pin_edit.setFocus()
@@ -313,6 +339,37 @@ class GuiUiMixin:
             self.app_pages.setCurrentIndex(0)
         if not self.isFullScreen():
             self.resize(900, 620)
+            self._center_window_on_screen()
+
+    def _sync_login_connection_from_main(self) -> None:
+        if hasattr(self, "login_host_edit") and hasattr(self, "host_edit") and not self.login_host_edit.hasFocus():
+            self.login_host_edit.setText(self.host_edit.text().strip())
+        if hasattr(self, "login_controller_combo") and hasattr(self, "controller_combo"):
+            self.login_controller_combo.setCurrentText(self.controller_combo.currentText())
+        if hasattr(self, "login_connection_label") and hasattr(self, "connection_label"):
+            self.login_connection_label.setText(f"连接状态: {self.connection_label.text()}")
+
+    def _apply_login_connection_settings(self) -> bool:
+        host = self.login_host_edit.text().strip() if hasattr(self, "login_host_edit") else ""
+        if not host:
+            if hasattr(self, "login_connection_label"):
+                self.login_connection_label.setText("连接状态: 地址为空")
+            self._show_warning("地址为空", "请输入控制器地址。")
+            return False
+        if hasattr(self, "host_edit"):
+            self.host_edit.setText(host)
+        if hasattr(self, "controller_combo") and hasattr(self, "login_controller_combo"):
+            self.controller_combo.setCurrentText(self.login_controller_combo.currentText())
+        return True
+
+    def _login_check_connection(self) -> None:
+        if not self._apply_login_connection_settings():
+            return
+        if hasattr(self, "login_connection_label"):
+            self.login_connection_label.setText("连接状态: 检测中...")
+        self._check_connection()
+        if hasattr(self, "login_connection_label") and hasattr(self, "connection_label"):
+            self.login_connection_label.setText(f"连接状态: {self.connection_label.text()}")
 
     def _authenticate_login(self) -> None:
         role = getattr(self, "_login_role", "engineer")
@@ -323,11 +380,14 @@ class GuiUiMixin:
             expected_pin = "0000" if role == "engineer" else "1234"
         if pin != expected_pin:
             if hasattr(self, "login_error_label"):
-                hint = "工程师默认 PIN: 0000" if role == "engineer" else "用户默认 PIN: 1234"
+                hint = "工程师默认密码: 0000" if role == "engineer" else "用户默认密码: 1234"
                 self.login_error_label.setText(f"认证失败，{hint}")
+            return
+        if not self._apply_login_connection_settings():
             return
         self._authenticated_role = role
         self._authenticated_operator_id = operator_id or ("ENG-0001" if role == "engineer" else "OP-0001")
+        self.setWindowTitle("机械手控制系统")
         if hasattr(self, "app_pages"):
             main_index = self.app_pages.indexOf(self._main_shell) if hasattr(self, "_main_shell") else -1
             if main_index < 0 and hasattr(self, "_main_shell"):
@@ -335,6 +395,7 @@ class GuiUiMixin:
             self.app_pages.setCurrentIndex(main_index if main_index >= 0 else 0)
         if not self.isFullScreen():
             self.resize(1380, 860)
+            self._center_window_on_screen()
         self._set_workspace_mode("engineer" if role == "engineer" else "operator")
         if hasattr(self, "status_label"):
             self.status_label.setText(f"已登录: {self._authenticated_operator_id} | 身份: {'工程师' if role == 'engineer' else '用户'}")
@@ -431,34 +492,28 @@ class GuiUiMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        link_bar = QGroupBox("连接与反馈")
+        link_bar = QGroupBox("反馈监控")
         link_bar.setObjectName("panel")
         link_layout = QHBoxLayout(link_bar)
         link_layout.setContentsMargins(10, 6, 10, 6)
-        link_layout.addWidget(QLabel("控制器地址:"))
         self.host_edit = QLineEdit("192.168.1.11")
         self.host_edit.setMaximumWidth(220)
-        link_layout.addWidget(self.host_edit)
-        link_layout.addWidget(QLabel("控制器类型:"))
+        self.host_edit.setVisible(False)
         self.controller_combo = QComboBox()
         self.controller_combo.addItems(["真实控制器", "模拟控制器"])
         self.controller_combo.setMaximumWidth(180)
-        link_layout.addWidget(self.controller_combo)
-        link_layout.addWidget(QLabel("协议:"))
+        self.controller_combo.setVisible(False)
         self.protocol_combo = QComboBox()
         self.protocol_combo.addItems(["Modbus TCP (V2.2)"])
         self.protocol_combo.setMaximumWidth(180)
         self.protocol_combo.setDisabled(True)
-        link_layout.addWidget(self.protocol_combo)
+        self.protocol_combo.setVisible(False)
         link_layout.addWidget(QLabel("连接状态:"))
         self.connection_label = QLabel("检测中...")
         link_layout.addWidget(self.connection_label, 1)
         self.monitor_label = QLabel("未启动")
-        check_btn = QPushButton("检测连接")
-        check_btn.clicked.connect(self._check_connection)
         read_btn = QPushButton("读取反馈")
         read_btn.clicked.connect(self._read_feedback)
-        link_layout.addWidget(check_btn)
         link_layout.addWidget(read_btn)
         layout.addWidget(link_bar)
 
@@ -1382,6 +1437,36 @@ class GuiUiMixin:
                 border: 1px solid #1f8f68;
                 background: #ffffff;
             }
+            QComboBox#loginCombo {
+                min-height: 38px;
+                border: 1px solid #c7d2de;
+                border-radius: 0;
+                background: #f7f8fb;
+                padding: 4px 12px;
+                color: #111827;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QPushButton#loginCheckButton {
+                min-height: 38px;
+                padding: 4px 14px;
+                border: 1px solid #c7d2de;
+                border-radius: 4px;
+                background: #ffffff;
+                color: #111827;
+                font-size: 13px;
+                font-weight: 800;
+            }
+            QPushButton#loginCheckButton:hover {
+                background: #eef7f2;
+                border-color: #1f8f68;
+            }
+            QLabel#loginConnectionStatus {
+                min-height: 20px;
+                color: #475569;
+                font-size: 13px;
+                font-weight: 700;
+            }
             QLabel#loginError {
                 min-height: 20px;
                 color: #b91c1c;
@@ -1476,6 +1561,31 @@ class GuiUiMixin:
                 font-weight: 600;
                 color: #111827;
             }
+            QLabel#operatorStatusBadge {
+                min-height: 42px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                background: #f8fafc;
+                color: #334155;
+                font-size: 12px;
+                font-weight: 800;
+                padding: 4px 2px;
+            }
+            QLabel#operatorStatusBadge[active="true"] {
+                border-color: #fca5a5;
+                background: #fff1f2;
+                color: #b91c1c;
+            }
+            QLabel#operatorPoseCell {
+                min-height: 38px;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                background: #f8fafc;
+                color: #111827;
+                font-size: 12px;
+                font-weight: 800;
+                padding: 3px 2px;
+            }
             QLabel#operatorMetricLarge {
                 font-size: 15px;
                 font-weight: 700;
@@ -1541,9 +1651,9 @@ class GuiUiMixin:
                 font-weight: 800;
             }
             QFrame#operatorAiBubble {
-                background: #ffffff;
-                border: 0;
-                border-radius: 12px;
+                background: #f6f8fb;
+                border: 1px solid #e2e8f0;
+                border-radius: 16px;
             }
             QFrame#operatorUserBubble {
                 background: #f4f4f4;
