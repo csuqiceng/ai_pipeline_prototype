@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
+from .atomic_memory import AtomicMemory
 from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter, VoiceNlpPlan
 
 
@@ -13,7 +15,9 @@ class NlpMixin:
     """为主窗口增加自然语言规划和执行能力。"""
     def _build_voice_nlp_adapter(self) -> VoiceNlpAdapter:
         """构建语音自然语言。"""
-        adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names())
+        if not hasattr(self, "_atomic_memory"):
+            self._atomic_memory = AtomicMemory.load(self._atomic_memory_path())
+        adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names(), atomic_memory=self._atomic_memory)
         if self._deepseek_client:
             adapter.set_deepseek_client(self._deepseek_client)
         adapter.set_diagnostic_callback(
@@ -162,6 +166,7 @@ class NlpMixin:
             return
         self._nlp_pending_actions = list(plan.actions)
         self._nlp_pending_index = 0
+        self._nlp_current_plan = plan
         self._append_log(
             "自然语言",
             "执行解析",
@@ -208,11 +213,22 @@ class NlpMixin:
             self._nlp_pending_index += 1
             QTimer.singleShot(0, self._run_next_nlp_action)
 
-        if action.action_type == "template" and action.target:
+        if action.action_type in {"template", "atomic_template"} and action.target:
             if self.flow_running:
                 on_step_done(False)
                 return
+            if action.action_type == "atomic_template" and not self._nlp_register_atomic_record(action.target):
+                on_step_done(False)
+                return
             self._execute_query_key(action.target, on_done=on_step_done)
+            return
+        if action.action_type == "memory":
+            if not self._nlp_apply_memory_action(action, plan=getattr(self, "_nlp_current_plan", None)):
+                on_step_done(False)
+                return
+            self._save_atomic_memory()
+            self.status_label.setText(f"自然语言记忆参数已更新: {action.target or '-'}")
+            on_step_done(True)
             return
         if action.action_type == "system" and action.target:
             self._handle_system_action(action.target, on_done=on_step_done)
@@ -223,4 +239,63 @@ class NlpMixin:
             return
 
         on_step_done(False)
+
+    def _nlp_register_atomic_record(self, target: str) -> bool:
+        plan = getattr(self, "_nlp_current_plan", None)
+        record = getattr(plan, "atomic_records", {}).get(target) if plan is not None else None
+        if record is None:
+            self._append_log("自然语言", "原子模板解析", "失败", f"未找到原子模板记录: {target}")
+            return False
+        self.table[target] = record
+        if hasattr(self, "_atomic_memory"):
+            self._atomic_memory.remember_record(record)
+            self._save_atomic_memory()
+        return True
+
+    def _nlp_apply_memory_action(self, action: VoiceNlpAction, *, plan: VoiceNlpPlan | None = None) -> bool:
+        target = str(action.target or "")
+        if not target.startswith("position_save:"):
+            return True
+        memory = getattr(self, "_atomic_memory", None)
+        if memory is None:
+            self._append_log("自然语言", "保存位置", "失败", "原子记忆对象不存在")
+            return False
+        name = target.split(":", 1)[1].strip().upper()
+        if not name:
+            self._append_log("自然语言", "保存位置", "失败", "未识别位置名称")
+            return False
+        try:
+            pose = self._operator_current_pose_tuple() if hasattr(self, "_operator_current_pose_tuple") else (
+                float(getattr(self, "robot_x", 0.0)),
+                float(getattr(self, "robot_y", 0.0)),
+                float(getattr(self, "robot_z", 0.0)),
+                0.0,
+                0.0,
+                0.0,
+            )
+            memory.save_position(name, pose)
+            self._append_log("自然语言", "保存位置", "成功", f"位置{name}: {pose}")
+            if plan is not None:
+                setattr(plan, "_atomic_position_saved", {"name": name, "pose": pose})
+            return True
+        except Exception as exc:
+            self._append_log("自然语言", "保存位置", "失败", str(exc))
+            return False
+
+    def _atomic_memory_path(self):
+        runtime_root = getattr(self, "runtime_root", None)
+        if runtime_root is not None:
+            return runtime_root / "data" / "atomic_state.json"
+        return Path("data") / "atomic_state.json"
+
+    def _save_atomic_memory(self) -> None:
+        memory = getattr(self, "_atomic_memory", None)
+        if memory is None:
+            return
+        try:
+            memory.save(self._atomic_memory_path())
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("自然语言", "原子记忆保存", "失败", str(exc))
+
 

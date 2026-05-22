@@ -36,6 +36,39 @@ def test_command_intent_from_template_plan_uses_query_record_params():
     assert validate_command_intent(intent) is None
 
 
+def test_command_intent_from_atomic_template_plan_uses_atomic_record_params():
+    record = QueryRecord(
+        query_key="atomic:virtual:8:1:3",
+        func_num=107,
+        params={"axis_no": 8, "pos_val": 3.0, "spd_pct": 50.0, "fuzzy_pos": 1},
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", record.query_key, "atomic_rule", "上升3毫米", "原子动作"),),
+        source="atomic_rule",
+        raw_text="小正，上升3毫米",
+        reason="原子动作",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        atomic_records={record.query_key: record},
+    )
+
+    intent = command_intent_from_plan(
+        plan,
+        table={},
+        msg_id="intent-atomic",
+        timestamp="2026-05-20T10:30:00.000+08:00",
+        source="text",
+    ).to_dict()
+
+    assert intent["intent"] == "command"
+    assert intent["semantic_level"] == 3
+    assert intent["func_id"] == 107
+    assert intent["params"]["axis_no"] == 8
+    assert intent["params"]["pos_val"] == 3.0
+    assert intent["fuzzy"]["pos"] == 1
+    assert validate_command_intent(intent) is None
+
+
 def test_command_intent_from_estop_system_plan_marks_emergency():
     plan = VoiceNlpPlan(
         actions=(VoiceNlpAction("system", "sys_estop", "rule", "急停 A1B2 急停", "测试"),),

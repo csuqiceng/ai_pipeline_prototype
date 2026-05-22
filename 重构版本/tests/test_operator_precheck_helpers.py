@@ -372,6 +372,31 @@ def test_operator_answer_query_plan_answers_l2_query_without_confirm():
     assert "通讯正常" in messages[-1].text
 
 
+def test_operator_answer_query_plan_answers_atomic_capability_query():
+    dummy = DummyOperator()
+    messages = []
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_confirm_plan = object()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "atomic_capabilities", "rule", "支持哪些原子命令", "命中原子能力查询"),),
+        source="rule",
+        raw_text="支持哪些原子命令",
+        reason="命中原子能力查询",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert dummy._operator_pending_confirm_plan is None
+    assert messages[-1].kind == "result"
+    assert "二次原子函数能力" in messages[-1].text
+    assert "保护性拒绝" in messages[-1].text
+
+
 def test_operator_semantic_policy_requires_confirm_for_l3_but_not_l4_or_l5():
     l3_plan = VoiceNlpPlan(
         actions=(VoiceNlpAction("template", "move_pose", "rule", "移动", "测试"),),
@@ -423,6 +448,34 @@ def test_operator_query_plan_is_not_executable():
 
     assert DummyOperator._operator_plan_is_executable(query_plan) is False
     assert DummyOperator._operator_plan_requires_confirmation(query_plan) is False
+
+
+def test_operator_atomic_template_uses_plan_confirmation_policy():
+    auto_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "atomic:io:1:1", "atomic_rule", "IO1开", "IO"),),
+        source="atomic_rule",
+        raw_text="小正，IO1开",
+        reason="IO",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=True,
+        requires_confirmation=False,
+    )
+    confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "atomic:virtual:8:1:3", "atomic_rule", "上升3毫米", "运动"),),
+        source="atomic_rule",
+        raw_text="小正，上升3毫米",
+        reason="运动",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=True,
+        requires_confirmation=True,
+    )
+
+    assert DummyOperator._operator_plan_is_executable(auto_plan) is True
+    assert DummyOperator._operator_plan_requires_precheck(auto_plan) is True
+    assert DummyOperator._operator_plan_requires_confirmation(auto_plan) is False
+    assert DummyOperator._operator_plan_requires_confirmation(confirm_plan) is True
 
 
 def test_operator_execute_nlp_plan_waits_when_plan_requires_confirmation():
@@ -1542,6 +1595,35 @@ def test_operator_confirm_detail_text_lists_l2_avoidance_suggestion():
     assert "可采纳建议:" in text
     assert "增加安全中间点 SAFE" in text
     assert "move_pose" in text
+
+
+def test_operator_confirm_detail_text_lists_atomic_risk_reason():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="atomic:virtual:8:1:30",
+        func_num=107,
+        params={
+            "axis_no": 8,
+            "pos_val": 30.0,
+            "atomic_risk_level": "high",
+            "atomic_risk_reason": "速度、加减速或步长较高。",
+        },
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", record.query_key, "atomic_rule", "上升30毫米", "虚拟轴原子动作"),),
+        source="atomic_rule",
+        raw_text="小正，上升30毫米",
+        reason="虚拟轴原子动作",
+        atomic_records={record.query_key: record},
+        requires_confirmation=True,
+    )
+    dummy._operator_pending_confirm_plan = plan
+
+    text = dummy._operator_confirm_detail_text()
+
+    assert "原子风险:" in text
+    assert "high" in text
+    assert "速度、加减速或步长较高。" in text
 
 
 def test_operator_confirm_detail_text_shows_l2_selected_fstatus_after_auto_avoidance():
@@ -3172,6 +3254,34 @@ def test_operator_nlp_result_payload_uses_plan_semantic_metadata():
     assert payload["command_intent"]["semantic_level"] == 4
 
 
+def test_operator_nlp_result_payload_promotes_atomic_risk_metadata():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="atomic:virtual:8:1:30",
+        func_num=107,
+        params={
+            "axis_no": 8,
+            "pos_val": 30.0,
+            "atomic_risk_level": "high",
+            "atomic_risk_reason": "速度、加减速或步长较高。",
+        },
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", record.query_key, "atomic_rule", "上升30毫米", "虚拟轴原子动作"),),
+        source="atomic_rule",
+        raw_text="小正，上升30毫米",
+        reason="虚拟轴原子动作",
+        atomic_records={record.query_key: record},
+        requires_confirmation=True,
+    )
+    dummy.table = {}
+
+    payload = dummy._operator_nlp_result_payload(plan)
+
+    assert payload["risk_level"] == "high"
+    assert payload["risk_reason"] == "速度、加减速或步长较高。"
+
+
 def test_operator_archive_execution_result_updates_last_interaction_record(tmp_path: Path):
     dummy = DummyOperator()
     dummy.session_id = "session-1"
@@ -3330,6 +3440,26 @@ def test_operator_ui_command_answers_engineer_voice_capability_query():
     assert "保存配置" in text
     assert status["text"] == text
     assert logs[-1][1] == "能力查询"
+
+
+def test_operator_ui_command_answers_atomic_capability_query():
+    dummy = DummyOperator()
+    messages = []
+    logs = []
+    status = {"text": ""}
+    dummy.status_label = SimpleNamespace(setText=lambda text: status.update(text=text))
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    assert dummy._handle_operator_ui_command("现在支持哪些原子命令") is True
+
+    text = messages[-1].text
+    assert messages[-1].kind == "result"
+    assert "二次原子函数能力" in text
+    assert "J 类关节命令" in text
+    assert "保护性拒绝" in text
+    assert status["text"] == text
+    assert logs[-1][1] == "原子能力查询"
 
 
 def test_operator_busy_rejection_archives_blocked_response(tmp_path: Path):

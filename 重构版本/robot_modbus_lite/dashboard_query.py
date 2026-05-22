@@ -20,10 +20,14 @@ class DashboardQueryService:
     """Answer operator status questions from the seven dashboard boards."""
 
     def answer(self, text: str, snapshot: dict[str, Any]) -> DashboardQueryAnswer | None:
+        raw_text = text or ""
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return None
         boards = snapshot.get("boards", {}) if isinstance(snapshot, dict) else {}
+        v20_answer = self._answer_v20_query(raw_text, compact, boards)
+        if v20_answer is not None:
+            return v20_answer
         spec = match_dashboard_query_spec(compact)
         if spec is None:
             return None
@@ -42,6 +46,150 @@ class DashboardQueryService:
         if spec.board_key == "device_status":
             return self._answer_device_status(boards.get("device_status", {}) or {})
         return None
+
+    def _answer_v20_query(self, raw_text: str, compact: str, boards: dict[str, Any]) -> DashboardQueryAnswer | None:
+        text = self._strip_wake_word(compact)
+        device = boards.get("device_status", {}) or {}
+        motion = boards.get("motion_limits", {}) or {}
+        feasibility = boards.get("action_feasibility", {}) or {}
+        safety = boards.get("safety_boundary", {}) or {}
+        communication = boards.get("communication_faults", {}) or {}
+        if text in {"当前位置", "当前坐标", "现在位置"}:
+            return DashboardQueryAnswer("device_status", f"当前位置：{self._format_pose(device.get('dpos_c'))}。")
+        joint_match = re.fullmatch(r"J([1-6])(?:角度|多少|位置)?", text, flags=re.IGNORECASE)
+        if joint_match:
+            index = int(joint_match.group(1)) - 1
+            joints = self._as_sequence(device.get("dpos_j"))
+            value = joints[index] if index < len(joints) else "-"
+            return DashboardQueryAnswer("device_status", f"J{index + 1}={value}。")
+        if text in {"各轴角度", "关节角度", "所有关节角度"}:
+            return DashboardQueryAnswer("device_status", "各轴角度：" + self._format_joints(device.get("dpos_j")) + "。")
+        if text in {"设备状态", "当前状态", "现在状态"}:
+            return self._answer_device_status(device)
+        if text in {"有没有报警", "有报警吗", "报警了吗"}:
+            return self._answer_alarm(device)
+        if text in {"速度多少", "当前速度", "速度是多少"}:
+            return DashboardQueryAnswer(
+                "motion_limits",
+                f"当前速度 {motion.get('speed', '-')}，运动进度 {motion.get('motion_percent', '-')}，速度上限 {motion.get('safe_speed_max', '-')}。",
+            )
+        if text in {"通讯正常吗", "通信正常吗"}:
+            return self._answer_communication(communication)
+        if text.startswith("能不能到") or text.startswith("能到"):
+            target = self._parse_target_xyz(raw_text)
+            if target is not None:
+                return self._answer_target_feasibility(target, feasibility, safety)
+            return self._answer_feasibility(feasibility)
+        return None
+
+    @staticmethod
+    def _strip_wake_word(text: str) -> str:
+        compact = re.sub(r"\s+", "", text or "")
+        for wake_word in ("小正", "小郑", "校正"):
+            if compact.startswith(wake_word):
+                return compact[len(wake_word):].lstrip("，,。:：")
+        return compact
+
+    @staticmethod
+    def _as_sequence(value: object) -> tuple[object, ...]:
+        return tuple(value) if isinstance(value, (list, tuple)) else ()
+
+    @staticmethod
+    def _format_pose(value: object) -> str:
+        values = DashboardQueryService._as_sequence(value)
+        labels = ("X", "Y", "Z", "RX", "RY", "RZ")
+        if not values:
+            return "-"
+        return "，".join(f"{labels[index]}={values[index]}" for index in range(min(len(values), len(labels))))
+
+    @staticmethod
+    def _format_joints(value: object) -> str:
+        values = DashboardQueryService._as_sequence(value)
+        if not values:
+            return "-"
+        return "，".join(f"J{index + 1}={values[index]}" for index in range(min(len(values), 6)))
+
+    @staticmethod
+    def _answer_alarm(board: dict[str, Any]) -> DashboardQueryAnswer:
+        if board.get("alarm"):
+            code = board.get("alarm_code") or board.get("alarmCode") or "-"
+            text = board.get("alarm_text") or board.get("alarmText") or "-"
+            return DashboardQueryAnswer("device_status", f"当前有报警，报警码 {code}，报警内容 {text}。", "high")
+        return DashboardQueryAnswer("device_status", "当前无报警。")
+
+    @staticmethod
+    def _parse_target_xyz(text: str) -> tuple[float, float, float] | None:
+        cleaned = (text or "").strip()
+        for wake_word in ("小正", "小郑", "校正"):
+            if cleaned.startswith(wake_word):
+                cleaned = cleaned[len(wake_word):].lstrip("，,。:： ")
+                break
+        match = re.search(
+            r"(?:能不能到|能到|到达|移动到)\s*"
+            r"(-?\d+(?:\.\d+)?)\s*[,， ]+\s*"
+            r"(-?\d+(?:\.\d+)?)\s*[,， ]+\s*"
+            r"(-?\d+(?:\.\d+)?)",
+            cleaned,
+        )
+        if match is None:
+            return None
+        return (float(match.group(1)), float(match.group(2)), float(match.group(3)))
+
+    @staticmethod
+    def _answer_target_feasibility(
+        target_xyz: tuple[float, float, float],
+        feasibility: dict[str, Any],
+        safety: dict[str, Any],
+    ) -> DashboardQueryAnswer:
+        labels = ("X", "Y", "Z")
+        limit_keys = ("x_range", "y_range", "z_range")
+        failures: list[str] = []
+        missing_limits: list[str] = []
+        for value, label, key in zip(target_xyz, labels, limit_keys):
+            axis_range = safety.get(key)
+            if not isinstance(axis_range, (list, tuple)) or len(axis_range) < 2:
+                missing_limits.append(label)
+                continue
+            lower = DashboardQueryService._float_or_none(axis_range[0])
+            upper = DashboardQueryService._float_or_none(axis_range[1])
+            if lower is None or upper is None:
+                missing_limits.append(label)
+                continue
+            if not lower <= float(value) <= upper:
+                failures.append(f"目标 {label}={float(value):.1f} 超出软限位 {lower:.1f}~{upper:.1f}")
+
+        base = f"目标点 X={target_xyz[0]:.1f}，Y={target_xyz[1]:.1f}，Z={target_xyz[2]:.1f}"
+        current = DashboardQueryService._answer_feasibility(feasibility)
+        if failures:
+            return DashboardQueryAnswer(
+                "action_feasibility",
+                f"{base} 当前不建议执行。原因：{'；'.join(failures)}。建议：调整目标点到安全边界内后再预检。",
+                "high",
+            )
+        if missing_limits:
+            return DashboardQueryAnswer(
+                "action_feasibility",
+                f"{base} 已解析，但缺少 {'/'.join(missing_limits)} 软限位配置，不能给出完整离线边界结论。{current.text}",
+                "high" if current.priority == "high" else "normal",
+            )
+        if current.priority == "high":
+            return DashboardQueryAnswer(
+                "action_feasibility",
+                f"{base} 基础边界检查通过，但当前执行条件不满足。{current.text}",
+                "high",
+            )
+        return DashboardQueryAnswer(
+            "action_feasibility",
+            f"{base} 基础边界检查通过。{current.text}",
+            current.priority,
+        )
+
+    @staticmethod
+    def _float_or_none(value: object) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _has_any(text: str, *keywords: str) -> bool:

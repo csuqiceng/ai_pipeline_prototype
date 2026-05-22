@@ -295,3 +295,74 @@ def test_dashboard_query_answers_recovery_after_alarm():
     assert answer.priority == "high"
     assert "报警" in answer.text
     assert "复位" in answer.text or "确认" in answer.text
+
+
+def test_dashboard_query_answers_v20_position_and_joint_queries():
+    snapshot = {
+        "boards": {
+            "device_status": {
+                "dpos_c": (350.0, 200.0, 500.0, 0.0, 90.0, 0.0),
+                "dpos_j": (1.0, 2.0, 3.0, 4.0, 5.0, 6.0),
+            }
+        }
+    }
+
+    position = DashboardQueryService().answer("小正，当前位置", snapshot)
+    j1 = DashboardQueryService().answer("小正，J1角度", snapshot)
+    all_joints = DashboardQueryService().answer("小正，各轴角度", snapshot)
+
+    assert position is not None
+    assert position.board_key == "device_status"
+    assert "X=350.0" in position.text
+    assert j1 is not None
+    assert "J1=1.0" in j1.text
+    assert all_joints is not None
+    assert "J6=6.0" in all_joints.text
+
+
+def test_dashboard_query_answers_v20_alarm_speed_and_feasibility_queries():
+    snapshot = {
+        "boards": {
+            "device_status": {"alarm": True, "alarm_code": "E12", "alarm_text": "J2速度超限"},
+            "motion_limits": {"speed": "35%", "motion_percent": "空闲", "safe_speed_max": 100},
+            "action_feasibility": {"channel_idle": True, "precheck_status": "pass", "motion_status": "normal"},
+        }
+    }
+
+    alarm = DashboardQueryService().answer("小正，有没有报警", snapshot)
+    speed = DashboardQueryService().answer("小正，速度多少", snapshot)
+    feasibility = DashboardQueryService().answer("小正，能不能到350 200 500", snapshot)
+
+    assert alarm is not None
+    assert alarm.priority == "high"
+    assert "E12" in alarm.text
+    assert speed is not None
+    assert speed.board_key == "motion_limits"
+    assert "35%" in speed.text
+    assert feasibility is not None
+    assert feasibility.board_key == "action_feasibility"
+    assert "当前可执行" in feasibility.text
+
+
+def test_dashboard_query_checks_v20_target_reachability_against_xyz_limits():
+    snapshot = {
+        "boards": {
+            "action_feasibility": {"channel_idle": True, "precheck_status": "pass", "motion_status": "normal"},
+            "safety_boundary": {
+                "x_range": (-1000.0, 1000.0),
+                "y_range": (-1000.0, 1000.0),
+                "z_range": (0.0, 1000.0),
+            },
+        }
+    }
+
+    reachable = DashboardQueryService().answer("小正，能不能到 350 200 500", snapshot)
+    blocked = DashboardQueryService().answer("小正，能不能到 5000 200 500", snapshot)
+
+    assert reachable is not None
+    assert reachable.board_key == "action_feasibility"
+    assert "目标点 X=350.0，Y=200.0，Z=500.0" in reachable.text
+    assert "基础边界检查通过" in reachable.text
+    assert blocked is not None
+    assert blocked.priority == "high"
+    assert "目标 X=5000.0 超出软限位 -1000.0~1000.0" in blocked.text

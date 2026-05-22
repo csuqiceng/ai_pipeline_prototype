@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
+from .atomic_memory import AtomicMemory
+from .atomic_parser import AtomicParser
+from .atomic_resolver import AtomicResolver
 from .command_parser import CommandParseError, parse_command
 from .deepseek_client import DeepSeekClient
 from .models import QueryRecord
@@ -62,6 +65,7 @@ class VoiceNlpPlan:
     priority: str = "normal"
     tokens: tuple[str, ...] = ()
     nlp_engine: str = "rule"
+    atomic_records: dict[str, QueryRecord] = field(default_factory=dict)
 
     def to_preview_dict(self) -> dict[str, object]:
         """处理相关数据。"""
@@ -78,6 +82,7 @@ class VoiceNlpPlan:
             "priority": self.priority,
             "tokens": list(self.tokens),
             "actions": [action.to_preview_dict() for action in self.actions],
+            "atomicRecords": {key: record.to_dict() for key, record in self.atomic_records.items()},
         }
 
 
@@ -88,6 +93,7 @@ class VoiceNlpAdapter:
         table: dict[str, QueryRecord],
         flow_names: Iterable[str],
         tokenizer: Callable[[str], Iterable[str]] | None = None,
+        atomic_memory: AtomicMemory | None = None,
     ) -> None:
         """初始化对象。"""
         self.table = table
@@ -95,6 +101,9 @@ class VoiceNlpAdapter:
         self._external_deepseek_client = None
         self._diagnostic_callback: Callable[[str, str, str], None] | None = None
         self._tokenizer = tokenizer
+        self.atomic_memory = atomic_memory or AtomicMemory()
+        self.atomic_parser = AtomicParser()
+        self.atomic_resolver = AtomicResolver(self.atomic_memory)
 
     def set_deepseek_client(self, client) -> None:
         """设置大模型客户端。"""
@@ -148,6 +157,10 @@ class VoiceNlpAdapter:
                 reason="生产指令缺少“小正”唤醒词，未执行",
             )
 
+        atomic_plan = self._parse_with_atomic(command_text, raw_text=text)
+        if atomic_plan is not None:
+            return atomic_plan
+
         if use_deepseek:
             deepseek_result = self._parse_with_deepseek(command_text)
             if deepseek_result is not None:
@@ -163,6 +176,8 @@ class VoiceNlpAdapter:
         source: str,
         raw_text: str,
         reason: str,
+        atomic_records: dict[str, QueryRecord] | None = None,
+        requires_confirmation: bool | None = None,
     ) -> VoiceNlpPlan:
         tokens = self._tokenize(raw_text)
         nlp_engine = "jieba_rule" if tokens else source
@@ -176,10 +191,11 @@ class VoiceNlpAdapter:
             semantic_label=metadata["semantic_label"],
             response_deadline_ms=metadata["response_deadline_ms"],
             requires_precheck=metadata["requires_precheck"],
-            requires_confirmation=metadata["requires_confirmation"],
+            requires_confirmation=bool(metadata["requires_confirmation"] if requires_confirmation is None else requires_confirmation),
             priority=metadata["priority"],
             tokens=tokens,
             nlp_engine=nlp_engine,
+            atomic_records=atomic_records or {},
         )
 
     def _tokenize(self, text: str) -> tuple[str, ...]:
@@ -224,13 +240,22 @@ class VoiceNlpAdapter:
                 "requires_confirmation": target not in {"sys_pause", "sys_resume", "sys_cancel"},
                 "priority": "normal",
             }
-        if action_type in {"template", "flow"}:
+        if action_type in {"template", "flow", "atomic_template"}:
             return {
                 "semantic_level": 3,
                 "semantic_label": "常规生产执行层",
                 "response_deadline_ms": 2000,
                 "requires_precheck": True,
                 "requires_confirmation": True,
+                "priority": "normal",
+            }
+        if action_type == "memory":
+            return {
+                "semantic_level": 4,
+                "semantic_label": "系统管理层",
+                "response_deadline_ms": 1000,
+                "requires_precheck": False,
+                "requires_confirmation": False,
                 "priority": "normal",
             }
         if action_type == "query":
@@ -290,7 +315,27 @@ class VoiceNlpAdapter:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return None
+        command_like = compact
+        for wake_word in WAKE_WORDS:
+            if command_like.startswith(wake_word):
+                command_like = command_like[len(wake_word):].lstrip("，,。:：")
+                break
+        if re.fullmatch(r"(速度|速)?-?\d+(?:\.\d+)?%", command_like):
+            return None
+        if re.fullmatch(r"步长-?\d+(?:\.\d+)?(毫米|mm|度|°)", command_like, flags=re.IGNORECASE):
+            return None
         lowered = compact.lower()
+        if any(
+            keyword in lowered
+            for keyword in (
+                "支持哪些原子命令",
+                "支持哪些二次原子",
+                "二次原子函数能力",
+                "原子命令能力",
+                "原子函数清单",
+            )
+        ):
+            return "atomic_capabilities"
         patterns = (
             ("communication_faults", ("通讯", "通信", "连接", "ethercat", "ecat")),
             ("action_feasibility", ("能不能执行", "可以执行", "可执行", "能发指令", "能动", "能不能动")),
@@ -330,6 +375,121 @@ class VoiceNlpAdapter:
 
         action = self._parse_single_with_rules(text)
         return VoiceNlpPlan(actions=(action,), source="rule", raw_text=text, reason=action.reason)
+
+    def _parse_with_atomic(self, command_text: str, *, raw_text: str) -> VoiceNlpPlan | None:
+        unsupported_reason = self._unsupported_complex_atomic_reason(command_text)
+        if unsupported_reason is not None:
+            return self._build_plan(
+                actions=(VoiceNlpAction("unknown", None, "atomic_rule", command_text, unsupported_reason),),
+                source="atomic_rule",
+                raw_text=raw_text,
+                reason=unsupported_reason,
+            )
+        parts = self._split_atomic_parts(command_text)
+        if len(parts) > 1:
+            actions: list[VoiceNlpAction] = []
+            records: dict[str, QueryRecord] = {}
+            reasons: list[str] = []
+            requires_confirmation = False
+            for part in parts:
+                step_plan = self._parse_with_atomic(part, raw_text=f"小正，{part}")
+                if step_plan is None or not step_plan.actions:
+                    return None
+                action = step_plan.actions[0]
+                if action.action_type not in {"atomic_template", "memory"}:
+                    return None
+                if action.action_type == "memory" and str(action.target or "").startswith("position_save:"):
+                    return None
+                actions.append(
+                    VoiceNlpAction(
+                        action.action_type,
+                        action.target,
+                        action.source,
+                        part,
+                        action.reason,
+                    )
+                )
+                records.update(getattr(step_plan, "atomic_records", {}) or {})
+                reasons.append(str(getattr(step_plan, "reason", "") or action.reason))
+                requires_confirmation = requires_confirmation or bool(getattr(step_plan, "requires_confirmation", False))
+            return self._build_plan(
+                actions=tuple(actions),
+                source="atomic_rule",
+                raw_text=raw_text,
+                reason="；".join(reason for reason in reasons if reason) or "命中多原子动作规则",
+                atomic_records=records,
+                requires_confirmation=requires_confirmation,
+            )
+
+        elements = self.atomic_parser.parse(raw_text)
+        resolved = self.atomic_resolver.resolve(elements)
+        if resolved.kind == "template":
+            record = resolved.params.get("record")
+            if not isinstance(record, QueryRecord):
+                return None
+            action = VoiceNlpAction(
+                "atomic_template",
+                record.query_key,
+                "atomic_rule",
+                command_text,
+                resolved.reason,
+            )
+            return self._build_plan(
+                actions=(action,),
+                source="atomic_rule",
+                raw_text=raw_text,
+                reason=resolved.reason,
+                atomic_records={record.query_key: record},
+                requires_confirmation=resolved.requires_confirmation,
+            )
+        if resolved.kind in {"memory", "query"}:
+            action_type = "query" if resolved.kind == "query" else "memory"
+            target = resolved.target
+            if resolved.kind == "memory" and resolved.target == "position_save":
+                position_name = resolved.params.get("position_name")
+                if position_name:
+                    target = f"position_save:{position_name}"
+            action = VoiceNlpAction(
+                action_type,
+                target,
+                "atomic_rule",
+                command_text,
+                resolved.reason,
+            )
+            return self._build_plan(
+                actions=(action,),
+                source="atomic_rule",
+                raw_text=raw_text,
+                reason=resolved.reason,
+                requires_confirmation=resolved.requires_confirmation,
+            )
+        return None
+
+    @staticmethod
+    def _unsupported_complex_atomic_reason(command_text: str) -> str | None:
+        compact = re.sub(r"\s+", "", command_text or "")
+        if not compact:
+            return None
+        if re.search(r"(?:循环|重复|反复|连续)\d+(?:次|遍|回)", compact):
+            return "暂不支持循环/重复类原子组合命令，请拆成单步确认后执行。"
+        if any(keyword in compact for keyword in ("同时", "并行", "一起执行")) or re.search(r"一边.+一边", compact):
+            return "暂不支持并行类原子组合命令，请拆成顺序动作。"
+        if any(keyword in compact for keyword in ("如果", "假如", "当")) and any(keyword in compact for keyword in ("就", "则", "再")):
+            return "暂不支持条件判断类原子组合命令，请先查询状态，再下达明确动作。"
+        if any(keyword in compact.lower() for keyword in ("func11", "函数11")) or any(
+            keyword in compact for keyword in ("连续路径", "连续轨迹", "轨迹", "插补", "路径经过")
+        ):
+            return "暂不支持 Func11 连续插补/轨迹类原子命令，请拆成单点动作或使用已验证流程。"
+        return None
+
+    @staticmethod
+    def _split_atomic_parts(command_text: str) -> list[str]:
+        parts = [
+            part.strip(" ，,。.；;")
+            for part in re.split(r"(?:然后|接着|之后|并且)", command_text or "")
+            if part.strip(" ，,。.；;")
+        ]
+        return parts
 
     def _parse_single_with_rules(self, text: str) -> VoiceNlpAction:
         """解析相关数据。"""

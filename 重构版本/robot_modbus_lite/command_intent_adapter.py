@@ -31,7 +31,10 @@ def command_intent_from_plan(
     first = actions[0] if actions else None
     action_type = str(getattr(first, "action_type", "unknown") or "unknown") if first else "unknown"
     target = getattr(first, "target", None) if first else None
-    record = table.get(str(target)) if target else None
+    atomic_records = getattr(plan, "atomic_records", {}) or {}
+    record = atomic_records.get(str(target)) if action_type == "atomic_template" and target else None
+    if record is None:
+        record = table.get(str(target)) if target else None
 
     func_id: int | None = None
     params: dict[str, Any] = {}
@@ -41,7 +44,7 @@ def command_intent_from_plan(
     is_emergency = False
     priority = "normal"
 
-    if action_type == "template" and record is not None:
+    if action_type in {"template", "atomic_template"} and record is not None:
         func_id = int(record.func_num)
         params = dict(record.params)
         semantic_level = semantic_level or 3
@@ -80,7 +83,12 @@ def command_intent_from_plan(
         func_id=func_id,
         confidence=confidence,
         params=params,
-        fuzzy={"pos": 0, "spd": 0, "acc": 0, "dec": 0},
+        fuzzy={
+            "pos": int(float(params.get("fuzzy_pos", 0) or 0)),
+            "spd": int(float(params.get("fuzzy_spd", 0) or 0)),
+            "acc": int(float(params.get("fuzzy_acc", 0) or 0)),
+            "dec": int(float(params.get("fuzzy_dec", 0) or 0)),
+        },
         emergency_code=None,
         is_emergency=is_emergency,
         priority=priority,

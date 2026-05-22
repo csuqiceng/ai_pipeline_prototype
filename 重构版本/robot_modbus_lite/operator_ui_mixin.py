@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from .atomic_capabilities import atomic_capability_summary, atomic_capability_rows
 from .broadcast_queue import BroadcastMessage, BroadcastQueue
 from .command_intent_adapter import command_intent_from_plan
 from .dashboard import DashboardCache
@@ -621,6 +622,20 @@ class OperatorUiMixin:
         actions = tuple(getattr(plan, "actions", ()) or ())
         if not actions or getattr(actions[0], "action_type", "") != "query":
             return False
+        if getattr(actions[0], "target", "") == "atomic_capabilities":
+            answer_text = self._operator_atomic_capability_answer_text()
+            self._operator_set_pending_confirm_plan(None)
+            self._operator_scene_override = "query"
+            self._operator_publish_response(
+                ResponseMessage(
+                    kind="result",
+                    text=answer_text,
+                    priority="normal",
+                    context_id="atomic:capability_query",
+                )
+            )
+            self._operator_archive_execution_result(result="answered", final_text=answer_text)
+            return True
         answer = DashboardQueryService().answer(
             str(getattr(plan, "raw_text", "") or getattr(actions[0], "raw_text", "") or ""),
             self._operator_dashboard_snapshot_dict(),
@@ -893,10 +908,10 @@ class OperatorUiMixin:
         first = actions[0] if actions else None
         action_type = getattr(first, "action_type", "unknown") if first else "unknown"
         target = getattr(first, "target", None) if first else None
-        record = getattr(self, "table", {}).get(target) if target else None
+        record = self._operator_record_for_action(plan, first) if first is not None else None
         params = dict(getattr(record, "params", {}) or {}) if record is not None else {}
         func_id = getattr(record, "func_num", None) if record is not None else None
-        intent = "command" if action_type in {"template", "flow", "system"} else "unknown"
+        intent = "command" if action_type in {"template", "atomic_template", "flow", "system"} else "unknown"
         semantic_policy = policy_for_plan(plan)
         return {
             "semantic_level": semantic_policy.semantic_level,
@@ -909,6 +924,8 @@ class OperatorUiMixin:
             "intent": intent,
             "func_id": func_id,
             "params": params,
+            "risk_level": params.get("atomic_risk_level"),
+            "risk_reason": params.get("atomic_risk_reason"),
             "confidence": 0.8 if intent == "command" else 0.0,
             "engine": str(getattr(plan, "nlp_engine", "") or getattr(plan, "source", "") or "unknown"),
             "tokens": list(getattr(plan, "tokens", ()) or ()),
@@ -1358,6 +1375,8 @@ class OperatorUiMixin:
             return True
         if self._operator_handle_engineer_confirm_query(text):
             return True
+        if self._operator_handle_atomic_capability_query(text):
+            return True
         if self._operator_handle_engineer_voice_capability_query(text):
             return True
         if self._operator_handle_pending_engineer_voice_command(text):
@@ -1487,6 +1506,49 @@ class OperatorUiMixin:
         if hasattr(self, "_append_log"):
             self._append_log("工程师页语音指令", "待确认查询", "成功", answer)
         return True
+
+    def _operator_handle_atomic_capability_query(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact:
+            return False
+        keywords = (
+            "支持哪些原子命令",
+            "支持哪些二次原子",
+            "二次原子函数能力",
+            "原子命令能力",
+            "原子函数清单",
+        )
+        if not any(keyword in compact for keyword in keywords):
+            return False
+        answer = self._operator_atomic_capability_answer_text()
+        message = ResponseMessage(
+            kind="result",
+            text=answer,
+            priority="normal",
+            context_id="atomic:capability_query",
+        )
+        if hasattr(self, "_operator_publish_response"):
+            self._operator_publish_response(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(answer)
+        if hasattr(self, "_append_log"):
+            self._append_log("用户页面", "原子能力查询", "成功", answer)
+        return True
+
+    @staticmethod
+    def _operator_atomic_capability_answer_text() -> str:
+        summary = atomic_capability_summary()
+        rows = atomic_capability_rows()
+        implemented_names = [str(row["name"]) for row in rows if row["status"] in {"implemented", "basic"}]
+        guarded_names = [str(row["name"]) for row in rows if row["status"] == "guarded"]
+        deferred_names = [str(row["name"]) for row in rows if row["status"] == "deferred"]
+        return (
+            "二次原子函数能力如下：\n"
+            f"已实现/基础实现 {summary['implemented'] + summary['basic']} 项，例如 "
+            f"{'、'.join(implemented_names[:8])}。\n"
+            f"保护性拒绝 {summary['guarded']} 项：{'、'.join(guarded_names) or '-'}。\n"
+            f"延期 {summary['deferred']} 项：{'、'.join(deferred_names) or '-'}。"
+        )
 
     def _operator_handle_engineer_voice_capability_query(self, text: str) -> bool:
         compact = re.sub(r"\s+", "", text or "")
@@ -1902,9 +1964,9 @@ class OperatorUiMixin:
         raw_text = str(getattr(plan, "raw_text", "") or "adhoc")
         plan_dict: dict[str, Any] = {"plan_id": raw_text}
         for action in tuple(getattr(plan, "actions", ()) or ()):
-            if getattr(action, "action_type", "") != "template":
+            if getattr(action, "action_type", "") not in {"template", "atomic_template"}:
                 continue
-            record = getattr(self, "table", {}).get(getattr(action, "target", ""))
+            record = self._operator_record_for_action(plan, action)
             if record is None:
                 continue
             pose = record.pose_tuple()
@@ -2288,9 +2350,9 @@ class OperatorUiMixin:
 
     def _operator_l2_target_pose(self, plan) -> tuple[float, float, float, float, float, float] | None:
         for action in tuple(getattr(plan, "actions", ()) or ()):
-            if getattr(action, "action_type", "") != "template":
+            if getattr(action, "action_type", "") not in {"template", "atomic_template"}:
                 continue
-            record = getattr(self, "table", {}).get(getattr(action, "target", ""))
+            record = self._operator_record_for_action(plan, action)
             if record is None:
                 continue
             pose = record.pose_tuple()
@@ -2768,12 +2830,12 @@ class OperatorUiMixin:
     @staticmethod
     def _operator_plan_is_executable(plan) -> bool:
         actions = tuple(getattr(plan, "actions", ()) or ())
-        return bool(actions) and all(getattr(action, "action_type", "unknown") in {"template", "flow", "system"} for action in actions)
+        return bool(actions) and all(getattr(action, "action_type", "unknown") in {"template", "atomic_template", "flow", "system", "memory"} for action in actions)
 
     @staticmethod
     def _operator_plan_requires_precheck(plan) -> bool:
         actions = tuple(getattr(plan, "actions", ()) or ())
-        if any(getattr(action, "action_type", "") in {"template", "flow"} for action in actions):
+        if any(getattr(action, "action_type", "") in {"template", "atomic_template", "flow"} for action in actions):
             return True
         return bool(policy_for_plan(plan).requires_precheck)
 
@@ -2783,6 +2845,16 @@ class OperatorUiMixin:
         if any(getattr(action, "action_type", "") in {"template", "flow"} for action in actions):
             return True
         return bool(policy_for_plan(plan).requires_confirmation)
+
+    def _operator_record_for_action(self, plan, action):
+        target = getattr(action, "target", None)
+        if not target:
+            return None
+        if getattr(action, "action_type", "") == "atomic_template":
+            record = getattr(plan, "atomic_records", {}).get(target)
+            if record is not None:
+                return record
+        return getattr(self, "table", {}).get(target)
 
     def _operator_toggle_compact(self) -> None:
         if not getattr(self, "_operator_compact", False):
@@ -3081,6 +3153,9 @@ class OperatorUiMixin:
         l2_decision = self._operator_confirm_l2_decision_text()
         if l2_decision:
             parts.append(l2_decision)
+        atomic_risk_lines = self._operator_confirm_atomic_risk_lines(plan)
+        if atomic_risk_lines:
+            parts.append("原子风险:\n" + "\n".join(atomic_risk_lines))
         risk_lines = self._operator_confirm_risk_lines()
         if risk_lines:
             parts.append("风险项:\n" + "\n".join(risk_lines))
@@ -3096,6 +3171,28 @@ class OperatorUiMixin:
         remaining = max(0.0, deadline - self._operator_now_seconds())
         seconds = int(remaining) if remaining.is_integer() else int(remaining) + 1
         return f"确认有效期: 剩余 {seconds} 秒。"
+
+    def _operator_confirm_atomic_risk_lines(self, plan) -> list[str]:
+        lines: list[str] = []
+        for action in tuple(getattr(plan, "actions", ()) or ()):
+            if getattr(action, "action_type", "") != "atomic_template":
+                continue
+            record = self._operator_record_for_action(plan, action)
+            params = dict(getattr(record, "params", {}) or {}) if record is not None else {}
+            risk_level = str(params.get("atomic_risk_level") or "").strip()
+            risk_reason = str(params.get("atomic_risk_reason") or "").strip()
+            if not risk_level and not risk_reason:
+                continue
+            target = getattr(action, "target", "") or "-"
+            if risk_level and risk_reason:
+                lines.append(f"- {target}: {risk_level}，{risk_reason}")
+            elif risk_level:
+                lines.append(f"- {target}: {risk_level}")
+            else:
+                lines.append(f"- {target}: {risk_reason}")
+            if len(lines) >= 6:
+                break
+        return lines
 
     def _operator_confirm_l2_decision_text(self) -> str:
         result = getattr(self, "_operator_last_motion_plan_result", None)
