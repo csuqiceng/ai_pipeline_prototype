@@ -910,7 +910,8 @@ class OperatorUiMixin:
             "func_id": func_id,
             "params": params,
             "confidence": 0.8 if intent == "command" else 0.0,
-            "engine": str(getattr(plan, "source", "") or "unknown"),
+            "engine": str(getattr(plan, "nlp_engine", "") or getattr(plan, "source", "") or "unknown"),
+            "tokens": list(getattr(plan, "tokens", ()) or ()),
             "action_type": action_type,
             "target": target,
             "reason": str(getattr(plan, "reason", "") or ""),
@@ -2575,6 +2576,14 @@ class OperatorUiMixin:
         lines = ["L3流程预演未通过："]
         for item in failed[:5]:
             lines.append(f"- {item.get('label', '-')}：{item.get('message', '-')}")
+        midpoint_suggestions = result.get("midpoint_suggestions") or ()
+        if midpoint_suggestions:
+            lines.append("流程级中点建议：")
+            for item in midpoint_suggestions[:3]:
+                lines.append(
+                    f"- 第{item.get('step_index', '-')}步 {item.get('step_key', '-')} "
+                    f"建议中点={item.get('midpoint_pose', '-')}。"
+                )
         return "\n".join(lines)
 
     def _operator_handle_emergency_text(self, text: str) -> bool:
@@ -2868,9 +2877,15 @@ class OperatorUiMixin:
         self._operator_publish_periodic_reassurance_if_needed()
 
         scene = self._operator_desired_scene()
-        self._operator_apply_scene(scene)
+        self._operator_request_scene(scene, reason="operator_refresh")
 
-    def _operator_apply_scene(self, scene: str) -> None:
+    def _operator_request_scene(self, scene: str, reason: str = "operator_request_scene") -> None:
+        try:
+            self._operator_apply_scene(scene, reason=reason)
+        except TypeError:
+            self._operator_apply_scene(scene)
+
+    def _operator_apply_scene(self, scene: str, reason: str = "operator_apply_scene") -> None:
         previous = getattr(self, "_operator_current_scene", None)
         if scene == "alarm" and previous not in {None, "alarm"}:
             self._operator_scene_before_alarm = previous
@@ -2890,7 +2905,7 @@ class OperatorUiMixin:
         self._operator_scene_state = OperatorSceneState(
             current=scene,
             previous=previous,
-            reason="operator_apply_scene",
+            reason=reason,
             changed_at=self._operator_now_seconds(),
         )
         message_text = self._operator_scene_transition_text(scene)

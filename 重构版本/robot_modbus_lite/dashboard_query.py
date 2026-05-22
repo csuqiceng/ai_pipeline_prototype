@@ -97,7 +97,7 @@ class DashboardQueryService:
             suggestion_text = "；".join(suggestions) if suggestions else "请先查看安全确认页的风险项"
             return DashboardQueryAnswer(
                 "action_feasibility",
-                f"当前不建议执行。原因：{'，'.join(reasons)}。建议：{suggestion_text}。",
+                f"当前不建议执行。原因：{'，'.join(reasons)}。当前不能执行，暂不建议发出动作。建议：{suggestion_text}。",
                 "high",
             )
         if l2 == "unavailable":
@@ -169,19 +169,43 @@ class DashboardQueryService:
     def _answer_adaptation(board: dict[str, Any]) -> DashboardQueryAnswer:
         status = str(board.get("l2_status", "unknown"))
         suggestion = str(board.get("suggestion", "-"))
+        details: list[str] = []
+        rejected = DashboardQueryService._format_rejected_fstatuses(board.get("rejected_fstatuses"))
+        if rejected != "-":
+            details.append(f"已规避 {rejected}")
+        if board.get("need_midpoint") and board.get("midpoint_pose") is not None:
+            details.append(
+                f"建议中点={board.get('midpoint_pose')}，中点FSTATUS={board.get('midpoint_fstatus', '-')}。"
+            )
+        if status == "fail" or board.get("singularity") is True:
+            details.append("FSTATUS表示控制器逆解姿态候选，奇异点通常表示该姿态或直线路径接近关节风险区。")
+        detail_text = " ".join(details)
+        suffix = f" {detail_text}" if detail_text else ""
         return DashboardQueryAnswer(
             "process_adaptation",
-            f"工艺适配评估：L2状态 {status}，FSTATUS={board.get('fstatus', '-')}，奇异点={board.get('singularity', '-')}，建议：{suggestion}。",
+            f"工艺适配评估：L2状态 {status}，FSTATUS={board.get('fstatus', '-')}，奇异点={board.get('singularity', '-')}，建议：{suggestion}。{suffix}",
             "high" if status == "fail" else "normal",
         )
+
+    @staticmethod
+    def _format_rejected_fstatuses(value: object) -> str:
+        if not isinstance(value, (list, tuple)) or not value:
+            return "-"
+        values = "、".join(str(item) for item in value)
+        return f"FSTATUS={values}"
 
     @staticmethod
     def _answer_device_status(board: dict[str, Any]) -> DashboardQueryAnswer:
         alarm = "有报警" if board.get("alarm") else "无报警"
         estop = "急停开启" if board.get("estop") else "急停关闭"
         pause = "暂停中" if board.get("pause") else "未暂停"
+        alarm_detail = ""
+        if board.get("alarm"):
+            code = board.get("alarm_code") or board.get("alarmCode") or "-"
+            text = board.get("alarm_text") or board.get("alarmText") or "-"
+            alarm_detail = f"报警码 {code}，报警内容 {text}。请先确认现场安全和报警原因，排除后再执行报警复位。"
         return DashboardQueryAnswer(
             "device_status",
-            f"设备状态：{board.get('system_state', 'unknown')}，{estop}，{pause}，{alarm}，当前位置 {board.get('dpos_c', '-')}。",
+            f"设备状态：{board.get('system_state', 'unknown')}，{estop}，{pause}，{alarm}，当前位置 {board.get('dpos_c', '-')}。{alarm_detail}",
             "high" if board.get("alarm") or board.get("estop") else "normal",
         )

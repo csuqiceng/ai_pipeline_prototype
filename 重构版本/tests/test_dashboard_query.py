@@ -152,6 +152,34 @@ def test_dashboard_query_answers_device_status_and_motion_adaptation():
     assert "建议调整目标姿态" in adaptation.text
 
 
+def test_dashboard_query_explains_l2_midpoint_and_fstatus_details():
+    snapshot = {
+        "boards": {
+            "process_adaptation": {
+                "l2_status": "fail",
+                "fstatus": "-",
+                "singularity": True,
+                "suggestion": "检测到直线路径接近奇异区，建议经中点绕行后再执行。",
+                "need_midpoint": True,
+                "midpoint_pose": (10.0, 20.0, 30.0, 0.0, 5.0, 0.0),
+                "midpoint_fstatus": 3,
+                "rejected_fstatuses": (0, 1),
+            }
+        }
+    }
+
+    answer = DashboardQueryService().answer("为什么奇异点，FSTATUS和中点建议是什么", snapshot)
+
+    assert answer is not None
+    assert answer.board_key == "process_adaptation"
+    assert answer.priority == "high"
+    assert "L2状态 fail" in answer.text
+    assert "FSTATUS表示控制器逆解姿态候选" in answer.text
+    assert "FSTATUS=0、1" in answer.text
+    assert "建议中点=(10.0, 20.0, 30.0, 0.0, 5.0, 0.0)" in answer.text
+    assert "中点FSTATUS=3" in answer.text
+
+
 def test_dashboard_query_explains_why_action_is_blocked_and_how_to_handle():
     snapshot = {
         "boards": {
@@ -202,3 +230,68 @@ def test_dashboard_query_explains_risk_summary_with_suggestions():
     assert "预计累计误差超限" in answer.text
     assert "处理建议：" in answer.text
     assert "采纳安全建议" in answer.text
+
+
+def test_dashboard_query_answers_why_motion_not_allowed():
+    snapshot = {
+        "boards": {
+            "action_feasibility": {
+                "channel_idle": False,
+                "precheck_status": "fail",
+                "motion_status": "normal",
+            }
+        }
+    }
+
+    answer = DashboardQueryService().answer("为什么现在不能动", snapshot)
+
+    assert answer is not None
+    assert answer.board_key == "action_feasibility"
+    assert "不能执行" in answer.text
+    assert "通道忙" in answer.text
+    assert "L1安全预检未通过" in answer.text
+
+
+def test_dashboard_query_answers_process_preview_progress():
+    snapshot = {
+        "boards": {
+            "process_preview": {
+                "l3_status": "running",
+                "current_flow_name": "A到B",
+                "flow_current_step": "第3步",
+                "progress_percent": 45,
+                "risk_summary": [],
+            },
+        }
+    }
+
+    answer = DashboardQueryService().answer("流程预演到哪一步了", snapshot)
+
+    assert answer is not None
+    assert answer.board_key == "process_preview"
+    assert "流程预演" in answer.text
+    assert "第3步" in answer.text
+    assert "45%" in answer.text
+
+
+def test_dashboard_query_answers_recovery_after_alarm():
+    snapshot = {
+        "boards": {
+            "device_status": {
+                "system_state": "报警",
+                "estop": False,
+                "pause": False,
+                "alarm": True,
+                "alarm_code": "E12",
+                "alarm_text": "J2速度超限",
+            }
+        }
+    }
+
+    answer = DashboardQueryService().answer("报警后我该怎么处理", snapshot)
+
+    assert answer is not None
+    assert answer.board_key == "device_status"
+    assert answer.priority == "high"
+    assert "报警" in answer.text
+    assert "复位" in answer.text or "确认" in answer.text

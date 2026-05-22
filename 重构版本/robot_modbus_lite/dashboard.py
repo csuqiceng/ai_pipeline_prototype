@@ -203,6 +203,10 @@ class DashboardCache:
                 "fstatus": l2_result.get("selected_fstatus", l2_result.get("fstatus", "-")),
                 "singularity": l2_result.get("singularity", "-"),
                 "suggestion": l2_result.get("suggestion", "-"),
+                "rejected_fstatuses": l2_result.get("rejected_fstatuses", ()),
+                "need_midpoint": bool(l2_result.get("need_midpoint", False)),
+                "midpoint_pose": l2_result.get("midpoint_pose"),
+                "midpoint_fstatus": l2_result.get("midpoint_fstatus"),
             },
             "communication_faults": {
                 "ecat_ok": ecat_ok,

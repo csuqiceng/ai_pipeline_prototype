@@ -271,3 +271,57 @@ def test_six_axis_alarm_completion_broadcasts_alert():
     assert message.kind == "alert"
     assert message.text == "动作完成但存在报警：move_a，报警码 12"
     assert message.context_id == "six_axis:move_a:alarm"
+
+
+def test_operator_stop_current_broadcasts_local_cancel_result():
+    builder = ResponseBuilder()
+
+    message = builder.from_log_entry(
+        {
+            "category": "用户页面",
+            "action": "停止当前任务",
+            "result": "成功",
+            "detail": "已发送 Func104 取消当前函数",
+        }
+    )
+
+    assert message is not None
+    assert message.kind == "result"
+    assert message.text == "已发送取消当前任务命令。"
+    assert message.context_id == "operator:stop_current"
+
+
+def test_operator_stop_current_without_running_task_broadcasts_hint():
+    builder = ResponseBuilder()
+
+    message = builder.from_log_entry(
+        {
+            "category": "用户页面",
+            "action": "停止流程",
+            "result": "提示",
+            "detail": "当前没有正在运行的流程",
+        }
+    )
+
+    assert message is not None
+    assert message.kind == "result"
+    assert message.text == "当前没有正在运行的任务。"
+    assert message.context_id == "operator:stop_current:none"
+
+
+def test_blocked_direct_system_action_broadcasts_failure_alert():
+    builder = ResponseBuilder()
+
+    message = builder.from_log_entry(
+        {
+            "category": "系统",
+            "action": "alarm_reset",
+            "result": "失败",
+            "detail": "流程执行中",
+        }
+    )
+
+    assert message is not None
+    assert message.kind == "alert"
+    assert message.text == "系统命令失败：流程执行中。"
+    assert message.context_id == "system:alarm_reset:failed"

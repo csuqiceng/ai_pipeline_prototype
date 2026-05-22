@@ -87,6 +87,11 @@ class ResponseBuilder:
                 return self.alert(text, context_id=f"system:{action_key}")
             return self.result(text, context_id=f"system:{action_key}")
 
+        if category == "系统" and action in {"sys_estop", "sys_pause", "sys_resume", "sys_cancel", "alarm_reset"}:
+            if result == "失败":
+                return self.alert(f"系统命令失败：{detail or action}。", context_id=f"system:{action}:failed")
+            return None
+
         if category == "反馈" and action == "实时状态变化" and "报警" in detail:
             return self.alert(f"设备状态变化：{detail}", context_id=f"feedback:alarm:{detail}")
 
@@ -107,6 +112,15 @@ class ResponseBuilder:
 
         if category == "用户页面" and action == "确认报警" and result == "成功":
             return self.alert(f"报警已确认：{detail or '-'}", context_id=f"alarm_ack:{detail or '-'}")
+
+        if category == "用户页面" and action == "停止当前任务":
+            if result == "成功":
+                return self.result("已发送取消当前任务命令。", context_id="operator:stop_current")
+            if result == "失败":
+                return self.alert(f"取消当前任务失败：{detail or '-'}", context_id="operator:stop_current:failed")
+
+        if category == "用户页面" and action == "停止流程" and result == "提示":
+            return self.result("当前没有正在运行的任务。", context_id="operator:stop_current:none")
 
         if category == "自然语言":
             if action == "动作序列完成" and result == "成功":

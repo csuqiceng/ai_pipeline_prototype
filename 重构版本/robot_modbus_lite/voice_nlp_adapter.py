@@ -60,11 +60,14 @@ class VoiceNlpPlan:
     requires_precheck: bool = False
     requires_confirmation: bool = False
     priority: str = "normal"
+    tokens: tuple[str, ...] = ()
+    nlp_engine: str = "rule"
 
     def to_preview_dict(self) -> dict[str, object]:
         """处理相关数据。"""
         return {
             "source": self.source,
+            "engine": self.nlp_engine,
             "rawText": self.raw_text,
             "reason": self.reason,
             "semanticLevel": self.semantic_level,
@@ -73,18 +76,25 @@ class VoiceNlpPlan:
             "requiresPrecheck": self.requires_precheck,
             "requiresConfirmation": self.requires_confirmation,
             "priority": self.priority,
+            "tokens": list(self.tokens),
             "actions": [action.to_preview_dict() for action in self.actions],
         }
 
 
 class VoiceNlpAdapter:
     """语音文本到指令计划的适配器。"""
-    def __init__(self, table: dict[str, QueryRecord], flow_names: Iterable[str]) -> None:
+    def __init__(
+        self,
+        table: dict[str, QueryRecord],
+        flow_names: Iterable[str],
+        tokenizer: Callable[[str], Iterable[str]] | None = None,
+    ) -> None:
         """初始化对象。"""
         self.table = table
         self.flow_names = tuple(sorted(str(name) for name in flow_names))
         self._external_deepseek_client = None
         self._diagnostic_callback: Callable[[str, str, str], None] | None = None
+        self._tokenizer = tokenizer
 
     def set_deepseek_client(self, client) -> None:
         """设置大模型客户端。"""
@@ -113,7 +123,7 @@ class VoiceNlpAdapter:
                 reason="命中三段式应急编码",
             )
 
-        query_target = self._match_dashboard_query(normalized)
+        query_target = self._match_dashboard_query(normalized, self._tokenize(normalized))
         if query_target:
             return self._build_plan(
                 actions=(VoiceNlpAction("query", query_target, "rule", text, "命中看板查询规则"),),
@@ -146,16 +156,17 @@ class VoiceNlpAdapter:
         plan = self._parse_with_rules(command_text)
         return self._build_plan(actions=plan.actions, source=plan.source, raw_text=text, reason=plan.reason)
 
-    @classmethod
     def _build_plan(
-        cls,
+        self,
         *,
         actions: tuple[VoiceNlpAction, ...],
         source: str,
         raw_text: str,
         reason: str,
     ) -> VoiceNlpPlan:
-        metadata = cls._semantic_metadata(actions, raw_text=raw_text, reason=reason)
+        tokens = self._tokenize(raw_text)
+        nlp_engine = "jieba_rule" if tokens else source
+        metadata = self._semantic_metadata(actions, raw_text=raw_text, reason=reason)
         return VoiceNlpPlan(
             actions=actions,
             source=source,
@@ -167,7 +178,23 @@ class VoiceNlpAdapter:
             requires_precheck=metadata["requires_precheck"],
             requires_confirmation=metadata["requires_confirmation"],
             priority=metadata["priority"],
+            tokens=tokens,
+            nlp_engine=nlp_engine,
         )
+
+    def _tokenize(self, text: str) -> tuple[str, ...]:
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            try:
+                import jieba  # type: ignore
+
+                tokenizer = jieba.lcut
+            except Exception:
+                return ()
+        try:
+            return tuple(str(token).strip() for token in tokenizer(text) if str(token).strip())
+        except Exception:
+            return ()
 
     @staticmethod
     def _semantic_metadata(
@@ -259,7 +286,7 @@ class VoiceNlpAdapter:
             return False
 
     @staticmethod
-    def _match_dashboard_query(text: str) -> str | None:
+    def _match_dashboard_query(text: str, tokens: Iterable[str] = ()) -> str | None:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return None
@@ -275,6 +302,22 @@ class VoiceNlpAdapter:
         )
         for target, keywords in patterns:
             if any(keyword.lower() in lowered for keyword in keywords):
+                return target
+        token_set = {str(token).strip().lower() for token in tokens if str(token).strip()}
+        query_words = {"查", "查询", "看看", "看一下", "状态", "看板", "现在"}
+        if not (token_set & query_words):
+            return None
+        token_targets = (
+            ("communication_faults", {"通讯", "通信", "连接", "ethercat", "ecat", "故障"}),
+            ("action_feasibility", {"可行", "执行", "能动", "动作", "通道"}),
+            ("safety_boundary", {"安全", "边界", "范围", "限位", "半径", "高度"}),
+            ("motion_limits", {"速度", "加速度", "减速度", "超限", "极限"}),
+            ("process_preview", {"预演", "流程", "进度", "步骤"}),
+            ("process_adaptation", {"工艺", "适配", "规划", "奇异", "姿态", "fstatus"}),
+            ("device_status", {"设备", "系统", "状态", "当前"}),
+        )
+        for target, board_words in token_targets:
+            if token_set & {word.lower() for word in board_words}:
                 return target
         return None
 

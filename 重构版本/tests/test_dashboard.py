@@ -147,6 +147,49 @@ def test_dashboard_snapshot_exposes_v21_seven_boards_with_50ms_refresh():
     assert data["boards"]["communication_faults"]["ecat_ok"] is True
 
 
+def test_dashboard_cache_exposes_l2_midpoint_and_rejected_fstatus_details():
+    source = SimpleNamespace(
+        robot_x="-",
+        robot_y="-",
+        robot_z="-",
+        robot_r="-",
+        robot_joints=(),
+        robot_speed="-",
+        alarm_code="0",
+        alarm_text="系统正常",
+        estop_active=False,
+        pause_active=False,
+        busy="空闲",
+        run_state="空闲",
+        current_func_text="空闲",
+        motion_percent="-",
+        result="0",
+        io_status="0",
+        servo_enable="-",
+        claw_enable="-",
+        claw_brake="-",
+        monitor_label=SimpleNamespace(text=lambda: "实时监控运行中"),
+        _operator_last_motion_plan_result={
+            "status": "fail",
+            "selected_fstatus": None,
+            "rejected_fstatuses": (0, 1),
+            "need_midpoint": True,
+            "midpoint_pose": (10, 20, 30, 0, 5, 0),
+            "midpoint_fstatus": 3,
+            "singularity": True,
+            "suggestion": "建议经中点绕行。",
+        },
+    )
+    cache = DashboardCache()
+
+    adaptation = cache.update_from_source(source).boards["process_adaptation"]
+
+    assert adaptation["need_midpoint"] is True
+    assert adaptation["midpoint_pose"] == (10, 20, 30, 0, 5, 0)
+    assert adaptation["midpoint_fstatus"] == 3
+    assert adaptation["rejected_fstatuses"] == (0, 1)
+
+
 def test_dashboard_snapshot_exposes_dpos_mpos_axis_status_and_motion_type():
     source = SimpleNamespace(
         robot_x="100.0",

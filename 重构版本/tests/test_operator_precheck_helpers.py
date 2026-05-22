@@ -1037,6 +1037,78 @@ def test_operator_add_chat_from_log_queues_alarm_acknowledged():
     assert chat_messages == [("assistant", "报警已确认：ERR_9 | 驱动器报警")]
 
 
+def test_operator_add_chat_from_log_queues_local_stop_current_result():
+    dummy = DummyOperator()
+    chat_messages = []
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+    dummy._operator_archive_execution_from_log = lambda entry, response_text: True
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "用户页面",
+            "action": "停止当前任务",
+            "result": "成功",
+            "detail": "已发送 Func104 取消当前函数",
+        }
+    )
+
+    pending = dummy._operator_pending_broadcasts_for_delivery(0)
+    assert [message.text for message in pending] == ["已发送取消当前任务命令。"]
+    assert chat_messages == [("assistant", "已发送取消当前任务命令。")]
+
+
+def test_operator_add_chat_from_log_queues_no_running_task_hint():
+    dummy = DummyOperator()
+    chat_messages = []
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+    dummy._operator_archive_execution_from_log = lambda entry, response_text: True
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "用户页面",
+            "action": "停止流程",
+            "result": "提示",
+            "detail": "当前没有正在运行的流程",
+        }
+    )
+
+    pending = dummy._operator_pending_broadcasts_for_delivery(0)
+    assert [message.text for message in pending] == ["当前没有正在运行的任务。"]
+    assert chat_messages == [("assistant", "当前没有正在运行的任务。")]
+
+
+def test_operator_add_chat_from_log_queues_core_system_command_results():
+    cases = [
+        ("系统命令 sys_pause", "成功", "任务1001", "系统已暂停。"),
+        ("系统命令 sys_resume", "成功", "任务1002", "系统已继续运行。"),
+        ("系统命令 alarm_reset", "成功", "任务1003", "报警复位已执行。"),
+        ("系统命令 alarm_reset", "失败", "控制器无响应", "系统命令失败：控制器无响应。"),
+        ("alarm_reset", "失败", "流程执行中", "系统命令失败：流程执行中。"),
+    ]
+
+    for action, result, detail, expected_text in cases:
+        dummy = DummyOperator()
+        chat_messages = []
+        dummy.operator_response_builder = ResponseBuilder()
+        dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+        dummy._operator_archive_execution_from_log = lambda entry, response_text: True
+
+        dummy._operator_add_chat_from_log(
+            {
+                "category": "系统",
+                "action": action,
+                "result": result,
+                "detail": detail,
+            }
+        )
+
+        pending = dummy._operator_pending_broadcasts_for_delivery(0)
+        assert [message.text for message in pending] == [expected_text]
+        assert chat_messages == [("assistant", expected_text)]
+
+
 def test_operator_full_status_sections_use_v21_seven_dashboard_boards():
     dummy = DummyOperator()
     snapshot = {
@@ -1178,6 +1250,25 @@ def test_operator_apply_scene_does_not_broadcast_initial_scene():
     assert dummy._operator_scene_state.reason == "initial"
 
 
+def test_operator_request_scene_records_transition_reason():
+    dummy = DummyOperator()
+    messages = []
+    logs = []
+    dummy._operator_scene_indexes = {"idle": 0, "query": 5}
+    dummy.operator_scene_stack = SimpleNamespace(setCurrentIndex=lambda _index: None)
+    dummy._operator_current_scene = "idle"
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._append_log = lambda *args, **kwargs: logs.append((args, kwargs))
+
+    dummy._operator_request_scene("query", reason="dashboard_query")
+
+    assert dummy._operator_current_scene == "query"
+    assert dummy._operator_scene_state.current == "query"
+    assert dummy._operator_scene_state.previous == "idle"
+    assert dummy._operator_scene_state.reason == "dashboard_query"
+    assert logs[-1][1]["extra"]["reason"] == "dashboard_query"
+
+
 def test_operator_apply_scene_uses_high_priority_alert_for_alarm_scene():
     dummy = DummyOperator()
     messages = []
@@ -1232,6 +1323,31 @@ def test_operator_alarm_scene_does_not_restore_stale_execute_after_alarm_clears(
     dummy.alarm_code = "0"
     dummy.busy = "空闲"
     dummy.run_state = "空闲"
+
+    assert dummy._operator_desired_scene() == "idle"
+    assert dummy._operator_scene_before_alarm is None
+
+
+def test_operator_alarm_scene_does_not_restore_stale_confirm_after_alarm_clears():
+    dummy = DummyOperator()
+    dummy._operator_scene_indexes = {"confirm": 3, "alarm": 4}
+    dummy.operator_scene_stack = SimpleNamespace(setCurrentIndex=lambda _index: None)
+    dummy._operator_current_scene = "confirm"
+    dummy._operator_publish_response = lambda _message: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("template", "move_a", "rule", "移动", "测试"),),
+        source="rule",
+        raw_text="移动",
+        reason="测试",
+    )
+    dummy.alarm_code = "ERR_9"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+
+    dummy._operator_apply_scene("alarm")
+    dummy.alarm_code = "0"
+    dummy._operator_pending_confirm_plan = None
 
     assert dummy._operator_desired_scene() == "idle"
     assert dummy._operator_scene_before_alarm is None
@@ -2063,6 +2179,27 @@ def test_operator_confirm_execute_blocks_failed_l3_process_precheck():
     assert status_messages[-1] == "L3流程预演未通过，已拒绝执行。"
     assert "目标 X 超出软限位" in chat_messages[-1][1]
     assert log_args(logs[-1])[0:3] == ("流程预演", "确认执行", "拒绝")
+
+
+def test_operator_l3_summary_mentions_flow_midpoint_suggestion():
+    result = {
+        "status": "fail",
+        "flow_name": "demo",
+        "items": [{"id": "step_l2", "status": "fail", "label": "第2步 L2 预演", "message": "路径接近奇异点。"}],
+        "midpoint_suggestions": [
+            {
+                "step_index": 2,
+                "step_key": "move_b",
+                "midpoint_pose": (10.0, 20.0, 30.0, 0.0, 5.0, 0.0),
+                "midpoint_fstatus": 3,
+            }
+        ],
+    }
+
+    text = DummyOperator._operator_l3_summary(result)
+
+    assert "第2步 move_b 建议中点" in text
+    assert "10.0" in text
 
 
 def test_operator_confirm_execute_rejects_expired_pending_plan():
@@ -3017,6 +3154,8 @@ def test_operator_nlp_result_payload_uses_plan_semantic_metadata():
         requires_precheck=False,
         requires_confirmation=False,
         priority="normal",
+        tokens=("小正", "取消"),
+        nlp_engine="jieba_rule",
     )
     dummy.table = {}
 
@@ -3028,6 +3167,8 @@ def test_operator_nlp_result_payload_uses_plan_semantic_metadata():
     assert payload["requires_precheck"] is False
     assert payload["requires_confirmation"] is False
     assert payload["priority"] == "normal"
+    assert payload["tokens"] == ["小正", "取消"]
+    assert payload["engine"] == "jieba_rule"
     assert payload["command_intent"]["semantic_level"] == 4
 
 

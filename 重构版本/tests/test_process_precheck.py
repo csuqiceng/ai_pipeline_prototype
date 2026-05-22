@@ -156,6 +156,45 @@ def test_process_precheck_blocks_l2_failure():
     assert any(item["id"] == "step_l2" and item["status"] == "fail" for item in result["items"])
 
 
+def test_process_precheck_collects_l2_midpoint_suggestions_per_step():
+    def l2_runner(record):
+        if record.query_key == "move_b":
+            return {
+                "status": "fail",
+                "need_midpoint": True,
+                "midpoint_pose": (10.0, 20.0, 30.0, 0.0, 5.0, 0.0),
+                "midpoint_fstatus": 3,
+                "suggestion": "建议经 RY 偏移中点绕行。",
+                "items": [{"message": "路径接近奇异点。"}],
+            }
+        return {"status": "pass", "items": []}
+
+    service = ProcessPrecheckService(
+        l1_runner=lambda _snapshot, _plan: {"status": "pass", "items": []},
+        l2_runner=l2_runner,
+    )
+    flow = FlowDefinition(name="demo", steps=("move_a", "move_b"))
+
+    result = service.run_l3(
+        flow=flow,
+        table={"move_a": move_record("move_a"), "move_b": move_record("move_b")},
+        snapshot={},
+    )
+
+    assert result["status"] == "fail"
+    assert result["midpoint_suggestions"] == [
+        {
+            "step_index": 2,
+            "step_key": "move_b",
+            "midpoint_pose": (10.0, 20.0, 30.0, 0.0, 5.0, 0.0),
+            "midpoint_fstatus": 3,
+            "suggestion": "建议经 RY 偏移中点绕行。",
+        }
+    ]
+    assert "第2步 move_b 建议中点绕行" in result["suggestion"]
+    assert any(item["id"] == "step_midpoint_suggestion" for item in result["items"])
+
+
 def test_process_precheck_blocks_when_step_delay_is_below_state_transition_minimum():
     service = ProcessPrecheckService(
         l1_runner=lambda _snapshot, _plan: {"status": "pass", "items": []},

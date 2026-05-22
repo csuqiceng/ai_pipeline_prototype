@@ -63,6 +63,7 @@ class ProcessPrecheckService:
         failed = False
         total = max(1, len(flow.steps))
         records = [table[step] for step in flow.steps]
+        midpoint_suggestions: list[dict[str, Any]] = []
         for index, step in enumerate(flow.steps, start=1):
             record = table[step]
             plan = self._plan_dict(record)
@@ -92,6 +93,24 @@ class ProcessPrecheckService:
                 l2_status = "pass"
                 message = f"{step}: 通过。"
             items.append(self._item("step_l2", "L3", f"第{index}步 L2 预演", l2_status, message))
+            if l2.get("need_midpoint") and l2.get("midpoint_pose") is not None:
+                suggestion = {
+                    "step_index": index,
+                    "step_key": step,
+                    "midpoint_pose": l2.get("midpoint_pose"),
+                    "midpoint_fstatus": l2.get("midpoint_fstatus"),
+                    "suggestion": str(l2.get("suggestion") or "建议经中点绕行。"),
+                }
+                midpoint_suggestions.append(suggestion)
+                items.append(
+                    self._item(
+                        "step_midpoint_suggestion",
+                        "L3",
+                        f"第{index}步流程级中点建议",
+                        "warn",
+                        f"{step}: 建议中点绕行，midpoint={suggestion['midpoint_pose']}。",
+                    )
+                )
             self._publish_progress(flow.name, index, total, step)
 
         self._publish_stage_progress(flow.name, "timing_check", 80, "正在检查流程步间隔。")
@@ -115,6 +134,14 @@ class ProcessPrecheckService:
             else "L3 流程级预演通过。",
         )
 
+        final_suggestion = "请修复失败步骤后再执行流程。" if failed else None
+        if midpoint_suggestions:
+            joined = "；".join(
+                f"第{item['step_index']}步 {item['step_key']} 建议中点绕行"
+                for item in midpoint_suggestions[:5]
+            )
+            final_suggestion = f"{joined}。"
+
         return {
             "status": "fail" if failed else "pass",
             "flow_name": flow.name,
@@ -122,7 +149,8 @@ class ProcessPrecheckService:
             "items": items,
             "timing": timing,
             "error_budget": error_budget,
-            "suggestion": "请修复失败步骤后再执行流程。" if failed else None,
+            "midpoint_suggestions": midpoint_suggestions,
+            "suggestion": final_suggestion,
         }
 
     @staticmethod

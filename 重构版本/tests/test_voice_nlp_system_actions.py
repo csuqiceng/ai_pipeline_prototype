@@ -95,3 +95,18 @@ def test_voice_nlp_adapter_marks_dashboard_query_as_l2_without_wake_word():
     assert plan.semantic_label == "工艺查询层"
     assert plan.response_deadline_ms == 5000
     assert plan.requires_precheck is False
+
+
+def test_voice_nlp_adapter_records_jieba_rule_tokens_when_tokenizer_is_available():
+    adapter = VoiceNlpAdapter(
+        table={},
+        flow_names=(),
+        tokenizer=lambda text: ("小正", "暂停") if "暂停" in text else (text,),
+    )
+
+    plan = adapter.parse("小正，暂停")
+
+    assert plan.nlp_engine == "jieba_rule"
+    assert plan.tokens == ("小正", "暂停")
+    assert plan.to_preview_dict()["tokens"] == ["小正", "暂停"]
+    assert plan.to_preview_dict()["engine"] == "jieba_rule"
