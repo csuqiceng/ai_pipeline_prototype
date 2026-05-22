@@ -94,6 +94,31 @@ class ZMotionVrClient:
             self._ensure_ok(ret, "ZAux_Direct_GetVrf")
             return [float(item) for item in values]
 
+    def set_table(self, index: int, value: float) -> None:
+        """写入 ZMotion TABLE 值，供 FRAME_TRANS2 预演使用。"""
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret = self._device.ZAux_Direct_SetTable(int(index), float(value))
+            self._ensure_ok(ret, "ZAux_Direct_SetTable")
+
+    def get_table(self, index: int) -> float:
+        """读取 ZMotion TABLE 值，供 FRAME_TRANS2 预演使用。"""
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret, value = self._device.ZAux_Direct_GetTable(int(index))
+            self._ensure_ok(ret, "ZAux_Direct_GetTable")
+            return float(value)
+
+    def execute(self, command: str) -> None:
+        """执行 ZMotion 控制器指令字符串。"""
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            ret = self._device.ZAux_Execute(str(command))
+            self._ensure_ok(ret, "ZAux_Execute")
+
     # ── 旧版通信寄存器方法 ────────────────────────────────────────
 
     def write_modbus_float(self, request: VrWriteRequest) -> None:

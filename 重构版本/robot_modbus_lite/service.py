@@ -314,6 +314,8 @@ class RobotModbusService:
             return SixAxisCommand(func_num=104, desc="SYS_PAUSE", pause_ctrl=1)
         if code == 4004:
             return SixAxisCommand(func_num=104, desc="SYS_RESUME", pause_ctrl=2)
+        if code == 4005:
+            return SixAxisCommand(func_num=104, desc="SYS_CANCEL", cancel_ctrl=1)
         if code in (1008, 4001):
             return SixAxisCommand(func_num=104, desc="ALARM_RESET", reset_ctrl=1)
         if code in (6001, 6002):

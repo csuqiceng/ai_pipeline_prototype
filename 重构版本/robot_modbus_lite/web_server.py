@@ -18,6 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from robot_modbus_lite.avoidance_config import AvoidanceConfig, SafePoint, load_avoidance_config, save_avoidance_config, validate_safe_point
+from robot_modbus_lite.dashboard import DashboardSnapshot
+from robot_modbus_lite.json_schema import DeviceSnapshot
 from robot_modbus_lite.web_control_bridge import WebControlBridge
 from robot_modbus_lite.flow_store import load_flows_json, save_flows_json
 from robot_modbus_lite.models import FlowDefinition, QueryRecord
@@ -129,6 +131,40 @@ def configure_control_bridge(mode: str, controller_host: str = "127.0.0.1") -> N
     control_bridge = WebControlBridge.from_runtime_files(mode=mode, controller_host=controller_host)
 
 
+def _web_snapshot_to_dashboard_snapshot(snapshot: dict[str, Any]) -> DashboardSnapshot:
+    position = snapshot.get("position", {}) if isinstance(snapshot, dict) else {}
+    cartesian = position.get("cartesian", {}) if isinstance(position, dict) else {}
+    joint = position.get("joint", {}) if isinstance(position, dict) else {}
+    safety = snapshot.get("safety", {}) if isinstance(snapshot, dict) else {}
+    motion = snapshot.get("motion", {}) if isinstance(snapshot, dict) else {}
+    connection = snapshot.get("connection", {}) if isinstance(snapshot, dict) else {}
+    return DashboardSnapshot(
+        ts=str(snapshot.get("timestamp") or utc_now()),
+        position={
+            "x": cartesian.get("x", 0.0),
+            "y": cartesian.get("y", 0.0),
+            "z": cartesian.get("z", 0.0),
+            "r": cartesian.get("r", 0.0),
+            "joints": tuple(joint.get(axis, 0.0) for axis in ("j1", "j2", "j3", "j4", "j5", "j6")),
+        },
+        safety={
+            "estop": bool(safety.get("estop")),
+            "paused": bool(safety.get("paused")),
+            "alarm_active": bool(safety.get("alarm_active")),
+            "alarm_code": safety.get("alarm_code", 0),
+        },
+        motion={
+            "running_state": motion.get("running_state", "unknown"),
+            "current_func": snapshot.get("current_function") or motion.get("active_plan_id") or "-",
+            "speed": motion.get("speed_percent", "-"),
+        },
+        connection={
+            "realtime_feedback": connection.get("realtime_feedback", "offline"),
+            "controller": connection.get("controller", "unknown"),
+        },
+    )
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
@@ -143,6 +179,12 @@ def health() -> dict:
 @app.get("/api/snapshot")
 def get_snapshot() -> dict:
     return store.snapshot()
+
+
+@app.get("/api/snapshot/v21")
+def get_snapshot_v21() -> dict:
+    snapshot = store.snapshot()
+    return DeviceSnapshot.from_dashboard_snapshot(_web_snapshot_to_dashboard_snapshot(snapshot), refresh_ms=500).to_dict()
 
 
 @app.get("/api/dashboard")
@@ -190,6 +232,13 @@ def post_conversation_input(payload: ConversationInput) -> dict:
 def post_nlp_parse(payload: NlpParseInput) -> dict:
     result = nlp_service.parse(payload.text, use_deepseek=payload.use_deepseek)
     log_service.append("NLP", "parse", "success", payload.text, extra={"nlp": result})
+    return result
+
+
+@app.post("/api/nlp/parse/v21")
+def post_nlp_parse_v21(payload: NlpParseInput) -> dict:
+    result = nlp_service.parse_intent(payload.text, use_deepseek=payload.use_deepseek)
+    log_service.append("NLP", "parse_v21", "success", payload.text, extra={"command_intent": result})
     return result
 
 

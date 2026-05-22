@@ -49,6 +49,7 @@ SYSTEM_COMMANDS = {
     "报警复位": ("alarm_reset", "报警已复位"),
     "暂停": ("sys_pause", "当前任务已暂停"),
     "继续": ("sys_resume", "当前任务继续运行"),
+    "取消当前": ("sys_cancel", "当前任务已取消"),
     "急停": ("sys_estop", "急停触发，系统锁定"),
 }
 
@@ -56,5 +57,6 @@ SYSTEM_COMMAND_CODES = {
     "alarm_reset": 4001,
     "sys_pause": 4003,
     "sys_resume": 4004,
+    "sys_cancel": 4005,
     "sys_estop": 4002,
 }

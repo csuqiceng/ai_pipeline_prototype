@@ -43,7 +43,7 @@ class GuiSystemMixin:
 
     def _handle_system_action(self, action_key: str, *, on_done: Callable[[bool], None] | None = None) -> None:
         """处理系统。"""
-        if self.flow_running:
+        if self.flow_running and action_key not in {"sys_estop", "sys_pause", "sys_resume", "sys_cancel"}:
             self._show_warning("流程运行中", "流程执行中不允许发送系统按钮命令。")
             self._append_log("系统", action_key, "失败", "流程执行中")
             if on_done:
@@ -131,14 +131,29 @@ class GuiSystemMixin:
                 self._set_status("报警已复位")
             return
         if action_key == "sys_pause":
+            if getattr(self, "flow_running", False):
+                self.flow_paused = True
             self._set_mode_busy(self.mode_label.text(), False, "当前任务已暂停")
             self.busy = "暂停"
             self._refresh_status_labels()
             return
         if action_key == "sys_resume":
+            should_resume_flow = bool(
+                getattr(self, "flow_running", False)
+                and getattr(self, "flow_paused", False)
+                and getattr(self, "flow_status", "") == "已暂停"
+            )
+            self.flow_paused = False
             self._set_mode_busy(self.mode_label.text(), True, "当前任务继续运行")
+            if should_resume_flow and hasattr(self, "_run_next_flow_step"):
+                self._run_next_flow_step()
+            return
+        if action_key == "sys_cancel":
+            self.flow_paused = False
+            self._set_mode_busy(self.mode_label.text(), False, "当前任务已取消")
             return
         if action_key == "sys_estop":
+            self.flow_paused = False
             self._trigger_estop()
 
     def _set_mode_busy(self, mode: str, busy: bool, text: str) -> None:

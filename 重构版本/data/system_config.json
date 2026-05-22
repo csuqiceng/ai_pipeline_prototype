@@ -22,5 +22,21 @@
   "echo_retry_interval_sec": 0.005,
   "echo_retry_count": 3,
   "echo_write_rounds": 2,
-  "echo_compare_epsilon": 0.001
+  "echo_compare_epsilon": 0.001,
+  "emergency_codes": [
+    "A1B2"
+  ],
+  "operator_tts_enabled": false,
+  "broadcast_dedupe_window_sec": 5.0,
+  "tts_retry_delay_sec": 5.0,
+  "tts_max_failures": 3,
+  "operator_confirm_timeout_sec": 60.0,
+  "operator_dashboard_refresh_ms": 50,
+  "operator_view_refresh_ms": 500,
+  "controller_realtime_poll_ms": 500,
+  "dashboard_stale_after_ms": 1000,
+  "l3_min_step_delay_ms": 0,
+  "l3_cumulative_error_limit_mm": 0.0,
+  "l3_forbidden_boxes": [],
+  "joint_limits": []
 }

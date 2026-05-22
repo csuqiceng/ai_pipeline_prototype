@@ -17,8 +17,14 @@ SYSTEM_ACTION_ALIASES = {
     "暂停": "sys_pause",
     "继续": "sys_resume",
     "恢复": "sys_resume",
+    "取消当前动作": "sys_cancel",
+    "取消当前任务": "sys_cancel",
+    "停止当前动作": "sys_cancel",
+    "停止当前任务": "sys_cancel",
     "急停": "sys_estop",
 }
+
+WAKE_WORDS = ("小正", "小郑", "校正")
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,12 @@ class VoiceNlpPlan:
     source: str
     raw_text: str
     reason: str
+    semantic_level: int = 0
+    semantic_label: str = "未识别层"
+    response_deadline_ms: int = 500
+    requires_precheck: bool = False
+    requires_confirmation: bool = False
+    priority: str = "normal"
 
     def to_preview_dict(self) -> dict[str, object]:
         """处理相关数据。"""
@@ -55,6 +67,12 @@ class VoiceNlpPlan:
             "source": self.source,
             "rawText": self.raw_text,
             "reason": self.reason,
+            "semanticLevel": self.semantic_level,
+            "semanticLabel": self.semantic_label,
+            "responseDeadlineMs": self.response_deadline_ms,
+            "requiresPrecheck": self.requires_precheck,
+            "requiresConfirmation": self.requires_confirmation,
+            "priority": self.priority,
             "actions": [action.to_preview_dict() for action in self.actions],
         }
 
@@ -80,19 +98,185 @@ class VoiceNlpAdapter:
         """解析相关数据。"""
         normalized = text.strip()
         if not normalized:
-            return VoiceNlpPlan(
+            return self._build_plan(
                 actions=(VoiceNlpAction("unknown", None, "rule", text, "输入为空"),),
                 source="rule",
                 raw_text=text,
                 reason="输入为空",
             )
 
+        if self._is_coded_emergency(normalized):
+            return self._build_plan(
+                actions=(VoiceNlpAction("system", "sys_estop", "rule", text, "命中三段式应急编码"),),
+                source="rule",
+                raw_text=text,
+                reason="命中三段式应急编码",
+            )
+
+        query_target = self._match_dashboard_query(normalized)
+        if query_target:
+            return self._build_plan(
+                actions=(VoiceNlpAction("query", query_target, "rule", text, "命中看板查询规则"),),
+                source="rule",
+                raw_text=text,
+                reason="命中看板查询规则",
+            )
+
+        command_text = self._strip_wake_word(normalized)
+        if command_text is None:
+            if not self._looks_like_control_text(normalized):
+                return self._build_plan(
+                    actions=(VoiceNlpAction("unknown", None, "rule", text, "闲聊或咨询，未触发控制动作"),),
+                    source="rule",
+                    raw_text=text,
+                    reason="闲聊或咨询，未触发控制动作",
+                )
+            return self._build_plan(
+                actions=(VoiceNlpAction("unknown", None, "rule", text, "生产指令缺少“小正”唤醒词，未执行"),),
+                source="rule",
+                raw_text=text,
+                reason="生产指令缺少“小正”唤醒词，未执行",
+            )
+
         if use_deepseek:
-            deepseek_result = self._parse_with_deepseek(normalized)
+            deepseek_result = self._parse_with_deepseek(command_text)
             if deepseek_result is not None:
                 return deepseek_result
 
-        return self._parse_with_rules(normalized)
+        plan = self._parse_with_rules(command_text)
+        return self._build_plan(actions=plan.actions, source=plan.source, raw_text=text, reason=plan.reason)
+
+    @classmethod
+    def _build_plan(
+        cls,
+        *,
+        actions: tuple[VoiceNlpAction, ...],
+        source: str,
+        raw_text: str,
+        reason: str,
+    ) -> VoiceNlpPlan:
+        metadata = cls._semantic_metadata(actions, raw_text=raw_text, reason=reason)
+        return VoiceNlpPlan(
+            actions=actions,
+            source=source,
+            raw_text=raw_text,
+            reason=reason,
+            semantic_level=metadata["semantic_level"],
+            semantic_label=metadata["semantic_label"],
+            response_deadline_ms=metadata["response_deadline_ms"],
+            requires_precheck=metadata["requires_precheck"],
+            requires_confirmation=metadata["requires_confirmation"],
+            priority=metadata["priority"],
+        )
+
+    @staticmethod
+    def _semantic_metadata(
+        actions: tuple[VoiceNlpAction, ...],
+        *,
+        raw_text: str,
+        reason: str,
+    ) -> dict[str, object]:
+        first = actions[0] if actions else None
+        action_type = getattr(first, "action_type", "unknown") if first else "unknown"
+        target = getattr(first, "target", None) if first else None
+        if action_type == "system" and target == "sys_estop":
+            return {
+                "semantic_level": 5,
+                "semantic_label": "应急安全层",
+                "response_deadline_ms": 100,
+                "requires_precheck": False,
+                "requires_confirmation": False,
+                "priority": "high",
+            }
+        if action_type == "system":
+            return {
+                "semantic_level": 4,
+                "semantic_label": "系统管理层",
+                "response_deadline_ms": 2000,
+                "requires_precheck": False,
+                "requires_confirmation": target not in {"sys_pause", "sys_resume", "sys_cancel"},
+                "priority": "normal",
+            }
+        if action_type in {"template", "flow"}:
+            return {
+                "semantic_level": 3,
+                "semantic_label": "常规生产执行层",
+                "response_deadline_ms": 2000,
+                "requires_precheck": True,
+                "requires_confirmation": True,
+                "priority": "normal",
+            }
+        if action_type == "query":
+            return {
+                "semantic_level": 2,
+                "semantic_label": "工艺查询层",
+                "response_deadline_ms": 5000,
+                "requires_precheck": False,
+                "requires_confirmation": False,
+                "priority": "normal",
+            }
+        if action_type == "unknown" and "小正" not in reason and "未执行" not in reason:
+            return {
+                "semantic_level": 1,
+                "semantic_label": "闲聊咨询层",
+                "response_deadline_ms": 1000,
+                "requires_precheck": False,
+                "requires_confirmation": False,
+                "priority": "normal",
+            }
+        return {
+            "semantic_level": 0,
+            "semantic_label": "未识别层",
+            "response_deadline_ms": 500,
+            "requires_precheck": False,
+            "requires_confirmation": False,
+            "priority": "normal",
+        }
+
+    @staticmethod
+    def _strip_wake_word(text: str) -> str | None:
+        compact = text.strip()
+        for wake_word in WAKE_WORDS:
+            if compact.startswith(wake_word):
+                command = compact[len(wake_word):].lstrip(" ，,。:：")
+                return command or ""
+        return None
+
+    @staticmethod
+    def _is_coded_emergency(text: str) -> bool:
+        return bool(re.match(r"^\s*(?:急停|紧急停止)\s+[A-Za-z0-9_-]{3,16}\s+(?:急停|紧急停止)\s*$", text))
+
+    def _looks_like_control_text(self, text: str) -> bool:
+        compact = text.replace(" ", "")
+        if any(keyword in compact for keyword in SYSTEM_ACTION_ALIASES):
+            return True
+        if self._match_flow_name(text):
+            return True
+        try:
+            parse_command(text, self.table)
+            return True
+        except CommandParseError:
+            return False
+
+    @staticmethod
+    def _match_dashboard_query(text: str) -> str | None:
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact:
+            return None
+        lowered = compact.lower()
+        patterns = (
+            ("communication_faults", ("通讯", "通信", "连接", "ethercat", "ecat")),
+            ("action_feasibility", ("能不能执行", "可以执行", "可执行", "能发指令", "能动", "能不能动")),
+            ("safety_boundary", ("安全吗", "安全不安全", "当前位置安全", "半径", "高度", "边界", "软限位", "关节限位")),
+            ("motion_limits", ("速度", "加速度", "减速度", "超限")),
+            ("process_preview", ("预演到哪", "预演进度", "流程预演", "流程到哪", "执行到哪")),
+            ("process_adaptation", ("到不到", "能到", "运动规划", "奇异", "姿态")),
+            ("device_status", ("设备状态", "现在状态", "当前状态", "系统状态")),
+        )
+        for target, keywords in patterns:
+            if any(keyword.lower() in lowered for keyword in keywords):
+                return target
+        return None
 
     def _parse_with_rules(self, text: str) -> VoiceNlpPlan:
         """解析相关数据。"""
@@ -161,7 +345,7 @@ class VoiceNlpAdapter:
             if not actions:
                 self._emit_diagnostic("DeepSeek解析", "失败", "未返回有效动作，已回退本地规则")
                 return None
-            return VoiceNlpPlan(actions=tuple(actions), source="deepseek", raw_text=text, reason=reason)
+            return self._build_plan(actions=tuple(actions), source="deepseek", raw_text=text, reason=reason)
         except Exception as exc:
             self._emit_diagnostic("DeepSeek解析", "失败", f"{type(exc).__name__}: {exc}；已回退本地规则")
             return None
@@ -196,7 +380,7 @@ class VoiceNlpAdapter:
         """构建大模型。"""
         template_names = "、".join(sorted(self.table))
         flow_names = "、".join(self.flow_names) or "无"
-        system_names = "alarm_reset、sys_pause、sys_resume、sys_estop"
+        system_names = "alarm_reset、sys_pause、sys_resume、sys_cancel、sys_estop"
         return (
             "你负责把自然语言归类到现有 Qt 控制系统动作。\n"
             "如果用户输入包含顺序动作（例如“先...再...”或“然后...”），请输出 actions 数组，保持执行顺序。\n"

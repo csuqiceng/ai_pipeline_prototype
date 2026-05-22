@@ -26,6 +26,7 @@ class FlowExecutionMixin:
         """记录流程批次起始时间。"""
         self._flow_run_started_perf = time.perf_counter()
         self._flow_run_started_id = int(run_id)
+        self.flow_paused = False
 
     def _flow_elapsed_ms(self, run_id: int) -> int:
         """计算流程批次耗时。"""
@@ -83,6 +84,7 @@ class FlowExecutionMixin:
     def _finish_flow_run(self, status: str, *, current_step: str = "-") -> None:
         """结束当前流程批次并刷新状态。"""
         self.flow_running = False
+        self.flow_paused = False
         self.flow_status = status
         self.flow_current_step = current_step
         self._refresh_flow_steps()
@@ -331,6 +333,7 @@ class FlowExecutionMixin:
                 callback(False)
         self._next_flow_run_id()
         self.flow_running = False
+        self.flow_paused = False
         self.flow_step_index = 0
         self.flow_status = "空闲"
         self.flow_current_step = "-"
@@ -499,6 +502,7 @@ class FlowExecutionMixin:
             self.flow_current_step = current_flow.steps[self.flow_step_index]
             if not auto_continue:
                 self.flow_running = False
+                self.flow_paused = False
                 self.flow_current_step = "-"
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
@@ -512,6 +516,13 @@ class FlowExecutionMixin:
                     current_step="-",
                 )
             if auto_continue and self.flow_running:
+                if self._defer_flow_auto_continue_if_paused(
+                    flow=flow,
+                    run_id=active_run_id,
+                    completed_step_index=current_step_index + 1,
+                    next_step=current_flow.steps[self.flow_step_index],
+                ):
+                    return
                 delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
                 if delay_ms > 0:
                     self.flow_status = f"步间等待({delay_ms}ms)"
@@ -726,6 +737,7 @@ class FlowExecutionMixin:
             self.flow_current_step = current_flow.steps[self.flow_step_index]
             if not auto_continue:
                 self.flow_running = False
+                self.flow_paused = False
                 self.flow_current_step = "-"
             self._refresh_flow_steps()
             self._refresh_flow_status_panel()
@@ -741,6 +753,13 @@ class FlowExecutionMixin:
                 )
             if auto_continue and self.flow_running:
                 delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
+                if self._defer_flow_auto_continue_if_paused(
+                    flow=flow,
+                    run_id=run_id,
+                    completed_step_index=start_index + len(group),
+                    next_step=current_flow.steps[self.flow_step_index],
+                ):
+                    return
                 QTimer.singleShot(delay_ms, lambda: self._run_next_flow_step(run_id=run_id))
 
         self._run_in_background(work, on_result)
@@ -752,4 +771,31 @@ class FlowExecutionMixin:
         if self.current_flow_name not in self.service.flows:
             return None
         return self.service.get_flow(self.current_flow_name)
+
+    def _defer_flow_auto_continue_if_paused(
+        self,
+        *,
+        flow: FlowDefinition,
+        run_id: int,
+        completed_step_index: int,
+        next_step: str,
+    ) -> bool:
+        if not getattr(self, "flow_paused", False):
+            return False
+        self.flow_status = "已暂停"
+        self._refresh_flow_status_panel()
+        self._append_log(
+            "流程",
+            f"流程暂停 {flow.name}",
+            "提示",
+            f"第{completed_step_index}步后暂停，等待继续执行 {next_step}",
+            extra=self._flow_log_extra(
+                flow,
+                run_id,
+                flow_status="已暂停",
+                completed_steps=completed_step_index,
+                next_step=next_step,
+            ),
+        )
+        return True
 

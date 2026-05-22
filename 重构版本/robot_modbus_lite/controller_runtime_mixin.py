@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from PySide6.QtCore import QTimer
@@ -75,9 +76,35 @@ class ControllerRuntimeMixin:
     def _start_realtime_polling(self) -> None:
         """启动实时数据。"""
         self.realtime_timer = QTimer(self)
-        self.realtime_timer.setInterval(500)
+        self.realtime_timer.setInterval(self._controller_realtime_poll_interval_ms())
         self.realtime_timer.timeout.connect(self._poll_feedback_silent)
         self.realtime_timer.start()
+
+    def _controller_realtime_poll_interval_ms(self) -> int:
+        return max(1, int(getattr(getattr(self, "axis_ranges", None), "controller_realtime_poll_ms", 500)))
+
+    def _controller_poll_group_interval_ms(self, group: str) -> int:
+        realtime_ms = self._controller_realtime_poll_interval_ms()
+        if group == "realtime_feedback":
+            return realtime_ms
+        return max(realtime_ms, 500)
+
+    def _controller_poll_group_due(self, group: str, *, now_sec: float) -> bool:
+        last_by_group = getattr(self, "_controller_poll_group_last_sec", None)
+        if not isinstance(last_by_group, dict):
+            return True
+        last_sec = last_by_group.get(group)
+        if last_sec is None:
+            return True
+        elapsed_ms = (now_sec - float(last_sec)) * 1000
+        return elapsed_ms >= self._controller_poll_group_interval_ms(group)
+
+    def _controller_mark_poll_group(self, group: str, *, now_sec: float) -> None:
+        last_by_group = getattr(self, "_controller_poll_group_last_sec", None)
+        if not isinstance(last_by_group, dict):
+            last_by_group = {}
+            self._controller_poll_group_last_sec = last_by_group
+        last_by_group[group] = float(now_sec)
 
     def _pause_polling(self) -> None:
         """处理相关数据。"""
@@ -112,52 +139,27 @@ class ControllerRuntimeMixin:
         self._polling_feedback = True
         try:
             client = self._get_client(host)
-            joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
-            pose_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
-            rt = self.service.parse_six_realtime(joint_vals, pose_vals)
-            self.robot_joints = (rt.j1, rt.j2, rt.j3, rt.j4, rt.j5, rt.j6)
-            self.robot_x = self._fmt(rt.x)
-            self.robot_y = self._fmt(rt.y)
-            self.robot_z = self._fmt(rt.z)
-            self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
-            st_read = self.service.build_six_status_read()
-            st_vals = client.read_modbus_long(st_read)
-            six_status = self.service.parse_six_status(st_vals)
-            system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
-            current_func_vals = client.read_modbus_float(self.service.build_six_current_func_read())
-            alarm_detail_vals = client.read_modbus_long(self.service.build_six_alarm_detail_read())
-            self.busy = "空闲" if six_status.can_send else "运行中"
-            motion_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
-            motion_state = self.service.parse_six_motion_state(motion_vals)
-            self.motion_percent = "运动中" if motion_state == 1 else "空闲"
-            system_state = self.service.parse_six_system_state(system_state_vals)
-            current_func = self.service.parse_six_current_func(current_func_vals)
-            self.current_func_text = "空闲" if current_func == 0 else f"Func{current_func}"
-            self.estop_active = six_status.is_estop
-            self.pause_active = six_status.is_paused
-            alarm_detail = self.service.parse_six_alarm_detail(alarm_detail_vals)
-            if six_status.has_alarm:
-                self.alarm_text = f"报警: {alarm_detail}"
-                self.alarm_code = f"ERR_{six_status.raw}"
-            elif six_status.has_error:
-                self.alarm_text = f"错误 IEEE(34)={six_status.raw}"
-                self.alarm_code = f"ERR_{six_status.raw}"
-            else:
-                self.alarm_text = "系统正常"
-                self.alarm_code = "ERR_000"
+            now_sec = time.monotonic()
+            did_poll = False
+            did_status_poll = False
+            if self._controller_poll_group_due("realtime_feedback", now_sec=now_sec):
+                self._poll_realtime_feedback_group(client)
+                self._controller_mark_poll_group("realtime_feedback", now_sec=now_sec)
+                did_poll = True
+            if self._controller_poll_group_due("status_detail", now_sec=now_sec):
+                self._poll_status_detail_group(client)
+                self._controller_mark_poll_group("status_detail", now_sec=now_sec)
+                did_poll = True
+                did_status_poll = True
             self.monitor_label.setText("实时监控运行中")
+            if did_poll:
+                self._last_feedback_monotonic_sec = now_sec
             self._refresh_status_labels()
             if not self._poll_started_logged:
                 self._append_log("反馈", "实时监控轮询", "成功", "首次轮询成功，定时轮询已运行")
                 self._poll_started_logged = True
-            self._last_realtime_snapshot_raw = {
-                "long34_raw": six_status.raw,
-                "long36_raw": system_state,
-                "long38_raw": alarm_detail,
-                "ieee324_raw": current_func,
-                "motion_state_56": motion_state,
-            }
-            self._log_realtime_state_change_if_needed()
+            if did_status_poll:
+                self._log_realtime_state_change_if_needed()
             self._last_poll_error = ""
         except Exception as exc:
             error = str(exc)
@@ -169,6 +171,59 @@ class ControllerRuntimeMixin:
                 self._last_poll_error = error
         finally:
             self._polling_feedback = False
+
+    def _poll_realtime_feedback_group(self, client: Any) -> None:
+        joint_vals = client.read_modbus_float(self.service.build_six_joint_feedback_read())
+        pose_vals = client.read_modbus_float(self.service.build_six_pose_feedback_read())
+        dpos_joint_vals = client.read_modbus_float(self.service.build_six_joint_dpos_read())
+        dpos_pose_vals = client.read_modbus_float(self.service.build_six_pose_dpos_read())
+        rt = self.service.parse_six_realtime(joint_vals, pose_vals)
+        self.robot_joints = (rt.j1, rt.j2, rt.j3, rt.j4, rt.j5, rt.j6)
+        self.robot_x = self._fmt(rt.x)
+        self.robot_y = self._fmt(rt.y)
+        self.robot_z = self._fmt(rt.z)
+        self.robot_r = f"{self._fmt(rt.rx)} / {self._fmt(rt.ry)} / {self._fmt(rt.rz)}"
+        self.robot_mpos_joints = tuple(joint_vals[:6])
+        self.robot_mpos_pose = tuple(pose_vals[:6])
+        self.robot_dpos_joints = tuple(dpos_joint_vals[:6])
+        self.robot_dpos_pose = tuple(dpos_pose_vals[:6])
+
+    def _poll_status_detail_group(self, client: Any) -> None:
+        st_vals = client.read_modbus_long(self.service.build_six_status_read())
+        six_status = self.service.parse_six_status(st_vals)
+        system_state_vals = client.read_modbus_long(self.service.build_six_system_state_read())
+        current_func_vals = client.read_modbus_float(self.service.build_six_current_func_read())
+        alarm_detail_vals = client.read_modbus_long(self.service.build_six_alarm_detail_read())
+        self.busy = "空闲" if six_status.can_send else "运行中"
+        motion_vals = client.read_modbus_float(self.service.build_six_motion_state_read())
+        motion_state = self.service.parse_six_motion_state(motion_vals)
+        axis_status_vals = client.read_modbus_float(self.service.build_six_axis_status_read())
+        motion_type_vals = client.read_modbus_float(self.service.build_six_motion_type_read())
+        self.axis_status = tuple(self.service.parse_six_axis_status(axis_status_vals))
+        self.motion_type = tuple(self.service.parse_six_motion_type(motion_type_vals))
+        self.motion_percent = "运动中" if motion_state == 1 else "空闲"
+        system_state = self.service.parse_six_system_state(system_state_vals)
+        current_func = self.service.parse_six_current_func(current_func_vals)
+        self.current_func_text = "空闲" if current_func == 0 else f"Func{current_func}"
+        self.estop_active = six_status.is_estop
+        self.pause_active = six_status.is_paused
+        alarm_detail = self.service.parse_six_alarm_detail(alarm_detail_vals)
+        if six_status.has_alarm:
+            self.alarm_text = f"报警: {alarm_detail}"
+            self.alarm_code = f"ERR_{six_status.raw}"
+        elif six_status.has_error:
+            self.alarm_text = f"错误 IEEE(34)={six_status.raw}"
+            self.alarm_code = f"ERR_{six_status.raw}"
+        else:
+            self.alarm_text = "系统正常"
+            self.alarm_code = "ERR_000"
+        self._last_realtime_snapshot_raw = {
+            "long34_raw": six_status.raw,
+            "long36_raw": system_state,
+            "long38_raw": alarm_detail,
+            "ieee324_raw": current_func,
+            "motion_state_56": motion_state,
+        }
 
     def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
         """读取反馈。"""

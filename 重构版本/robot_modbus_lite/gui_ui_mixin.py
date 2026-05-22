@@ -951,6 +951,16 @@ class GuiUiMixin:
         self.safe_acc_max_edit = QLineEdit("0")
         self.safe_dec_max_edit = QLineEdit("0")
         self.motion_timeout_edit = QLineEdit("180")
+        self.operator_tts_enabled_check = QCheckBox("启用用户页语音播报")
+        self.broadcast_dedupe_window_edit = QLineEdit("5")
+        self.tts_retry_delay_edit = QLineEdit("5")
+        self.tts_max_failures_edit = QLineEdit("3")
+        self.operator_confirm_timeout_edit = QLineEdit("60")
+        self.l3_min_step_delay_edit = QLineEdit("0")
+        self.l3_cumulative_error_limit_edit = QLineEdit("0")
+        self.joint_limit_edits: list[tuple[QLineEdit, QLineEdit]] = []
+        for _index in range(6):
+            self.joint_limit_edits.append((QLineEdit(), QLineEdit()))
         for label, widget in [
             ("X最小", self.range_x_min_edit),
             ("X最大", self.range_x_max_edit),
@@ -966,8 +976,20 @@ class GuiUiMixin:
             ("最大加速度", self.safe_acc_max_edit),
             ("最大减速度", self.safe_dec_max_edit),
             ("运动超时(s)", self.motion_timeout_edit),
+            ("语音播报", self.operator_tts_enabled_check),
+            ("播报去重窗口(s)", self.broadcast_dedupe_window_edit),
+            ("TTS重试间隔(s)", self.tts_retry_delay_edit),
+            ("TTS最大连续失败", self.tts_max_failures_edit),
+            ("安全确认超时(s)", self.operator_confirm_timeout_edit),
+            ("L3最小步间隔(ms)", self.l3_min_step_delay_edit),
+            ("L3累计误差上限(mm)", self.l3_cumulative_error_limit_edit),
         ]:
             config_layout.addRow(label + ":", widget)
+        for index, (min_edit, max_edit) in enumerate(self.joint_limit_edits, start=1):
+            row = QHBoxLayout()
+            row.addWidget(min_edit)
+            row.addWidget(max_edit)
+            config_layout.addRow(f"J{index}软限位:", row)
         config_buttons = QHBoxLayout()
         config_save_btn = QPushButton("保存配置")
         config_save_btn.clicked.connect(self._save_system_config)
@@ -1128,10 +1150,18 @@ class GuiUiMixin:
 
         flow_manage_layout.addWidget(flow_manage_split)
 
+        config_scroll = QScrollArea()
+        config_scroll.setObjectName("systemConfigScroll")
+        config_scroll.setWidgetResizable(True)
+        config_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        config_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        config_scroll.setWidget(config_group)
+
         right_tabs = QTabWidget()
         right_tabs.setObjectName("panel")
+        self.engineer_right_tabs = right_tabs
         right_tabs.addTab(preview_group, "JSON预览")
-        right_tabs.addTab(config_group, "系统参数")
+        right_tabs.addTab(config_scroll, "系统参数")
         right_tabs.addTab(avoidance_group, "安全中间点")
         right_tabs.addTab(flow_manage_group, "流程管理")
 

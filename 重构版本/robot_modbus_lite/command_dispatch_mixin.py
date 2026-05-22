@@ -222,7 +222,13 @@ class CommandDispatchMixin:
                 f"发送指令 {record.query_key}",
                 "成功",
                 f"任务{self.task_id - 1}",
-                extra={**(log_extra or {}), "query_key": record.query_key, "func_num": record.func_num, "task_id": self.task_id - 1},
+                extra={
+                    **(log_extra or {}),
+                    "query_key": record.query_key,
+                    "func_num": record.func_num,
+                    "task_id": self.task_id - 1,
+                    "command_snapshot": self._build_record_dispatch_snapshot(record),
+                },
             )
         else:
             self.busy = "空闲"
@@ -241,7 +247,12 @@ class CommandDispatchMixin:
                 f"发送指令 {record.query_key}",
                 "失败",
                 error,
-                extra={**(log_extra or {}), "query_key": record.query_key, "func_num": record.func_num},
+                extra={
+                    **(log_extra or {}),
+                    "query_key": record.query_key,
+                    "func_num": record.func_num,
+                    "command_snapshot": self._build_record_dispatch_snapshot(record),
+                },
             )
         if ok:
             self._refresh_all()
