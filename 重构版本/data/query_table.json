@@ -124,6 +124,30 @@
       }
     },
     {
+      "query_key": "flowdraft:打个招呼的小:01",
+      "func_num": 108,
+      "keywords": "打个招呼的小 流程草案 第1步",
+      "description": "移动到home",
+      "safety_level": 5,
+      "params": {
+        "target_x": 1475.0,
+        "target_y": 0.0,
+        "target_z": 1545.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "move_type": 0
+      }
+    },
+    {
       "query_key": "home",
       "func_num": 108,
       "keywords": "home 回零 原点",

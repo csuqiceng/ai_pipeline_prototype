@@ -1,12 +1,17 @@
 from robot_modbus_lite.dashboard import DashboardSnapshot
 from robot_modbus_lite.json_schema import (
     CommandIntent,
+    DashboardPush,
     DeviceSnapshot,
     InteractionRecord,
+    SystemReply,
     validate_command_intent,
+    validate_dashboard_push,
     validate_device_snapshot,
     validate_interaction_record,
+    validate_system_reply,
 )
+from robot_modbus_lite.response_builder import ResponseMessage
 
 
 def test_command_intent_exports_v21_type_a_shape():
@@ -97,3 +102,50 @@ def test_device_snapshot_defaults_to_dashboard_refresh_interval():
 
 def test_device_snapshot_validation_reports_wrong_msg_type():
     assert validate_device_snapshot({"msg_type": "command_intent"}) == "device_snapshot.msg_type 必须为 device_snapshot"
+
+
+def test_system_reply_exports_v11_compatible_shape_from_response_message():
+    dashboard = DashboardSnapshot(
+        ts="2026-05-20T10:30:00.050+08:00",
+        position={"dpos_c": (10, 20, 30), "dpos_j": (1, 2, 3, 4, 5, 6)},
+        safety={"estop": False, "alarm_active": False},
+        motion={"running_state": "idle", "speed": 50},
+        connection={"realtime_feedback": "online"},
+    )
+    reply = SystemReply.from_response_message(
+        ResponseMessage(kind="result", text="执行完成", priority="normal"),
+        msg_id="reply-1",
+        timestamp="2026-05-20T10:30:00.100+08:00",
+        dashboard_snapshot=dashboard,
+        func_execution={"func_id": 108, "ieee_dict": {"0": 108}, "write_result": "ok", "write_time_ms": 12.5},
+    ).to_dict()
+
+    assert reply["msg_type"] == "system_reply"
+    assert reply["reply_type"] == "result"
+    assert reply["text"] == "执行完成"
+    assert reply["device_status"]["ecat_ok"] is True
+    assert reply["func_execution"]["func_id"] == 108
+    assert validate_system_reply(reply) is None
+
+
+def test_dashboard_push_exports_v11_compatible_50ms_shape():
+    dashboard = DashboardSnapshot(
+        ts="2026-05-20T10:30:00.050+08:00",
+        refresh_ms=50,
+        position={"x": 10},
+        safety={"alarm_active": False},
+        motion={"running_state": "idle"},
+        connection={"realtime_feedback": "online"},
+    )
+
+    push = DashboardPush.from_dashboard_snapshot(dashboard).to_dict()
+
+    assert push["msg_type"] == "dashboard_push"
+    assert push["dashboard_type"] == "all"
+    assert push["refresh_ms"] == 50
+    assert push["data"]["position"]["x"] == 10
+    assert validate_dashboard_push(push) is None
+
+
+def test_system_reply_validation_reports_wrong_msg_type():
+    assert validate_system_reply({"msg_type": "dashboard_push"}) == "system_reply.msg_type 必须为 system_reply"

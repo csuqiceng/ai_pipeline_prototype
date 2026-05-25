@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .alarm_advice import AlarmAdviceBook
+
 
 @dataclass(frozen=True)
 class ResponseMessage:
@@ -67,6 +69,19 @@ class ResponseBuilder:
                 return self.alert("应急授权通过，正在执行急停。", context_id="emergency:authorized")
             return None
 
+        if category == "自然语言" and action == "DeepSeek解析":
+            if result == "开始":
+                return self.progress(
+                    "deepseek:fallback",
+                    stage="本地规则未完全匹配，正在调用在线AI辅助识别",
+                )
+            if result == "成功":
+                matched = detail.split("|", 1)[0].strip() or "已返回候选动作"
+                return self.result(f"在线AI已匹配到：{matched}，正在进入安全链路。", context_id="deepseek:success")
+            if result == "失败":
+                return self.result("在线AI不可用或未通过校验，已回退本地规则。", context_id="deepseek:failed")
+            return None
+
         if category == "系统" and action.startswith("系统命令 "):
             action_key = action.replace("系统命令 ", "", 1).strip()
             if result == "失败":
@@ -93,7 +108,9 @@ class ResponseBuilder:
             return None
 
         if category == "反馈" and action == "实时状态变化" and "报警" in detail:
-            return self.alert(f"设备状态变化：{detail}", context_id=f"feedback:alarm:{detail}")
+            advice = self._alarm_advice_hint(detail)
+            suffix = f"。建议：{advice}" if advice else ""
+            return self.alert(f"设备状态变化：{detail}{suffix}", context_id=f"feedback:alarm:{detail}")
 
         if category == "安全预检" and result == "拒绝":
             return self.alert(f"安全预检未通过：{detail or action}", context_id="precheck:l1:rejected")
@@ -111,7 +128,9 @@ class ResponseBuilder:
                 return self.alert(f"语音识别失败：{detail or '未返回有效文本'}。", context_id="voice:failed")
 
         if category == "用户页面" and action == "确认报警" and result == "成功":
-            return self.alert(f"报警已确认：{detail or '-'}", context_id=f"alarm_ack:{detail or '-'}")
+            advice = self._alarm_advice_hint(detail)
+            suffix = f"。建议：{advice}" if advice else ""
+            return self.alert(f"报警已确认：{detail or '-'}{suffix}", context_id=f"alarm_ack:{detail or '-'}")
 
         if category == "用户页面" and action == "停止当前任务":
             if result == "成功":
@@ -137,9 +156,46 @@ class ResponseBuilder:
         if category == "六轴":
             if action.startswith("完成+报警 "):
                 name = action.replace("完成+报警 ", "", 1).strip() or "-"
-                return self.alert(f"动作完成但存在报警：{name}，{detail or '请检查报警状态'}", context_id=f"six_axis:{name}:alarm")
+                advice = self._alarm_advice_hint(detail)
+                suffix = f"。建议：{advice}" if advice else ""
+                return self.alert(f"动作完成但存在报警：{name}，{detail or '请检查报警状态'}{suffix}", context_id=f"six_axis:{name}:alarm")
             if action.startswith("执行完成 ") and result == "成功":
                 name = action.replace("执行完成 ", "", 1).strip() or "-"
                 return self.result(f"动作执行完成：{name}。", context_id=f"six_axis:{name}:completed")
 
         return None
+
+    @staticmethod
+    def _alarm_advice_hint(detail: str) -> str:
+        text = str(detail or "")
+        if not text:
+            return ""
+        for code in (
+            "E_STOP",
+            "PAUSED",
+            "OVER_SPEED",
+            "OVER_ACCEL",
+            "OVER_DECEL",
+            "JOINT_LIMIT",
+            "CART_LIMIT",
+            "SINGULARITY",
+            "COMM_STALE",
+            "CONTROLLER_NOT_READY",
+        ):
+            if code in text:
+                return AlarmAdviceBook.default().get(code).operator_hint
+        keyword_codes = (
+            ("急停", "E_STOP"),
+            ("暂停", "PAUSED"),
+            ("速度", "OVER_SPEED"),
+            ("加速度", "OVER_ACCEL"),
+            ("减速度", "OVER_DECEL"),
+            ("限位", "JOINT_LIMIT"),
+            ("奇异", "SINGULARITY"),
+            ("通讯", "COMM_STALE"),
+            ("未就绪", "CONTROLLER_NOT_READY"),
+        )
+        for keyword, code in keyword_codes:
+            if keyword in text:
+                return AlarmAdviceBook.default().get(code).operator_hint
+        return ""

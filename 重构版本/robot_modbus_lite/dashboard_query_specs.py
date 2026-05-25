@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import re
 
 
@@ -62,6 +64,45 @@ DASHBOARD_QUERY_SPECS: tuple[DashboardQuerySpec, ...] = (
 )
 
 
+def _load_alias_config() -> dict[str, tuple[str, ...]]:
+    path = Path(__file__).resolve().parent.parent / "data" / "dashboard_query_aliases.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    aliases = payload.get("aliases") if isinstance(payload, dict) else None
+    if not isinstance(aliases, dict):
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for key, values in aliases.items():
+        if isinstance(values, list):
+            cleaned = tuple(str(value).strip() for value in values if str(value).strip())
+            if cleaned:
+                result[str(key)] = cleaned
+    return result
+
+
+def dashboard_query_specs() -> tuple[DashboardQuerySpec, ...]:
+    alias_config = _load_alias_config()
+    if not alias_config:
+        return DASHBOARD_QUERY_SPECS
+    specs: list[DashboardQuerySpec] = []
+    for spec in DASHBOARD_QUERY_SPECS:
+        aliases = alias_config.get(spec.board_key, spec.aliases)
+        specs.append(
+            DashboardQuerySpec(
+                spec.board_key,
+                spec.board_name,
+                aliases,
+                spec.answer_scope,
+                spec.priority_hint,
+            )
+        )
+    return tuple(specs)
+
+
 REQUIRED_DASHBOARD_QUERY_KEYS = frozenset(
     {
         "device_status",
@@ -76,7 +117,7 @@ REQUIRED_DASHBOARD_QUERY_KEYS = frozenset(
 
 
 def dashboard_query_keys() -> set[str]:
-    return {spec.board_key for spec in DASHBOARD_QUERY_SPECS}
+    return {spec.board_key for spec in dashboard_query_specs()}
 
 
 def missing_dashboard_query_keys() -> list[str]:
@@ -89,7 +130,7 @@ def match_dashboard_query_spec(text: str) -> DashboardQuerySpec | None:
     if not compact:
         return None
     lowered = compact.lower()
-    for spec in DASHBOARD_QUERY_SPECS:
+    for spec in dashboard_query_specs():
         if any(alias.lower() in lowered for alias in spec.aliases):
             return spec
     return None
@@ -104,7 +145,7 @@ def export_dashboard_query_rows() -> list[dict[str, object]]:
             "answer_scope": spec.answer_scope,
             "priority_hint": spec.priority_hint,
         }
-        for spec in DASHBOARD_QUERY_SPECS
+        for spec in dashboard_query_specs()
     ]
 
 

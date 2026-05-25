@@ -21,6 +21,7 @@ def test_dashboard_query_specs_match_common_questions():
     assert match_dashboard_query_spec("流程预演到哪了").board_key == "process_preview"
     assert match_dashboard_query_spec("这个位置能到吗").board_key == "process_adaptation"
     assert match_dashboard_query_spec("现在设备状态").board_key == "device_status"
+    assert match_dashboard_query_spec("现在下位机状态是什么").board_key == "device_status"
 
 
 def test_dashboard_query_specs_export_rows_are_reviewable():
@@ -29,6 +30,7 @@ def test_dashboard_query_specs_export_rows_are_reviewable():
     assert rows[0]["board_key"] == "device_status"
     assert rows[0]["board_name"] == "看板1 设备基础状态"
     assert "设备状态" in rows[0]["aliases"]
+    assert "下位机状态" in rows[0]["aliases"]
     assert any(row["board_key"] == "communication_faults" for row in rows)
 
 

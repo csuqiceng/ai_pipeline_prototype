@@ -12,13 +12,13 @@ DEFAULT_SYSTEM_CONFIG = {
     "x": [-3000.0, 3000.0],
     "y": [-3000.0, 3000.0],
     "z": [0.0, 3000.0],
-    "safe_r_min": 0.0,
-    "safe_r_max": 0.0,
+    "safe_r_min": 200.0,
+    "safe_r_max": 1800.0,
     "safe_z_min": 0.0,
-    "safe_z_max": 0.0,
-    "safe_speed_max": 0.0,
-    "safe_acc_max": 0.0,
-    "safe_dec_max": 0.0,
+    "safe_z_max": 2500.0,
+    "safe_speed_max": 150.0,
+    "safe_acc_max": 150.0,
+    "safe_dec_max": 150.0,
     "motion_timeout_sec": 180.0,
     "echo_retry_interval_sec": 0.005,
     "echo_retry_count": 3,
@@ -47,13 +47,13 @@ class AxisRangeConfig:
     x: tuple[float, float]
     y: tuple[float, float]
     z: tuple[float, float]
-    safe_r_min: float = 0.0
-    safe_r_max: float = 0.0
+    safe_r_min: float = 200.0
+    safe_r_max: float = 1800.0
     safe_z_min: float = 0.0
-    safe_z_max: float = 0.0
-    safe_speed_max: float = 0.0
-    safe_acc_max: float = 0.0
-    safe_dec_max: float = 0.0
+    safe_z_max: float = 2500.0
+    safe_speed_max: float = 150.0
+    safe_acc_max: float = 150.0
+    safe_dec_max: float = 150.0
     motion_timeout_sec: float = 180.0
     echo_retry_interval_sec: float = 0.005
     echo_retry_count: int = 3

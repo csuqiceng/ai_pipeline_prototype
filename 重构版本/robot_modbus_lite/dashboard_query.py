@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .alarm_advice import AlarmAdviceBook
+
 from .dashboard_query_specs import match_dashboard_query_spec
 
 
@@ -114,7 +116,12 @@ class DashboardQueryService:
         if board.get("alarm"):
             code = board.get("alarm_code") or board.get("alarmCode") or "-"
             text = board.get("alarm_text") or board.get("alarmText") or "-"
-            return DashboardQueryAnswer("device_status", f"当前有报警，报警码 {code}，报警内容 {text}。", "high")
+            advice = AlarmAdviceBook.default().get(str(code))
+            return DashboardQueryAnswer(
+                "device_status",
+                f"当前有报警，报警码 {code}，报警内容 {text}。建议：{advice.operator_hint}",
+                "high",
+            )
         return DashboardQueryAnswer("device_status", "当前无报警。")
 
     @staticmethod

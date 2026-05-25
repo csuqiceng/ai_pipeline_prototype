@@ -2,6 +2,8 @@ from robot_modbus_lite.atomic_memory import AtomicMemory
 from robot_modbus_lite.atomic_parser import AtomicParser
 from robot_modbus_lite.atomic_resolver import AtomicResolver
 from robot_modbus_lite.models import QueryRecord
+from robot_modbus_lite.permission_service import PermissionService
+from robot_modbus_lite.position_registry import PositionEntry, PositionRegistry
 
 
 def resolve(text: str, memory: AtomicMemory | None = None):
@@ -22,8 +24,8 @@ def test_resolver_maps_virtual_nudge_to_func107_with_defaults():
     assert record.params["axis_no"] == 8
     assert record.params["pos_val"] == 3.0
     assert record.params["spd_pct"] == 50.0
-    assert record.params["acc_pct"] == 100.0
-    assert record.params["dec_pct"] == 100.0
+    assert record.params["acc_pct"] == 50.0
+    assert record.params["dec_pct"] == 50.0
     assert record.params["fuzzy_pos"] == 1
 
 
@@ -55,6 +57,48 @@ def test_resolver_updates_memory_without_record():
     assert result.kind == "memory"
     assert "record" not in result.params
     assert memory.current_speed == 60.0
+    assert memory.current_acc == 60.0
+    assert memory.current_dec == 60.0
+
+
+def test_resolver_uses_speed_for_default_acc_dec_when_speed_is_given_inline():
+    record = record_from("小正，30%速度上升3毫米")
+
+    assert record.params["spd_pct"] == 30.0
+    assert record.params["acc_pct"] == 30.0
+    assert record.params["dec_pct"] == 30.0
+
+
+def test_resolver_records_last_direction_for_virtual_jog():
+    memory = AtomicMemory()
+
+    record = record_from("小正，前进3毫米", memory)
+
+    assert record.func_num == 107
+    assert memory.last_direction == (107.0, 6.0, 1.0)
+    assert memory.last_step == 3.0
+
+
+def test_resolver_continues_last_direction_with_last_step():
+    memory = AtomicMemory()
+    record_from("小正，前进3毫米", memory)
+
+    record = record_from("小正，继续", memory)
+
+    assert record.func_num == 107
+    assert record.params["axis_no"] == 6
+    assert record.params["pos_val"] == 3.0
+
+
+def test_resolver_continues_last_joint_direction_with_explicit_step():
+    memory = AtomicMemory()
+    record_from("小正，J2反转15度", memory)
+
+    record = record_from("小正，继续5度", memory)
+
+    assert record.func_num == 106
+    assert record.params["axis_no"] == 1
+    assert record.params["pos_val"] == -5.0
 
 
 def test_resolver_rejects_unknown_atomic_command():
@@ -86,3 +130,19 @@ def test_resolver_keeps_fast_or_absolute_motion_high_risk():
     assert fast.requires_confirmation is True
     assert absolute.risk_level == "high"
     assert absolute.requires_confirmation is True
+
+
+def test_resolver_prefers_structured_position_registry(tmp_path):
+    registry = PositionRegistry(tmp_path / "positions.json", permission=PermissionService("engineer"))
+    registry.add(PositionEntry(name="A", pose=(1, 2, 3, 4, 5, 6), spd=35, move_type=1))
+    memory = AtomicMemory()
+    memory.position_registry = registry
+
+    result = resolve("小正，移动到位置A", memory)
+    record = result.params["record"]
+
+    assert result.kind == "template"
+    assert isinstance(record, QueryRecord)
+    assert record.float_param("target_x") == 1
+    assert record.float_param("spd_pct") == 35
+    assert record.int_param("move_type") == 1

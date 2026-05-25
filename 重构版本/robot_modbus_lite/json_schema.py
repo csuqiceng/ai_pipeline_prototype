@@ -41,6 +41,19 @@ INTERACTION_RECORD_REQUIRED = (
 )
 
 DEVICE_SNAPSHOT_REQUIRED = ("msg_type", "timestamp", "dashboard_type", "refresh_ms", "data")
+SYSTEM_REPLY_REQUIRED = (
+    "msg_type",
+    "msg_id",
+    "timestamp",
+    "reply_type",
+    "text",
+    "device_status",
+    "safety_precheck",
+    "func_execution",
+    "progress",
+    "emergency",
+)
+DASHBOARD_PUSH_REQUIRED = ("msg_type", "timestamp", "dashboard_type", "refresh_ms", "data")
 
 
 @dataclass(frozen=True)
@@ -168,6 +181,94 @@ class DeviceSnapshot:
         }
 
 
+@dataclass(frozen=True)
+class SystemReply:
+    """V1.1-compatible system-to-human reply envelope."""
+
+    msg_id: str
+    timestamp: str
+    reply_type: str
+    text: str
+    device_status: dict[str, Any] = field(default_factory=dict)
+    safety_precheck: dict[str, Any] = field(default_factory=dict)
+    func_execution: dict[str, Any] = field(default_factory=dict)
+    progress: dict[str, Any] = field(default_factory=dict)
+    emergency: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_response_message(
+        cls,
+        message: Any,
+        *,
+        msg_id: str,
+        timestamp: str,
+        dashboard_snapshot: DashboardSnapshot | None = None,
+        safety_precheck: dict[str, Any] | None = None,
+        func_execution: dict[str, Any] | None = None,
+        progress: dict[str, Any] | None = None,
+        emergency: dict[str, Any] | None = None,
+    ) -> "SystemReply":
+        return cls(
+            msg_id=msg_id,
+            timestamp=timestamp,
+            reply_type=str(getattr(message, "kind", "result") or "result"),
+            text=str(getattr(message, "text", "") or ""),
+            device_status=_device_status_brief(dashboard_snapshot),
+            safety_precheck=dict(safety_precheck or _default_safety_precheck()),
+            func_execution=dict(func_execution or _default_func_execution()),
+            progress=dict(progress or _default_progress()),
+            emergency=dict(emergency or _default_emergency()),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "msg_type": "system_reply",
+            "msg_id": self.msg_id,
+            "timestamp": self.timestamp,
+            "reply_type": self.reply_type,
+            "text": self.text,
+            "device_status": dict(self.device_status),
+            "safety_precheck": dict(self.safety_precheck),
+            "func_execution": dict(self.func_execution),
+            "progress": dict(self.progress),
+            "emergency": dict(self.emergency),
+        }
+
+
+@dataclass(frozen=True)
+class DashboardPush:
+    """V1.1-compatible 50ms dashboard push envelope."""
+
+    timestamp: str
+    dashboard_type: str = "all"
+    refresh_ms: int = 50
+    data: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dashboard_snapshot(
+        cls,
+        snapshot: DashboardSnapshot,
+        *,
+        dashboard_type: str = "all",
+        refresh_ms: int | None = None,
+    ) -> "DashboardPush":
+        return cls(
+            timestamp=snapshot.ts,
+            dashboard_type=dashboard_type,
+            refresh_ms=int(refresh_ms if refresh_ms is not None else snapshot.refresh_ms),
+            data=dict(snapshot.to_dict()),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "msg_type": "dashboard_push",
+            "timestamp": self.timestamp,
+            "dashboard_type": self.dashboard_type,
+            "refresh_ms": int(self.refresh_ms),
+            "data": dict(self.data),
+        }
+
+
 def validate_command_intent(data: dict[str, Any]) -> str | None:
     if data.get("msg_type") != "command_intent":
         return "command_intent.msg_type 必须为 command_intent"
@@ -202,6 +303,68 @@ def validate_device_snapshot(data: dict[str, Any]) -> str | None:
     if not isinstance(data.get("data"), dict):
         return "device_snapshot.data 必须为对象"
     return None
+
+
+def validate_system_reply(data: dict[str, Any]) -> str | None:
+    if data.get("msg_type") != "system_reply":
+        return "system_reply.msg_type 必须为 system_reply"
+    error = _validate_required("system_reply", data, SYSTEM_REPLY_REQUIRED)
+    if error:
+        return error
+    for key in ("device_status", "safety_precheck", "func_execution", "progress", "emergency"):
+        if not isinstance(data.get(key), dict):
+            return f"system_reply.{key} 必须为对象"
+    return None
+
+
+def validate_dashboard_push(data: dict[str, Any]) -> str | None:
+    if data.get("msg_type") != "dashboard_push":
+        return "dashboard_push.msg_type 必须为 dashboard_push"
+    error = _validate_required("dashboard_push", data, DASHBOARD_PUSH_REQUIRED)
+    if error:
+        return error
+    if not isinstance(data.get("data"), dict):
+        return "dashboard_push.data 必须为对象"
+    return None
+
+
+def _device_status_brief(snapshot: DashboardSnapshot | None) -> dict[str, Any]:
+    if snapshot is None:
+        return {
+            "system_state": "idle",
+            "position": {},
+            "alarm_active": False,
+            "estop": False,
+            "speed_pct": 0.0,
+            "ecat_ok": True,
+        }
+    return {
+        "system_state": str(snapshot.motion.get("running_state") or "unknown"),
+        "position": {
+            "dpos_c": list(snapshot.position.get("dpos_c", ()) or ()),
+            "dpos_j": list(snapshot.position.get("dpos_j", snapshot.position.get("joints", ())) or ()),
+        },
+        "alarm_active": bool(snapshot.safety.get("alarm_active")),
+        "estop": bool(snapshot.safety.get("estop")),
+        "speed_pct": snapshot.motion.get("speed", 0.0),
+        "ecat_ok": snapshot.connection.get("realtime_feedback") == "online",
+    }
+
+
+def _default_safety_precheck() -> dict[str, Any]:
+    return {"l1_passed": True, "l2_passed": None, "l3_passed": None, "risk_level": "L1"}
+
+
+def _default_func_execution() -> dict[str, Any]:
+    return {"func_id": 0, "ieee_dict": {}, "write_result": "", "write_time_ms": 0.0}
+
+
+def _default_progress() -> dict[str, Any]:
+    return {"current_step": 0, "total_steps": 0, "progress_pct": 0, "eta_ms": 0}
+
+
+def _default_emergency() -> dict[str, Any]:
+    return {"triggered": False, "emergency_code": "", "bypass_layers": [], "response_ms": 0.0}
 
 
 def _validate_required(name: str, data: dict[str, Any], required: tuple[str, ...]) -> str | None:

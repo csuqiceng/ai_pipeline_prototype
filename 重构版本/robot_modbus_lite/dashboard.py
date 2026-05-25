@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from .alarm_detector import AlarmDetector
+
 
 @dataclass(frozen=True)
 class DashboardSnapshot:
@@ -113,6 +115,21 @@ class DashboardCache:
             "claw_enable": getattr(source, "claw_enable", "-"),
             "claw_brake": getattr(source, "claw_brake", "-"),
         }
+        alarm_detection = AlarmDetector().detect(
+            alarm_code=alarm_code,
+            alarm_text=str(getattr(source, "alarm_text", "-") or "-"),
+            long38_raw=(
+                getattr(source, "six_long38", None)
+                if getattr(source, "six_long38", None) is not None
+                else getattr(source, "long38_raw", None)
+            ),
+            estop=bool(safety.get("estop")),
+            paused=bool(safety.get("paused")),
+            realtime_feedback=str(connection.get("realtime_feedback", "unknown")),
+            controller=str(connection.get("controller", "unknown")),
+        )
+        safety["alarm_active"] = alarm_detection.active or bool(safety.get("alarm_active"))
+        safety["alarm_detection"] = alarm_detection.to_dict()
         snapshot = DashboardSnapshot(
             ts=datetime.now().isoformat(timespec="milliseconds"),
             position=position,
@@ -151,6 +168,7 @@ class DashboardCache:
                 "alarm": bool(safety.get("alarm_active")),
                 "alarm_code": safety.get("alarm_code", "-"),
                 "mpos_j": position.get("mpos_j", ()),
+                "alarm_detection": safety.get("alarm_detection", {}),
                 "mpos_c": position.get("mpos_c", ()),
                 "dpos_j": position.get("dpos_j") or position.get("joints", ()),
                 "dpos_c": position.get("dpos_c")

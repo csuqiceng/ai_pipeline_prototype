@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Iterable
 
 from .command_parser import parse_command
-from .flow_store import load_flows_json, save_flows_json
+from .flow_registry import FlowEntry, FlowRegistry
+from .flow_store import flow_definition_to_entry, flow_entry_to_definition, load_flows_json, save_flows_json
 from .models import (
     FixedVrCommand,
     FlowDefinition,
@@ -24,6 +25,7 @@ from .models import (
     VrReadRequest,
     VrWriteRequest,
 )
+from .permission_service import PermissionService
 from .query_table import load_query_table
 
 
@@ -49,6 +51,7 @@ class RobotModbusService:
         command_vr_start: int = 500,
         status_vr_start: int = 600,
         table: dict[str, QueryRecord] | None = None,
+        flow_registry_path: str | Path | None = None,
     ) -> None:
         """初始化对象。"""
         self.csv_path = Path(csv_path)
@@ -58,7 +61,9 @@ class RobotModbusService:
         self.status_vr_start = status_vr_start
         self.table = table if table is not None else load_query_table(self.csv_path)
         self.flows_path = Path(flows_path) if flows_path else None
-        self.flows = load_flows_json(self.flows_path) if self.flows_path else {}
+        self.flow_registry_path = Path(flow_registry_path) if flow_registry_path else self._default_flow_registry_path()
+        self.flow_registry = self._load_flow_registry()
+        self.flows = self._load_flows()
         self.standard_status_vr_start = 16
         self.standard_mirror_vr_start = 500
         self.standard_ack_vr = 516
@@ -68,8 +73,9 @@ class RobotModbusService:
     def reload(self) -> None:
         """处理相关数据。"""
         self.table = load_query_table(self.csv_path)
-        if self.flows_path:
-            self.flows = load_flows_json(self.flows_path)
+        if self.flow_registry_path:
+            self.flow_registry = self._load_flow_registry()
+        self.flows = self._load_flows()
 
     def parse(self, text: str) -> ParsedCommand:
         """解析相关数据。"""
@@ -166,6 +172,38 @@ class RobotModbusService:
         self.flows[flow.name] = flow
         if self.flows_path:
             save_flows_json(self.flows_path, self.flows)
+        if self.flow_registry is not None:
+            entry = flow_definition_to_entry(flow)
+            existing = self.flow_registry.get(flow.name)
+            if existing is None:
+                self.flow_registry.add(entry)
+            else:
+                self.flow_registry.update(
+                    flow.name,
+                    steps=entry.steps,
+                    step_delay_ms=entry.step_delay_ms,
+                    create_draft=existing.confirmed,
+                )
+
+    def save_flow_entry(self, entry: FlowEntry) -> None:
+        """保存结构化流程并同步旧视图文件。"""
+        self.flows[entry.name] = flow_entry_to_definition(entry)
+        if self.flows_path:
+            save_flows_json(self.flows_path, self.flows)
+        if self.flow_registry is None:
+            return
+        existing = self.flow_registry.get(entry.name)
+        if existing is None:
+            self.flow_registry.add(entry)
+            return
+        self.flow_registry.update(
+            entry.name,
+            description=entry.description,
+            steps=entry.steps,
+            step_delay_ms=entry.step_delay_ms,
+            rehearsal_spd=entry.rehearsal_spd,
+            create_draft=existing.confirmed,
+        )
 
     def delete_flow(self, name: str) -> None:
         """删除流程。"""
@@ -173,6 +211,46 @@ class RobotModbusService:
             del self.flows[name]
             if self.flows_path:
                 save_flows_json(self.flows_path, self.flows)
+        if self.flow_registry is not None and self.flow_registry.get(name) is not None:
+            self.flow_registry.remove(name)
+
+    def get_flow_entry(self, name: str) -> FlowEntry | None:
+        if self.flow_registry is None:
+            return None
+        return self.flow_registry.get(name)
+
+    def get_effective_flow(self, name: str) -> FlowDefinition | FlowEntry:
+        entry = self.get_flow_entry(name)
+        if entry is not None:
+            return entry
+        return self.get_flow(name)
+
+    def confirm_flow(self, name: str) -> tuple[bool, str]:
+        if self.flow_registry is None:
+            return False, "流程注册表未启用"
+        return self.flow_registry.confirm(name)
+
+    def start_flow_rehearsal(self, name: str) -> tuple[bool, str]:
+        if self.flow_registry is None:
+            return False, "流程注册表未启用"
+        return self.flow_registry.start_rehearsal(name)
+
+    def _default_flow_registry_path(self) -> Path | None:
+        if self.flows_path is None:
+            return None
+        return self.flows_path.with_name("flow_registry.json")
+
+    def _load_flow_registry(self) -> FlowRegistry | None:
+        if self.flow_registry_path is None:
+            return None
+        return FlowRegistry(self.flow_registry_path, permission=PermissionService("engineer"))
+
+    def _load_flows(self) -> dict[str, FlowDefinition]:
+        flows = load_flows_json(self.flows_path) if self.flows_path else {}
+        if self.flow_registry is not None:
+            for entry in self.flow_registry.list_all():
+                flows[entry.name] = flow_entry_to_definition(entry)
+        return flows
 
     def _build_standard_command_from_record(
         self,

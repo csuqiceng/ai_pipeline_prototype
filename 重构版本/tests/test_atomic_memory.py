@@ -1,14 +1,14 @@
 from robot_modbus_lite.atomic_memory import AtomicMemory
 
 
-def test_atomic_memory_defaults_match_v20_doc():
+def test_atomic_memory_defaults_match_v11_doc():
     memory = AtomicMemory()
 
     assert memory.current_speed == 50.0
     assert memory.current_step_mm == 10.0
     assert memory.current_step_deg == 5.0
-    assert memory.current_acc == 100.0
-    assert memory.current_dec == 100.0
+    assert memory.current_acc == 50.0
+    assert memory.current_dec == 50.0
     assert memory.confirm_mode == "beginner"
 
 
@@ -26,6 +26,16 @@ def test_atomic_memory_clamps_speed_acc_dec_and_updates_steps():
     assert memory.current_dec == 150.0
     assert memory.current_step_mm == 3.0
     assert memory.current_step_deg == 2.0
+
+
+def test_atomic_memory_set_speed_syncs_default_acc_dec():
+    memory = AtomicMemory()
+
+    memory.set_speed(80)
+
+    assert memory.current_speed == 80.0
+    assert memory.current_acc == 80.0
+    assert memory.current_dec == 80.0
 
 
 def test_atomic_memory_updates_confirm_mode_with_validation():

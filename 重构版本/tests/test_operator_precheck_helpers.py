@@ -2,19 +2,30 @@ import json
 from types import SimpleNamespace
 from pathlib import Path
 
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+
 from robot_modbus_lite.avoidance_config import AvoidanceConfig, SafePoint
 from robot_modbus_lite.broadcast_queue import BroadcastQueue
 from robot_modbus_lite.dashboard import DashboardCache
 from robot_modbus_lite.emergency_channel import EmergencyDecision
+from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
 from robot_modbus_lite.models import FlowDefinition, QueryRecord
+from robot_modbus_lite.flow_management_mixin import FlowManagementMixin
 from robot_modbus_lite.operator_ui_mixin import OperatorSceneState, OperatorUiMixin
+from robot_modbus_lite.permission_service import PermissionService
+from robot_modbus_lite.position_registry import PositionRegistry
 from robot_modbus_lite.response_builder import ResponseBuilder, ResponseMessage
+from robot_modbus_lite.service import RobotModbusService
 from robot_modbus_lite.speech_broadcast import CallableSpeechSink, Pyttsx3SpeechSink
 from robot_modbus_lite.system_config import AxisRangeConfig
 from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAction, VoiceNlpPlan
 
 
 class DummyOperator(OperatorUiMixin):
+    pass
+
+
+class DummyFlowManager(FlowManagementMixin):
     pass
 
 
@@ -37,6 +48,295 @@ def progress_bar():
         setValue=lambda value: state.update(value=value),
         setFormat=lambda text: state.update(format=text),
     )
+
+
+def flow_draft_payload():
+    return {
+        "flow_name": "打招呼",
+        "positions": [
+            {"name": "home", "pose": [1475.0, 0.0, 1545.0, 0.0, 0.0, 0.0]},
+        ],
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "移动",
+                "func_id": 108,
+                "position_name": "home",
+                "description": "移动到home",
+                "params": {
+                    "target_x": 1475.0,
+                    "target_y": 0.0,
+                    "target_z": 1545.0,
+                    "target_rx": 0.0,
+                    "target_ry": 0.0,
+                    "target_rz": 0.0,
+                    "spd_pct": 50.0,
+                    "acc_pct": 50.0,
+                    "dec_pct": 50.0,
+                    "move_type": 0,
+                },
+            },
+            {
+                "step_id": 2,
+                "action": "Ry正转",
+                "func_id": 107,
+                "description": "小臂上下点头:Ry正转",
+                "params": {
+                    "axis_no": 10,
+                    "pos_val": 15.0,
+                    "spd_pct": 50.0,
+                    "acc_pct": 50.0,
+                    "dec_pct": 50.0,
+                },
+            },
+            {
+                "step_id": 3,
+                "action": "Ry反转",
+                "func_id": 107,
+                "description": "小臂上下点头:Ry反转",
+                "params": {
+                    "axis_no": 10,
+                    "pos_val": -15.0,
+                    "spd_pct": 50.0,
+                    "acc_pct": 50.0,
+                    "dec_pct": 50.0,
+                },
+            },
+        ],
+    }
+
+
+def make_flow_draft_operator(tmp_path):
+    dummy = DummyOperator()
+    dummy.runtime_root = tmp_path
+    dummy.json_path = tmp_path / "data" / "query_table.json"
+    dummy.table = {}
+    dummy.service = RobotModbusService(
+        dummy.json_path,
+        flows_path=tmp_path / "data" / "flows.json",
+        table=dummy.table,
+    )
+    dummy._authenticated_role = "engineer"
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._show_info = lambda *args, **kwargs: None
+    dummy._show_warning = lambda *args, **kwargs: None
+    dummy._position_registry = lambda: PositionRegistry(
+        tmp_path / "data" / "position_registry.json",
+        permission=PermissionService("engineer"),
+    )
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda *args, **kwargs: None
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "nlp_sequence_running", busy)
+    return dummy
+
+
+def test_operator_save_flow_draft_persists_positions_templates_and_flow(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+
+    ok, message, flow_name = dummy._operator_save_flow_draft(flow_draft_payload())
+
+    assert ok is True
+    assert flow_name == "打招呼"
+    assert "已保存" in message
+    assert len(dummy.table) == 3
+    assert all(key.startswith("flowdraft:打招呼:") for key in dummy.table)
+    assert dummy.service.get_flow("打招呼").steps == tuple(dummy.table.keys())
+    assert dummy.service.get_flow_entry("打招呼") is not None
+    assert dummy._position_registry().get("home").pose == (1475.0, 0.0, 1545.0, 0.0, 0.0, 0.0)
+    assert dummy.json_path.exists()
+
+
+def test_operator_save_flow_draft_allows_operator_to_create_flow_draft(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._authenticated_role = "operator"
+    dummy._position_registry = lambda: PositionRegistry(
+        tmp_path / "data" / "position_registry.json",
+        permission=PermissionService("operator"),
+    )
+
+    ok, message, flow_name = dummy._operator_save_flow_draft(flow_draft_payload())
+
+    assert ok is True
+    assert flow_name == "打招呼"
+    assert "已保存" in message
+    assert "打招呼" in dummy.service.list_flow_names()
+    assert dummy._position_registry().get("home") is not None
+
+
+def test_operator_execute_text_clears_input_after_send():
+    dummy = DummyOperator()
+    events = []
+    dummy._operator_push_text_to_nlp = lambda: True
+    dummy._execute_nlp_text = lambda: events.append("execute")
+    dummy._operator_scene_override = "execute"
+    dummy.nlp_input_edit = SimpleNamespace(
+        value="小正，查询状态",
+        clear=lambda: setattr(dummy.nlp_input_edit, "value", ""),
+        toPlainText=lambda: dummy.nlp_input_edit.value,
+    )
+    dummy.operator_command_edit = SimpleNamespace(
+        value="小正，查询状态",
+        clear=lambda: setattr(dummy.operator_command_edit, "value", ""),
+        text=lambda: dummy.operator_command_edit.value,
+    )
+
+    dummy._operator_execute_text()
+
+    assert events == ["execute"]
+    assert dummy.operator_command_edit.value == ""
+    assert dummy.nlp_input_edit.value == ""
+
+
+def test_operator_refresh_dialog_labels_does_not_repopulate_cleared_input_after_send():
+    dummy = DummyOperator()
+    dummy._operator_chat_rendered = True
+    dummy.status_label = SimpleNamespace(text=lambda: "系统在线")
+    dummy.operator_response_label = SimpleNamespace(setText=lambda _text: None)
+    dummy.operator_voice_label = SimpleNamespace(setText=lambda _text: None)
+    dummy.operator_chat_scroll = SimpleNamespace()
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "")
+    dummy.operator_command_edit = SimpleNamespace(
+        value="",
+        hasFocus=lambda: False,
+        text=lambda: dummy.operator_command_edit.value,
+        setText=lambda text: setattr(dummy.operator_command_edit, "value", text),
+    )
+
+    dummy._refresh_operator_dialog_labels()
+
+    assert dummy.operator_command_edit.value == ""
+
+
+def test_operator_pending_flow_draft_confirm_save_uses_pending_draft(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+
+    handled = dummy._operator_handle_pending_flow_draft_command("确认保存")
+
+    assert handled is True
+    assert dummy._operator_pending_flow_draft is None
+    assert "打招呼" in dummy.service.list_flow_names()
+    assert "已保存流程草案" in dummy.status_text
+
+
+def test_operator_pending_flow_draft_save_and_execute_starts_saved_flow(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    started = []
+    dummy._start_flow = lambda on_done=None: started.append(dummy.current_flow_name) or (on_done and on_done(True))
+
+    handled = dummy._operator_handle_pending_flow_draft_command("保存并执行")
+
+    assert handled is True
+    assert started == ["打招呼"]
+    assert dummy.current_flow_name == "打招呼"
+
+
+def test_operator_pending_flow_draft_query_previews_current_draft(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    logs = []
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    handled = dummy._handle_operator_ui_command("我想看下是什么样的流程")
+
+    assert handled is True
+    assert chats[-1][0] == "assistant"
+    answer = chats[-1][1]
+    assert "当前待确认流程草案" in answer
+    assert "打招呼" in answer
+    assert "尚未保存/执行" in answer
+    assert "home" in answer
+    assert "移动到home" in answer
+    assert "A到B" not in answer
+    assert dummy.status_text == DummyOperator._operator_footer_status_text(answer)
+    assert logs[-1][1] == "流程草案查询"
+
+
+def test_operator_context_query_answers_pending_flow_draft_parameters(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+
+    handled = dummy._handle_operator_ui_command("草案的参数是什么")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "当前待确认流程草案" in answer
+    assert "target_x=1475" in answer
+    assert "target_z=1545" in answer
+    assert "spd_pct=50" in answer
+
+
+def test_operator_context_query_answers_position_pose_from_registry(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    registry = dummy._position_registry()
+    ok, message = registry.set_position("home", (1475, 0, 1545, 0, 0, 0), created_by="operator")
+    assert ok, message
+    chats = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+
+    handled = dummy._handle_operator_ui_command("home位置的参数是什么")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "home" in answer
+    assert "x=1475" in answer
+    assert "y=0" in answer
+    assert "z=1545" in answer
+    assert "rx=0" in answer
+
+
+def test_operator_context_query_uses_single_known_position_for_coordinate_followup(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    registry = dummy._position_registry()
+    ok, message = registry.set_position("home", (1475, 0, 1545, 0, 0, 0), created_by="operator")
+    assert ok, message
+    chats = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+
+    handled = dummy._handle_operator_ui_command("具体的x y 信息是什么")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "位置 home" in answer
+    assert "x=1475" in answer
+    assert "y=0" in answer
+
+
+def test_operator_context_query_answers_last_execution_result(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path / "logs"
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_execution_result = OperatorUiMixin._operator_archive_execution_result.__get__(
+        dummy,
+        DummyOperator,
+    )
+    dummy._operator_archive_text_input("保存并执行")
+    dummy._operator_archive_execution_result(result="success", final_text="流程完成：共完成 1 步")
+    dummy._operator_archive_text_input("执行结果是什么")
+    chats = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+
+    handled = dummy._handle_operator_ui_command("执行结果是什么")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "最近一次执行结果" in answer
+    assert "保存并执行" in answer
+    assert "成功" in answer
+    assert "流程完成：共完成 1 步" in answer
+    assert "未实际执行任何动作" not in answer
 
 
 def test_operator_refresh_dashboard_cache_updates_v21_snapshot_without_full_view():
@@ -84,6 +384,60 @@ def test_operator_make_dashboard_cache_uses_configured_refresh_and_stale_thresho
 
     assert cache.refresh_ms == 80
     assert cache.stale_after_ms == 2500
+
+
+def test_operator_recent_events_hides_chat_only_nlp_logs():
+    dummy = DummyOperator()
+    dummy.logs = [
+        {
+            "time": "21:49:44.404",
+            "category": "自然语言",
+            "action": "闲聊咨询",
+            "result": "成功",
+            "detail": "当前系统已加载模板...",
+        },
+        {
+            "time": "21:49:44.333",
+            "category": "自然语言",
+            "action": "DeepSeek问答",
+            "result": "成功",
+            "detail": "当前系统已加载模板...",
+        },
+        {
+            "time": "21:49:43.000",
+            "category": "自然语言",
+            "action": "流程草案",
+            "result": "提示",
+            "detail": "已生成流程草案",
+        },
+        {
+            "time": "21:49:42.000",
+            "category": "用户页面",
+            "action": "场景切换",
+            "result": "成功",
+            "detail": "execute -> idle",
+        },
+    ]
+
+    events = dummy._operator_recent_event_entries(limit=10)
+
+    actions = [entry["action"] for entry in events]
+    assert actions == ["流程草案", "场景切换"]
+
+
+def test_operator_refresh_alarm_monitor_keeps_independent_50ms_sample():
+    dummy = DummyOperator()
+    dummy.alarm_code = "ERR_8"
+    dummy.alarm_text = "速度超限"
+    dummy.six_long38 = 8
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy.monitor_label = SimpleNamespace(text=lambda: "实时监控运行中")
+
+    sample = dummy._operator_refresh_alarm_monitor()
+
+    assert sample.interval_ms == 50
+    assert dummy._operator_last_alarm_detection["codes"] == ["OVER_SPEED"]
 
 
 def test_operator_dashboard_change_broadcasts_alarm_transition_once():
@@ -508,6 +862,428 @@ def test_operator_execute_nlp_plan_waits_when_plan_requires_confirmation():
     assert log_args(logs[-1])[0:3] == ("用户页面", "等待确认", "提示")
 
 
+def test_operator_execute_nlp_plan_handles_clarification_without_running_sequence():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", "gesture_mapping:小臂上下点头", "flow_draft", "原话", "需要补充动作映射：小臂上下点头"),),
+        source="flow_draft",
+        raw_text="原话",
+        reason="需要补充动作映射：小臂上下点头",
+        semantic_level=1,
+        semantic_label="澄清确认层",
+    )
+    status_messages = []
+    info_messages = []
+    logs = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._show_info = lambda title, text: info_messages.append((title, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert not getattr(dummy, "nlp_sequence_running", False)
+    assert "需要补充动作映射" in status_messages[-1]
+    assert info_messages == []
+    assert log_args(logs[-1])[0:3] == ("自然语言", "澄清提示", "提示")
+
+
+def test_operator_execute_nlp_plan_handles_flow_draft_without_running_sequence():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow_draft", "打招呼", "flow_draft", "原话", "已生成流程草案：打招呼，共7步，等待确认保存/执行。"),),
+        source="flow_draft",
+        raw_text="原话",
+        reason="已生成流程草案：打招呼，共7步，等待确认保存/执行。",
+        semantic_level=3,
+        semantic_label="流程草案编排层",
+        requires_confirmation=True,
+        flow_draft={"flow_name": "打招呼", "expanded_steps": [{"step_id": 1}, {"step_id": 2}]},
+    )
+    status_messages = []
+    info_messages = []
+    logs = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._show_info = lambda title, text: info_messages.append((title, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    chats = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert not getattr(dummy, "nlp_sequence_running", False)
+    assert "流程草案" in status_messages[-1]
+    assert info_messages == []
+    assert "2 步" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("自然语言", "流程草案", "提示")
+
+
+def test_operator_execute_nlp_plan_handles_chat_unknown_without_failure():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("unknown", None, "rule", "我不知道", "闲聊或咨询，未触发控制动作"),),
+        source="rule",
+        raw_text="我不知道",
+        reason="闲聊或咨询，未触发控制动作",
+        semantic_level=1,
+        semantic_label="闲聊咨询层",
+    )
+    status_messages = []
+    info_messages = []
+    logs = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._show_info = lambda title, text: info_messages.append((title, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert not getattr(dummy, "nlp_sequence_running", False)
+    assert "没有触发机械手动作" in status_messages[-1]
+    assert info_messages == []
+    assert log_args(logs[-1])[0:3] == ("自然语言", "闲聊咨询", "成功")
+
+
+def test_operator_execute_nlp_plan_handles_deepseek_chat_answer_without_popup():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("chat", None, "deepseek_chat", "你是谁", "我是机械手自然语言交互助手。"),),
+        source="deepseek_chat",
+        raw_text="你是谁",
+        reason="我是机械手自然语言交互助手。",
+        semantic_level=1,
+        semantic_label="闲聊咨询层",
+    )
+    status_messages = []
+    info_messages = []
+    logs = []
+    chats = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._show_info = lambda title, text: info_messages.append((title, text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._operator_archive_execution_result = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert status_messages[-1] == "我是机械手自然语言交互助手。"
+    assert chats[-1] == ("assistant", "我是机械手自然语言交互助手。")
+    assert info_messages == []
+    assert log_args(logs[-1])[0:3] == ("自然语言", "闲聊咨询", "成功")
+
+
+def test_operator_nonexecutable_plan_text_uses_chat_answer_directly():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("chat", None, "deepseek_chat", "你好", "你好，我可以帮你了解系统功能。"),),
+        source="deepseek_chat",
+        raw_text="你好",
+        reason="你好，我可以帮你了解系统功能。",
+        semantic_level=1,
+        semantic_label="闲聊咨询层",
+    )
+
+    text = dummy._operator_nonexecutable_plan_chat_text(plan)
+
+    assert text == "你好，我可以帮你了解系统功能。"
+
+
+def test_operator_streaming_chat_response_updates_single_ai_bubble():
+    dummy = DummyOperator()
+    rendered = []
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: rendered.append(tuple(dummy._operator_chat_messages))
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    dummy._operator_append_streaming_chat_response("我是")
+    dummy._operator_append_streaming_chat_response("问答助手。")
+    while dummy._operator_streaming_chat_pending_chars:
+        dummy._operator_flush_streaming_chat_char()
+    dummy._operator_finish_streaming_chat_response("我是问答助手。")
+
+    assert dummy._operator_chat_messages == [("assistant", "我是问答助手。")]
+    assert all(len(snapshot) == 1 for snapshot in rendered)
+
+
+def test_operator_streaming_chat_begins_with_thinking_hint():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+
+    assert dummy._operator_chat_messages == [("assistant", "")]
+    assert dummy._operator_chat_thinking_steps[-1] == ["正在思考", "识别为普通问答", "检索本地资料"]
+    assert dummy._operator_chat_thinking_meta[-1]["active"] is True
+
+
+def test_operator_maybe_begin_streaming_chat_starts_immediately_for_deepseek_chat():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    started = dummy._operator_maybe_begin_streaming_chat_for_text("你好", use_deepseek=True)
+
+    assert started is True
+    assert dummy._operator_chat_messages == [("assistant", "")]
+    assert dummy._operator_chat_thinking_meta[-1]["active"] is True
+
+
+def test_operator_streaming_chat_callback_reuses_existing_thinking_bubble():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_begin_streaming_chat_response()
+
+    callback = dummy._operator_streaming_chat_delta_callback()
+    callback("你好")
+
+    assert len(dummy._operator_chat_messages) == 1
+    assert dummy._operator_streaming_chat_pending_chars == ["你", "好"]
+
+
+def test_operator_streaming_chat_callback_reuses_bubble_when_callback_created_before_begin():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    callback = dummy._operator_streaming_chat_delta_callback()
+    dummy._operator_begin_streaming_chat_response()
+    callback("你好")
+
+    assert len(dummy._operator_chat_messages) == 1
+    assert dummy._operator_streaming_chat_pending_chars == ["你", "好"]
+
+
+def test_operator_cancel_streaming_chat_response_removes_pending_thinking_bubble():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_begin_streaming_chat_response()
+
+    dummy._operator_cancel_streaming_chat_response()
+
+    assert dummy._operator_chat_messages == []
+    assert dummy._operator_chat_thinking_steps == []
+    assert dummy._operator_chat_thinking_meta == []
+    assert dummy._operator_streaming_chat_active is False
+
+
+def test_operator_streaming_chat_finish_keeps_collapsed_process_summary():
+    dummy = DummyOperator()
+    now = [100.0]
+    dummy._operator_now_seconds = lambda: now[0]
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    now[0] = 104.2
+    dummy._operator_finish_streaming_chat_response("我是问答助手。")
+
+    assert dummy._operator_chat_messages == [("assistant", "我是问答助手。")]
+    assert dummy._operator_chat_thinking_steps == [
+        ["识别为普通问答", "基于本地资料整理回答", "DeepSeek 生成回答，未触发机械手动作"]
+    ]
+    assert dummy._operator_chat_thinking_meta[-1] == {"active": False, "elapsed_sec": 4}
+
+
+def test_operator_ai_chat_row_contains_collapsible_process_summary():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyOperator()
+
+    row = dummy._build_operator_chat_row(
+        "assistant",
+        "我是问答助手。",
+        thinking_steps=["识别为普通问答", "基于本地资料整理回答", "DeepSeek 生成回答，未触发机械手动作"],
+        thinking_meta={"active": False, "elapsed_sec": 4},
+    )
+
+    toggle = row.findChild(QPushButton, "operatorThinkingToggle")
+    detail = row.findChild(QLabel, "operatorThinkingDetail")
+
+    assert toggle is not None
+    assert toggle.text() == "已思考（用时 4 秒）"
+    assert detail is not None
+    assert detail.isVisible() is False
+    row.close()
+    app.processEvents()
+
+
+def test_operator_ai_chat_row_shows_active_thinking_expanded():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyOperator()
+
+    row = dummy._build_operator_chat_row(
+        "assistant",
+        "",
+        thinking_steps=["正在思考", "识别为普通问答", "检索本地资料"],
+        thinking_meta={"active": True},
+    )
+
+    toggle = row.findChild(QPushButton, "operatorThinkingToggle")
+    detail = row.findChild(QLabel, "operatorThinkingDetail")
+    answer = row.findChild(QLabel, "operatorChatText")
+
+    assert toggle is not None
+    assert toggle.text() == "正在思考..."
+    assert toggle.isChecked() is True
+    assert detail is not None
+    assert detail.isHidden() is False
+    assert answer is not None
+    assert answer.isHidden() is True
+    row.close()
+    app.processEvents()
+
+
+def test_operator_streaming_chat_delta_render_is_throttled():
+    dummy = DummyOperator()
+    now = [10.0]
+    rendered = []
+    dummy._operator_chat_messages = []
+    dummy._operator_now_seconds = lambda: now[0]
+    dummy._render_operator_chat = lambda: rendered.append(tuple(dummy._operator_chat_messages))
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    rendered.clear()
+    dummy._operator_append_streaming_chat_response("你")
+    dummy._operator_append_streaming_chat_response("好")
+    dummy._operator_append_streaming_chat_response("。")
+
+    assert dummy._operator_chat_messages == [("assistant", "")]
+    assert len(rendered) <= 1
+
+
+def test_operator_streaming_chat_typewriter_interval_is_slow_enough_to_read():
+    assert DummyOperator._operator_streaming_chat_typewriter_interval_seconds() >= 0.28
+
+
+def test_operator_streaming_chat_flushes_one_character_at_a_time():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    dummy._operator_append_streaming_chat_response("你好")
+    dummy._operator_flush_streaming_chat_char()
+
+    assert dummy._operator_chat_messages == [("assistant", "你")]
+    assert dummy._operator_streaming_chat_pending_chars == ["好"]
+
+
+def test_operator_streaming_chat_flush_updates_existing_label_without_full_render():
+    dummy = DummyOperator()
+    rendered = []
+    label = SimpleNamespace(text="", setText=lambda text: setattr(label, "text", text), setVisible=lambda _visible: None)
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: rendered.append(tuple(dummy._operator_chat_messages))
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    rendered.clear()
+    dummy._operator_streaming_chat_content_label = label
+    dummy._operator_append_streaming_chat_response("ab")
+    dummy._operator_flush_streaming_chat_char()
+
+    assert label.text == "a"
+    assert rendered == []
+
+
+def test_operator_streaming_chat_finish_waits_for_pending_typewriter_chars():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_streaming_chat_response()
+    dummy._operator_append_streaming_chat_response("你好")
+    dummy._operator_finish_streaming_chat_response("你好")
+
+    assert dummy._operator_streaming_chat_active is True
+    assert dummy._operator_chat_messages == [("assistant", "")]
+    dummy._operator_flush_streaming_chat_char()
+    assert dummy._operator_chat_messages == [("assistant", "你")]
+    assert dummy._operator_streaming_chat_active is True
+    dummy._operator_flush_streaming_chat_char()
+    assert dummy._operator_chat_messages == [("assistant", "你好")]
+    assert dummy._operator_streaming_chat_active is False
+    assert dummy._operator_chat_thinking_meta[-1]["active"] is False
+
+
+def test_operator_late_streaming_delta_reuses_final_answer_bubble():
+    dummy = DummyOperator()
+    rendered = []
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: rendered.append(tuple(dummy._operator_chat_messages))
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_finish_streaming_chat_response("我是问答助手。")
+    dummy._operator_begin_streaming_chat_response()
+    dummy._operator_append_streaming_chat_response("我是")
+    dummy._operator_append_streaming_chat_response("问答助手。")
+    while dummy._operator_streaming_chat_pending_chars:
+        dummy._operator_flush_streaming_chat_char()
+    dummy._operator_finish_streaming_chat_response("我是问答助手。")
+
+    assert dummy._operator_chat_messages == [("assistant", "我是问答助手。")]
+
+
+def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():
+    dummy = DummyOperator()
+    chats = []
+    warnings = []
+    logs = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._show_warning = lambda *args, **kwargs: warnings.append(args)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_archive_execution_result = lambda *args, **kwargs: None
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "busy", busy)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("unknown", None, "rule", "位置A的参数是什么样的", "生产指令缺少“小正”唤醒词，未执行"),),
+        source="rule",
+        raw_text="位置A的参数是什么样的",
+        reason="生产指令缺少“小正”唤醒词，未执行",
+        semantic_level=3,
+        semantic_label="生产指令",
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert warnings == []
+    assert chats == [("assistant", "生产指令缺少“小正”唤醒词，未执行。没有触发机械手动作。")]
+    assert dummy.busy is False
+
+
+def test_operator_ai_chat_bubble_has_readable_minimum_width():
+    dummy = DummyOperator()
+
+    ai_min, ai_max = dummy._operator_chat_bubble_width_bounds(is_user=False)
+    user_min, user_max = dummy._operator_chat_bubble_width_bounds(is_user=True)
+
+    assert ai_min >= 260
+    assert ai_max >= 700
+    assert user_min == 0
+    assert user_max == ai_max
+
+
 def test_voice_nlp_adapter_requires_confirmation_for_alarm_reset():
     from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAdapter
 
@@ -678,6 +1454,31 @@ def test_operator_voice_recognition_can_answer_dashboard_query():
     assert log_args(logs[-1])[0:3] == ("用户页面", "看板查询", "成功")
 
 
+def test_operator_voice_recognition_auto_sends_unhandled_text():
+    dummy = DummyOperator()
+    sent = []
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._handle_operator_ui_command = lambda _text: False
+    dummy._operator_execute_text = lambda: sent.append(getattr(dummy.operator_command_edit, "text")())
+    dummy.operator_command_edit = SimpleNamespace(
+        value="",
+        setText=lambda text: setattr(dummy.operator_command_edit, "value", text),
+        text=lambda: dummy.operator_command_edit.value,
+    )
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "语音",
+            "action": "麦克风识别",
+            "result": "成功",
+            "detail": "小正 移动到A点",
+        }
+    )
+
+    assert sent == ["小正 移动到A点"]
+
+
 def test_operator_voice_recognition_archives_asr_confidence(tmp_path: Path):
     dummy = DummyOperator()
     dummy.session_id = "session-1"
@@ -722,20 +1523,19 @@ def test_operator_add_chat_from_log_does_not_route_empty_voice_text():
     assert handled == []
 
 
-def test_operator_ui_command_handles_parse_execute_clear_button_equivalents():
+def test_operator_ui_command_handles_send_clear_button_equivalents():
     dummy = DummyOperator()
     calls = []
     logs = []
-    dummy._operator_parse_text = lambda: calls.append("parse")
     dummy._operator_execute_text = lambda: calls.append("execute")
     dummy._operator_clear_text = lambda: calls.append("clear")
     dummy._append_log = lambda *args: logs.append(args)
 
-    assert dummy._handle_operator_ui_command("解析当前指令") is True
+    assert dummy._handle_operator_ui_command("发送当前指令") is True
     assert dummy._handle_operator_ui_command("执行当前指令") is True
     assert dummy._handle_operator_ui_command("清空输入") is True
 
-    assert calls == ["parse", "execute", "clear"]
+    assert calls == ["execute", "execute", "clear"]
     assert [entry[1] for entry in logs] == ["按钮语音指令", "按钮语音指令", "按钮语音指令"]
 
 
@@ -1070,7 +1870,7 @@ def test_operator_ui_command_handles_cancel_current_action_voice_equivalent():
     assert calls == ["stop", "stop"]
 
 
-def test_operator_add_chat_from_log_queues_alarm_acknowledged():
+def test_operator_add_chat_from_log_queues_alarm_acknowledged_without_chat_noise():
     dummy = DummyOperator()
     chat_messages = []
     dummy.operator_response_builder = ResponseBuilder()
@@ -1087,7 +1887,7 @@ def test_operator_add_chat_from_log_queues_alarm_acknowledged():
 
     pending = dummy._operator_pending_broadcasts_for_delivery(0)
     assert [message.text for message in pending] == ["报警已确认：ERR_9 | 驱动器报警"]
-    assert chat_messages == [("assistant", "报警已确认：ERR_9 | 驱动器报警")]
+    assert chat_messages == []
 
 
 def test_operator_add_chat_from_log_queues_local_stop_current_result():
@@ -2939,6 +3739,7 @@ def test_operator_consume_pending_broadcasts_advances_delivery_cursor_by_max_seq
 
 def test_operator_deliver_pending_broadcasts_to_speech_advances_cursor_after_success():
     dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
     dummy._operator_add_chat_message = lambda *args, **kwargs: None
     spoken = []
     dummy.operator_speech_sink = CallableSpeechSink(spoken.append)
@@ -2955,8 +3756,35 @@ def test_operator_deliver_pending_broadcasts_to_speech_advances_cursor_after_suc
     assert dummy._operator_last_delivered_broadcast_seq == 2
 
 
+def test_operator_deliver_pending_broadcasts_skips_all_speech_before_login():
+    dummy = DummyOperator()
+    dummy._authenticated_role = ""
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    spoken = []
+    dummy.operator_speech_sink = CallableSpeechSink(spoken.append)
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_publish_response(
+        ResponseMessage(
+            kind="result",
+            text="用户输入为问候和询问功能，没有触发机械手动作。",
+            priority="normal",
+            context_id="chat:greeting",
+        )
+    )
+    dummy._operator_publish_response(ResponseMessage(kind="alert", text="急停已触发", priority="high", context_id="alarm:before-login"))
+
+    result = dummy._operator_deliver_pending_broadcasts_to_speech()
+    second = dummy._operator_deliver_pending_broadcasts_to_speech()
+
+    assert result.success is True
+    assert second.delivered_seq == ()
+    assert spoken == []
+    assert dummy._operator_last_delivered_broadcast_seq == 2
+
+
 def test_operator_deliver_pending_broadcasts_to_speech_keeps_cursor_on_failure():
     dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
     dummy._operator_add_chat_message = lambda *args, **kwargs: None
     logs = []
 
@@ -3022,8 +3850,77 @@ def test_operator_publish_response_uses_configured_dedupe_window():
     assert later is not None
 
 
+def test_operator_publish_response_filters_automatic_status_from_chat():
+    dummy = DummyOperator()
+    chat_messages = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+
+    published = [
+        dummy._operator_publish_response(
+            ResponseMessage(kind="alert", text="通讯异常：connect failed", priority="high", context_id="connection:failed")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="alert", text="报警发生，报警码 ERR_000。", priority="high", context_id="feedback:alarm:ERR_000")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="result", text="通讯状态已恢复，实时反馈在线。", context_id="feedback:comm:recovered")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="result", text="报警状态已解除，当前无报警。", context_id="dashboard:alarm:cleared")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="result", text="通讯状态已恢复，实时反馈在线。", context_id="dashboard:comm:online")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="alert", text="轴状态异常，当前轴状态 1 / 1。", context_id="dashboard:axis_status:abnormal")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="progress", text="进入执行场景，正在跟踪动作进度。", context_id="operator_scene:execute")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="progress", text="设备状态正常，通讯正常，当前任务仍在处理。", context_id="operator:periodic_reassurance")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="progress", text="本地规则未完全匹配，正在调用在线AI辅助识别中。", context_id="deepseek:fallback")
+        ),
+        dummy._operator_publish_response(
+            ResponseMessage(kind="result", text="在线AI已匹配到：unknown:-，正在进入安全链路。", context_id="deepseek:success")
+        ),
+    ]
+
+    assert all(item is not None for item in published)
+    assert chat_messages == []
+
+
+def test_operator_initial_chat_messages_are_empty():
+    assert DummyOperator._operator_initial_chat_messages() == []
+
+
+def test_operator_status_text_is_compacted_for_footer():
+    long_text = "当前系统已加载20个模板命令，" + "包括位置A、位置B、默认命令，" * 12
+
+    compacted = DummyOperator._operator_footer_status_text(long_text)
+
+    assert len(compacted) <= 90
+    assert compacted.endswith("...")
+
+
+def test_operator_publish_response_keeps_chat_answers_in_chat():
+    dummy = DummyOperator()
+    chat_messages = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+
+    published = dummy._operator_publish_response(
+        ResponseMessage(kind="result", text="我是机械手自然语言交互系统的问答助手。", context_id="chat:identity")
+    )
+
+    assert published is not None
+    assert chat_messages == [("assistant", "我是机械手自然语言交互系统的问答助手。")]
+
+
 def test_operator_auto_deliver_broadcasts_only_runs_when_tts_enabled():
     dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
     spoken = []
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), operator_tts_enabled=False)
     dummy.operator_speech_sink = CallableSpeechSink(spoken.append)
@@ -3058,6 +3955,7 @@ def test_operator_set_tts_enabled_updates_config_and_persists(tmp_path: Path):
 
 def test_operator_auto_deliver_broadcasts_backs_off_after_failure():
     dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
     now = [10.0]
     logs = []
 
@@ -3092,6 +3990,7 @@ def test_operator_auto_deliver_broadcasts_backs_off_after_failure():
 
 def test_operator_auto_deliver_broadcasts_disables_tts_after_max_failures():
     dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
     logs = []
     warnings = []
     status_messages = []
@@ -3169,6 +4068,9 @@ def test_operator_archive_text_input_writes_interaction_record(tmp_path: Path):
         "changed_at": 123.4,
     }
     assert (tmp_path / "interaction_session_session-1.jsonl").exists()
+    dialog_files = list((tmp_path / "dialogs").glob("dialog_*.jsonl"))
+    assert len(dialog_files) == 1
+    assert "移动到安全点" in dialog_files[0].read_text(encoding="utf-8")
 
 
 def test_operator_archive_nlp_result_updates_last_interaction_record(tmp_path: Path):
@@ -3438,7 +4340,7 @@ def test_operator_ui_command_answers_engineer_voice_capability_query():
     assert "仅清单保留" in text
     assert "后台" in text
     assert "保存配置" in text
-    assert status["text"] == text
+    assert status["text"] == DummyOperator._operator_footer_status_text(text)
     assert logs[-1][1] == "能力查询"
 
 
@@ -3458,7 +4360,7 @@ def test_operator_ui_command_answers_atomic_capability_query():
     assert "二次原子函数能力" in text
     assert "J 类关节命令" in text
     assert "保护性拒绝" in text
-    assert status["text"] == text
+    assert status["text"] == DummyOperator._operator_footer_status_text(text)
     assert logs[-1][1] == "原子能力查询"
 
 
@@ -3585,6 +4487,206 @@ def test_operator_voice_receipt_records_200ms_acceptance_delay():
     assert published[-1].kind == "receipt"
     assert dummy._operator_last_voice_receipt_delay_ms == 120
     assert dummy._operator_last_voice_receipt_sla_passed is True
+
+
+def test_operator_voice_receipt_sla_result_reports_overdue_delay():
+    dummy = DummyOperator()
+    dummy._operator_last_voice_receipt_delay_ms = 250
+    dummy._operator_last_voice_receipt_sla_passed = False
+
+    result = dummy._operator_voice_receipt_sla_result()
+
+    assert result == {
+        "ack_delay_ms": 250,
+        "ack_limit_ms": 200,
+        "ack_sla_passed": False,
+    }
+
+
+def test_operator_confirm_stage_modify_speed_updates_pending_plan():
+    dummy = DummyOperator()
+    logs = []
+    record = QueryRecord(
+        query_key="atomic:virtual:8:1:3",
+        func_num=107,
+        keywords="上升3毫米",
+        description="原子函数：虚拟轴点动",
+        safety_level=5,
+        params={"spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", record.query_key, "rule", "小正，上升3毫米", "测试"),),
+        source="rule",
+        raw_text="小正，上升3毫米",
+        reason="测试",
+        atomic_records={record.query_key: record},
+    )
+    dummy.status_label = SimpleNamespace(setText=lambda text: logs.append(("status", text)))
+    dummy._operator_add_chat_message = lambda *args: logs.append(args)
+    dummy._append_log = lambda *args: logs.append(args)
+    dummy._refresh_operator_view = lambda: logs.append(("refresh",))
+    dummy._operator_prepare_plan_prechecks = lambda plan: logs.append(("precheck", plan.atomic_records[record.query_key].params["spd_pct"]))
+
+    handled = dummy._handle_operator_ui_command("速度改成30")
+
+    assert handled is True
+    assert record.params["spd_pct"] == 30.0
+    assert record.params["acc_pct"] == 30.0
+    assert record.params["dec_pct"] == 30.0
+    assert ("precheck", 30.0) in logs
+
+
+def test_operator_confirm_stage_modify_step_updates_pending_plan():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="atomic:virtual:8:1:3",
+        func_num=107,
+        keywords="上升3毫米",
+        description="原子函数：虚拟轴点动",
+        safety_level=5,
+        params={"axis_no": 8, "pos_val": 3.0, "spd_pct": 50.0},
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", record.query_key, "rule", "小正，上升3毫米", "测试"),),
+        source="rule",
+        raw_text="小正，上升3毫米",
+        reason="测试",
+        atomic_records={record.query_key: record},
+    )
+    dummy.status_label = SimpleNamespace(setText=lambda _text: None)
+    dummy._operator_add_chat_message = lambda *args: None
+    dummy._append_log = lambda *args: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_prepare_plan_prechecks = lambda _plan: None
+
+    handled = dummy._handle_operator_ui_command("步长改成5毫米")
+
+    assert handled is True
+    assert record.params["pos_val"] == 5.0
+
+
+def test_flow_management_start_rehearsal_audits_success():
+    dummy = DummyFlowManager()
+    logs = []
+    dummy.flow_manage_name_edit = SimpleNamespace(text=lambda: "F")
+    dummy.status_label = SimpleNamespace(setText=lambda text: logs.append(("status", text)))
+    dummy._append_log = lambda *args: logs.append(args)
+    dummy._show_warning = lambda title, detail: logs.append(("warning", title, detail))
+    dummy._current_permission_actor = lambda: "engineer"
+    dummy.service = SimpleNamespace(start_flow_rehearsal=lambda name: (True, f"流程'{name}'演练模式启动，速度20%"))
+
+    dummy._start_flow_rehearsal()
+
+    assert ("后台", "演练流程", "成功", "流程'F'演练模式启动，速度20%") in logs
+
+
+def test_flow_management_tree_columns_include_structured_entry_metadata():
+    dummy = DummyFlowManager()
+    entry = FlowEntry(
+        name="打招呼",
+        steps=[FlowStep(step_id=1, action="回home", func_id=108)],
+        step_delay_ms=250,
+        rehearsal_spd=20,
+        confirmed=True,
+        version=3,
+        state="ready",
+    )
+    legacy = FlowDefinition(name="打招呼", steps=("legacy_home",), step_delay_ms=1000)
+    dummy.service = SimpleNamespace(
+        get_flow=lambda _name: legacy,
+        get_flow_entry=lambda _name: entry,
+    )
+
+    columns = dummy._flow_manage_tree_columns("打招呼")
+
+    assert columns[0] == "打招呼"
+    assert "1步" in columns[1]
+    assert "250ms" in columns[1]
+    assert "v3" in columns[1]
+    assert "已确认" in columns[1]
+    assert "演练20%" in columns[1]
+    assert "ready" in columns[1]
+
+
+def test_flow_management_step_labels_support_structured_flow_steps():
+    dummy = DummyFlowManager()
+    entry = FlowEntry(
+        name="打招呼",
+        steps=[
+            FlowStep(step_id=1, action="回home", func_id=108, params={"query_key": "home_move"}),
+            FlowStep(step_id=2, action="小臂点头", func_id=107, description="Ry正转15度"),
+        ],
+    )
+
+    labels = dummy._flow_manage_step_labels(entry)
+
+    assert labels == ["home_move", "flow:打招呼:2"]
+
+
+def test_flow_management_load_form_prefers_structured_entry_delay_and_steps():
+    dummy = DummyFlowManager()
+    loaded_steps = []
+    dummy.flow_manage_name_edit = SimpleNamespace(value="", setText=lambda text: setattr(dummy.flow_manage_name_edit, "value", text))
+    dummy.flow_manage_delay_edit = SimpleNamespace(value="", setText=lambda text: setattr(dummy.flow_manage_delay_edit, "value", text))
+    dummy._refresh_flow_step_manage_tree = lambda steps: loaded_steps.extend(steps)
+    entry = FlowEntry(
+        name="打招呼",
+        steps=[FlowStep(step_id=1, action="回home", func_id=108)],
+        step_delay_ms=250,
+    )
+    legacy = FlowDefinition(name="打招呼", steps=("legacy_home",), step_delay_ms=1000)
+    dummy.service = SimpleNamespace(get_flow_entry=lambda _name: entry)
+
+    dummy._load_flow_into_manage_form(legacy)
+
+    assert dummy.flow_manage_name_edit.value == "打招呼"
+    assert dummy.flow_manage_delay_edit.value == "250"
+    assert loaded_steps == ["flow:打招呼:1"]
+
+
+def test_flow_management_save_preserves_structured_flow_steps_from_placeholders():
+    dummy = DummyFlowManager()
+    saved_entries = []
+    logs = []
+    entry = FlowEntry(
+        name="打招呼",
+        steps=[
+            FlowStep(step_id=1, action="回home", func_id=108, params={"target_x": 1.0}),
+            FlowStep(step_id=2, action="点头", func_id=107, params={"axis_no": 10, "pos_val": 15.0}),
+        ],
+        step_delay_ms=250,
+        rehearsal_spd=20,
+        confirmed=True,
+        version=3,
+    )
+    dummy.current_flow_manage_name = "打招呼"
+    dummy.current_flow_name = None
+    dummy.table = {}
+    dummy.flow_manage_name_edit = SimpleNamespace(text=lambda: "打招呼")
+    dummy.flow_manage_delay_edit = SimpleNamespace(text=lambda: "300")
+    dummy._collect_flow_steps = lambda: ["flow:打招呼:1", "flow:打招呼:2"]
+    dummy._refresh_flow_combo = lambda: None
+    dummy._refresh_flow_manage_tree = lambda: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: logs.append(("status", text)))
+    dummy._append_log = lambda *args: logs.append(args)
+    dummy._show_warning = lambda title, detail: logs.append(("warning", title, detail))
+    dummy._current_permission_actor = lambda: "engineer"
+    dummy.service = SimpleNamespace(
+        flows={"打招呼": FlowDefinition(name="打招呼", steps=("旧步骤",), step_delay_ms=250)},
+        get_flow_entry=lambda _name: entry,
+        save_flow_entry=lambda item: saved_entries.append(item),
+    )
+
+    dummy._save_flow()
+
+    assert len(saved_entries) == 1
+    saved = saved_entries[0]
+    assert saved.name == "打招呼"
+    assert saved.step_delay_ms == 300
+    assert saved.rehearsal_spd == 20
+    assert saved.steps[0].func_id == 108
+    assert saved.steps[1].params["axis_no"] == 10
+    assert ("后台", "保存流程", "成功", "打招呼 | 2 步 | 延时 300ms") in logs
 
 
 def test_operator_emergency_authorized_fast_path_publishes_ack_within_30ms():

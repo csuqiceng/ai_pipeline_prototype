@@ -1,10 +1,50 @@
 from robot_modbus_lite.atomic_memory import AtomicMemory
+from robot_modbus_lite.assistant_knowledge_base import AssistantKnowledgeBase, KnowledgeEntry
 from robot_modbus_lite.models import QueryRecord
 from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAdapter
 
 
+class FakeChatDeepSeekClient:
+    def __init__(self, text: str):
+        self.text = text
+        self.prompts = []
+
+    def generate_chat(self, prompt: str, *, system_prompt: str | None = None) -> str:
+        self.prompts.append((system_prompt, prompt))
+        return self.text
+
+
+class FakeStreamingChatDeepSeekClient:
+    def __init__(self, chunks: tuple[str, ...]):
+        self.chunks = chunks
+        self.prompts = []
+
+    def generate_chat_stream(self, prompt: str, *, system_prompt: str | None = None):
+        self.prompts.append((system_prompt, prompt))
+        yield from self.chunks
+
+    def generate_chat(self, prompt: str, *, system_prompt: str | None = None) -> str:
+        self.prompts.append((system_prompt, prompt))
+        return "".join(self.chunks)
+
+
 def make_adapter(memory: AtomicMemory | None = None) -> VoiceNlpAdapter:
     return VoiceNlpAdapter(table={}, flow_names=(), atomic_memory=memory or AtomicMemory())
+
+
+def make_knowledge_base() -> AssistantKnowledgeBase:
+    return AssistantKnowledgeBase(
+        entries=(
+            KnowledgeEntry(
+                entry_id="identity",
+                category="identity",
+                keywords=("你是谁", "能做什么"),
+                content="我是机械手自然语言交互系统的问答助手，可以查询状态、解释功能和协助创建流程草案。",
+                priority="high",
+                source="test",
+            ),
+        )
+    )
 
 
 def test_voice_nlp_adapter_parses_atomic_virtual_command():
@@ -34,6 +74,123 @@ def test_voice_nlp_adapter_marks_atomic_capability_query():
     assert plan.actions[0].action_type == "query"
     assert plan.actions[0].target == "atomic_capabilities"
     assert plan.atomic_records == {}
+
+
+def test_voice_nlp_adapter_answers_non_control_identity_question_with_deepseek_chat():
+    adapter = VoiceNlpAdapter(
+        table={},
+        flow_names=(),
+        knowledge_base=AssistantKnowledgeBase(
+            entries=(
+                KnowledgeEntry(
+                    entry_id="feature_context",
+                    category="usage",
+                    keywords=("资料",),
+                    content="系统资料包含功能、流程和安全边界。",
+                    priority="low",
+                    source="test",
+                ),
+            )
+        ),
+    )
+    client = FakeChatDeepSeekClient("我是机械手自然语言交互助手，可以解释功能、查询状态并协助创建流程草案。")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("我想看下功能资料", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "deepseek_chat"
+    assert plan.reason == "我是机械手自然语言交互助手，可以解释功能、查询状态并协助创建流程草案。"
+    assert plan.requires_precheck is False
+    assert plan.requires_confirmation is False
+    assert client.prompts
+    assert "本地资料" in client.prompts[0][1]
+    assert "本地知识库命中资料" in client.prompts[0][1]
+    assert "系统资料包含功能" in client.prompts[0][1]
+
+
+def test_voice_nlp_adapter_answers_known_question_from_local_knowledge_without_deepseek():
+    adapter = VoiceNlpAdapter(table={}, flow_names=(), knowledge_base=make_knowledge_base())
+
+    plan = adapter.parse("你是谁", use_deepseek=False)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "knowledge_base"
+    assert "问答助手" in plan.reason
+
+
+def test_voice_nlp_adapter_prefers_high_confidence_knowledge_before_deepseek_chat():
+    adapter = VoiceNlpAdapter(table={}, flow_names=(), knowledge_base=make_knowledge_base())
+    client = FakeChatDeepSeekClient("DeepSeek回答")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("你是谁", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "knowledge_base"
+    assert "问答助手" in plan.reason
+    assert client.prompts == []
+
+
+def test_voice_nlp_adapter_injects_runtime_context_into_deepseek_chat_prompt():
+    adapter = make_adapter()
+    adapter.set_runtime_context_provider(lambda: "当前待确认流程草案：打招呼，步骤：移动到home。")
+    client = FakeChatDeepSeekClient("当前草案会先移动到home。")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("这个流程是什么样的", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert "当前待确认流程草案：打招呼" in client.prompts[0][1]
+
+
+def test_voice_nlp_adapter_answers_wake_word_capability_question_with_deepseek_chat():
+    adapter = make_adapter()
+    client = FakeChatDeepSeekClient("我能处理位置示教、流程草案、状态查询和安全确认。")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("小正，你能做什么", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "knowledge_base"
+    assert "当前系统支持" in plan.reason
+    assert client.prompts == []
+
+
+def test_voice_nlp_adapter_streams_deepseek_chat_deltas_without_thinking_text():
+    adapter = VoiceNlpAdapter(table={}, flow_names=(), knowledge_base=AssistantKnowledgeBase(entries=()))
+    client = FakeStreamingChatDeepSeekClient(("<think>先判断身份</think>", "我是", "问答助手。"))
+    adapter.set_deepseek_client(client)
+    deltas = []
+
+    plan = adapter.parse("你是谁", use_deepseek=True, chat_delta_callback=deltas.append)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.reason == "我是问答助手。"
+    assert deltas == ["我是", "问答助手。"]
+    assert client.prompts
+
+
+def test_voice_nlp_adapter_treats_command_explanation_without_wake_word_as_chat():
+    adapter = make_adapter()
+    client = FakeStreamingChatDeepSeekClient(("位置A的命令可以说：小正，去位置A。",))
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("我想看下位置A的命令", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.reason == "位置A的命令可以说：小正，去位置A。"
+
+
+def test_voice_nlp_adapter_treats_position_parameter_question_as_chat():
+    adapter = make_adapter()
+    client = FakeStreamingChatDeepSeekClient(("位置A参数可在位置库中查看，包括 XYZ/RX/RY/RZ。",))
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("位置A的参数是什么样的", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert "位置A参数" in plan.reason
 
 
 def test_voice_nlp_adapter_updates_atomic_memory():
@@ -85,6 +242,20 @@ def test_voice_nlp_adapter_repeats_last_atomic_command_from_memory():
     record = repeated.atomic_records[repeated.actions[0].target]
     assert record.func_num == 107
     assert record.params["axis_no"] == 8
+    assert record.params["pos_val"] == 3.0
+
+
+def test_voice_nlp_adapter_continues_last_direction_from_memory():
+    memory = AtomicMemory()
+    adapter = make_adapter(memory)
+    adapter.parse("小正，前进3毫米")
+
+    continued = adapter.parse("小正，继续")
+
+    assert continued.actions[0].action_type == "atomic_template"
+    record = continued.atomic_records[continued.actions[0].target]
+    assert record.func_num == 107
+    assert record.params["axis_no"] == 6
     assert record.params["pos_val"] == 3.0
 
 
@@ -183,3 +354,17 @@ def test_atomic_confirm_mode_expert_still_confirms_high_risk_motion():
 
     assert io_plan.requires_confirmation is False
     assert motion_plan.requires_confirmation is True
+
+
+def test_voice_nlp_uses_homophone_normalization_without_skipping_wake_gate():
+    plan = make_adapter().parse("保村当前位置为位置A")
+
+    assert plan.actions[0].action_type in {"unknown", "chat"}
+    assert plan.atomic_records == {}
+
+
+def test_voice_nlp_uses_homophone_normalization_with_wake_word():
+    plan = make_adapter().parse("小正，保村当前位置为位置A")
+
+    assert plan.actions[0].action_type == "memory"
+    assert plan.actions[0].target == "position_save:A"

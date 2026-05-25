@@ -1,0 +1,438 @@
+{
+  "version": "1.0",
+  "description": "现场自然语言标准词配置，可扩展 homophones 和 sichuan_variants。",
+  "words": [
+    {
+      "standard": "执行",
+      "pinyin": "zhixing",
+      "category": "flow",
+      "homophones": [
+        "直行",
+        "执形"
+      ],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "保存",
+      "pinyin": "baocun",
+      "category": "flow",
+      "homophones": [
+        "保村",
+        "宝存",
+        "报存"
+      ],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "删除",
+      "pinyin": "shanchu",
+      "category": "flow",
+      "homophones": [
+        "山除",
+        "善除"
+      ],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "流程",
+      "pinyin": "liucheng",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "步骤",
+      "pinyin": "buzhou",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "循环",
+      "pinyin": "xunhuan",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "单步",
+      "pinyin": "danbu",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "位置",
+      "pinyin": "weizhi",
+      "category": "position",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 108
+    },
+    {
+      "standard": "示教",
+      "pinyin": "shijiao",
+      "category": "position",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "移动",
+      "pinyin": "yidong",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 108
+    },
+    {
+      "standard": "上升",
+      "pinyin": "shangsheng",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [
+        "上头走",
+        "往上头走"
+      ],
+      "func_id": 107
+    },
+    {
+      "standard": "下降",
+      "pinyin": "xiajiang",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [
+        "下切",
+        "往下头走"
+      ],
+      "func_id": 107
+    },
+    {
+      "standard": "左移",
+      "pinyin": "zuoyi",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 107
+    },
+    {
+      "standard": "右移",
+      "pinyin": "youyi",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 107
+    },
+    {
+      "standard": "前进",
+      "pinyin": "qianjin",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 107
+    },
+    {
+      "standard": "后退",
+      "pinyin": "houtui",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 107
+    },
+    {
+      "standard": "关节",
+      "pinyin": "guanjie",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 106
+    },
+    {
+      "standard": "虚拟轴",
+      "pinyin": "xunizhou",
+      "category": "motion",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 107
+    },
+    {
+      "standard": "回零",
+      "pinyin": "huiling",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 104
+    },
+    {
+      "standard": "复位",
+      "pinyin": "fuwei",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 104
+    },
+    {
+      "standard": "暂停",
+      "pinyin": "zanting",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 104
+    },
+    {
+      "standard": "继续",
+      "pinyin": "jixu",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 110
+    },
+    {
+      "standard": "停止",
+      "pinyin": "tingzhi",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 104
+    },
+    {
+      "standard": "急停",
+      "pinyin": "jiting",
+      "category": "emergency",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 104
+    },
+    {
+      "standard": "报警",
+      "pinyin": "baojing",
+      "category": "alarm",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "确认",
+      "pinyin": "queren",
+      "category": "confirm",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "取消",
+      "pinyin": "quxiao",
+      "category": "confirm",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "速度",
+      "pinyin": "sudu",
+      "category": "param",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "加速度",
+      "pinyin": "jiasudu",
+      "category": "param",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "减速度",
+      "pinyin": "jiansudu",
+      "category": "param",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "慢速",
+      "pinyin": "mansu",
+      "category": "param",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "快速",
+      "pinyin": "kuaisu",
+      "category": "param",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "毫米",
+      "pinyin": "haomi",
+      "category": "unit",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "厘米",
+      "pinyin": "limi",
+      "category": "unit",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "度",
+      "pinyin": "du",
+      "category": "unit",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "秒",
+      "pinyin": "miao",
+      "category": "unit",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "打开",
+      "pinyin": "dakai",
+      "category": "io",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 120
+    },
+    {
+      "standard": "关闭",
+      "pinyin": "guanbi",
+      "category": "io",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 120
+    },
+    {
+      "standard": "IO",
+      "pinyin": "io",
+      "category": "io",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 120
+    },
+    {
+      "standard": "看板",
+      "pinyin": "kanban",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "状态",
+      "pinyin": "zhuangtai",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "边界",
+      "pinyin": "bianjie",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "极限",
+      "pinyin": "jixian",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "通讯",
+      "pinyin": "tongxun",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "故障",
+      "pinyin": "guzhang",
+      "category": "query",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "演练",
+      "pinyin": "yanlian",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "锁定",
+      "pinyin": "suoding",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "工程师",
+      "pinyin": "gongchengshi",
+      "category": "permission",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "操作员",
+      "pinyin": "caozuoyuan",
+      "category": "permission",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "系统",
+      "pinyin": "xitong",
+      "category": "system",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": null
+    },
+    {
+      "standard": "等待",
+      "pinyin": "dengdai",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 110
+    },
+    {
+      "standard": "延时",
+      "pinyin": "yanshi",
+      "category": "flow",
+      "homophones": [],
+      "sichuan_variants": [],
+      "func_id": 110
+    }
+  ]
+}

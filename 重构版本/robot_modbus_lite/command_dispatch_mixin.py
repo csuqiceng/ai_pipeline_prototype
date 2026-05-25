@@ -205,6 +205,8 @@ class CommandDispatchMixin:
             self.result = "0"
             self.alarm_code = "ERR_000"
             self.alarm_text = "系统正常"
+            if hasattr(self, "_update_memory_params_from_record"):
+                self._update_memory_params_from_record(record)
             if feedback:
                 self._apply_feedback_values(record, feedback)
             elif record.func_num == 108:

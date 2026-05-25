@@ -7,6 +7,13 @@
         "位置B"
       ],
       "step_delay_ms": 1000
+    },
+    {
+      "name": "打个招呼的小",
+      "steps": [
+        "flowdraft:打个招呼的小:01"
+      ],
+      "step_delay_ms": 300
     }
   ]
 }

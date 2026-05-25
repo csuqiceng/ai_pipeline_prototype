@@ -8,6 +8,10 @@ from pathlib import Path
 from PySide6.QtCore import QTimer
 
 from .atomic_memory import AtomicMemory
+from .assistant_knowledge_base import AssistantKnowledgeBase
+from .memory_params import MemoryManager
+from .permission_service import PermissionService
+from .position_registry import PositionRegistry, migrate_atomic_positions
 from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpAdapter, VoiceNlpPlan
 
 
@@ -17,12 +21,23 @@ class NlpMixin:
         """构建语音自然语言。"""
         if not hasattr(self, "_atomic_memory"):
             self._atomic_memory = AtomicMemory.load(self._atomic_memory_path())
-        adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names(), atomic_memory=self._atomic_memory)
+        self._atomic_memory.position_registry = self._position_registry()
+        adapter = getattr(self, "_voice_nlp_adapter_instance", None)
+        if adapter is None:
+            adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names(), atomic_memory=self._atomic_memory)
+            self._voice_nlp_adapter_instance = adapter
+        else:
+            adapter.table = self.table
+            adapter.flow_names = tuple(sorted(str(name) for name in self.service.list_flow_names()))
+            adapter.atomic_memory = self._atomic_memory
+        adapter.knowledge_base = AssistantKnowledgeBase.load()
         if self._deepseek_client:
             adapter.set_deepseek_client(self._deepseek_client)
         adapter.set_diagnostic_callback(
             lambda action, result, detail: self._append_log("自然语言", action, result, detail)
         )
+        if hasattr(adapter, "set_runtime_context_provider") and hasattr(self, "_operator_deepseek_runtime_context"):
+            adapter.set_runtime_context_provider(self._operator_deepseek_runtime_context)
         return adapter
 
     def _set_nlp_result_plan(self, plan: VoiceNlpPlan) -> None:
@@ -121,6 +136,13 @@ class NlpMixin:
             self._append_log("自然语言", "执行解析", "失败", "流程执行中，拒绝自然语言执行")
             return
         use_deepseek = self.nlp_use_deepseek_check.isChecked()
+        chat_delta_callback = (
+            self._operator_streaming_chat_delta_callback()
+            if use_deepseek and hasattr(self, "_operator_streaming_chat_delta_callback")
+            else None
+        )
+        if hasattr(self, "_operator_maybe_begin_streaming_chat_for_text"):
+            self._operator_maybe_begin_streaming_chat_for_text(text, use_deepseek=use_deepseek)
         self._set_nlp_execute_busy(True)
         self.status_label.setText("自然语言执行准备中，请稍候...")
 
@@ -129,6 +151,7 @@ class NlpMixin:
             return self._build_voice_nlp_adapter().parse(
                 text,
                 use_deepseek=use_deepseek,
+                chat_delta_callback=chat_delta_callback,
             )
 
         def on_result(result):
@@ -210,6 +233,8 @@ class NlpMixin:
                 self.status_label.setText(f"自然语言执行失败，停止于第 {step_no} 步。")
                 self._append_log("自然语言", "动作序列终止", "失败", f"停止于第 {step_no} 步")
                 return
+            if action.action_type in {"template", "atomic_template"} and action.target:
+                self._update_memory_params_from_action(action.target)
             self._nlp_pending_index += 1
             QTimer.singleShot(0, self._run_next_nlp_action)
 
@@ -274,9 +299,23 @@ class NlpMixin:
                 0.0,
             )
             memory.save_position(name, pose)
+            registry = self._position_registry()
+            ok, message = registry.set_position(
+                name,
+                pose,
+                spd=int(getattr(memory, "current_speed", 50)),
+                move_type=0,
+                created_by=self._nlp_permission_service().normalized_actor(),
+            )
+            if not ok:
+                self._append_log("自然语言", "保存位置", "失败", message)
+                return False
             self._append_log("自然语言", "保存位置", "成功", f"位置{name}: {pose}")
             if plan is not None:
-                setattr(plan, "_atomic_position_saved", {"name": name, "pose": pose})
+                try:
+                    setattr(plan, "_atomic_position_saved", {"name": name, "pose": pose})
+                except Exception:
+                    pass
             return True
         except Exception as exc:
             self._append_log("自然语言", "保存位置", "失败", str(exc))
@@ -287,6 +326,94 @@ class NlpMixin:
         if runtime_root is not None:
             return runtime_root / "data" / "atomic_state.json"
         return Path("data") / "atomic_state.json"
+
+    def _position_registry_path(self):
+        runtime_root = getattr(self, "runtime_root", None)
+        if runtime_root is not None:
+            return runtime_root / "data" / "position_registry.json"
+        return Path("data") / "position_registry.json"
+
+    def _memory_params_path(self):
+        runtime_root = getattr(self, "runtime_root", None)
+        if runtime_root is not None:
+            return runtime_root / "data" / "memory_params.json"
+        return Path("data") / "memory_params.json"
+
+    def _nlp_permission_service(self) -> PermissionService:
+        actor = (
+            getattr(self, "_authenticated_role", None)
+            or getattr(self, "current_user_role", None)
+            or getattr(self, "user_role", None)
+            or "engineer"
+        )
+        return PermissionService(str(actor))
+
+    def _position_registry(self) -> PositionRegistry:
+        permission = self._nlp_permission_service()
+        if not hasattr(self, "_position_registry_instance"):
+            self._migrate_legacy_atomic_positions(permission=permission)
+            self._position_registry_instance = PositionRegistry(self._position_registry_path(), permission=permission)
+        else:
+            self._position_registry_instance.permission = permission
+        return self._position_registry_instance
+
+    def _migrate_legacy_atomic_positions(self, *, permission: PermissionService) -> None:
+        marker = "_legacy_atomic_positions_migrated"
+        if getattr(self, marker, False):
+            return
+        setattr(self, marker, True)
+        try:
+            result = migrate_atomic_positions(
+                self._atomic_memory_path(),
+                self._position_registry_path(),
+                permission=permission,
+                created_by="atomic_migration",
+            )
+            if result.get("created") and hasattr(self, "_append_log"):
+                self._append_log(
+                    "位置库",
+                    "旧原子位置迁移",
+                    "成功",
+                    f"created={result.get('created')} skipped={result.get('skipped')} failed={result.get('failed')}",
+                )
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("位置库", "旧原子位置迁移", "失败", str(exc))
+
+    def _memory_manager(self) -> MemoryManager:
+        if not hasattr(self, "_memory_manager_instance"):
+            self._memory_manager_instance = MemoryManager(self._memory_params_path())
+        return self._memory_manager_instance
+
+    def _update_memory_params_from_action(self, target: str) -> None:
+        updated = getattr(self, "_memory_params_updated_query_keys", set())
+        if target in updated:
+            return
+        record = getattr(self, "table", {}).get(target)
+        if record is None:
+            return
+        self._update_memory_params_from_record(record)
+
+    def _update_memory_params_from_record(self, record) -> None:
+        action_by_func = {
+            11: "移动",
+            106: "点动",
+            107: "点动",
+            108: "移动",
+        }
+        action = action_by_func.get(int(getattr(record, "func_num", 0) or 0))
+        if action is None:
+            return
+        try:
+            self._memory_manager().update_after_command(action, dict(getattr(record, "params", {}) or {}))
+            updated = set(getattr(self, "_memory_params_updated_query_keys", set()))
+            query_key = getattr(record, "query_key", None)
+            if query_key:
+                updated.add(str(query_key))
+                self._memory_params_updated_query_keys = updated
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("自然语言", "记忆参数更新", "失败", str(exc))
 
     def _save_atomic_memory(self) -> None:
         memory = getattr(self, "_atomic_memory", None)

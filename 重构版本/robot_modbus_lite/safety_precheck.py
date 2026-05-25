@@ -2,16 +2,52 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .system_config import AxisRangeConfig
 
 
+DEFAULT_MAX_SPHERE_RADIUS = 1200.0
+DEFAULT_SPEED_CLAMPS = {
+    "joint": 50.0,
+    "home": 50.0,
+    "calibration": 30.0,
+}
+
+
+def infer_l1_action_type(params: dict[str, Any]) -> str:
+    explicit = params.get("action_type") or params.get("motion_type")
+    if explicit:
+        return str(explicit).strip().lower()
+    func_id = int(float(params.get("func_id") or params.get("func") or 0))
+    action = str(params.get("action") or params.get("action_name") or "")
+    if func_id == 106 or "关节" in action:
+        return "joint"
+    if func_id == 107:
+        return "virtual"
+    if func_id == 108 or "移动" in action:
+        return "move"
+    if "回零" in action:
+        return "home"
+    if "标定" in action:
+        return "calibration"
+    return ""
+
+
 class SafetyPrecheckService:
     """Runs controller-independent L1 checks against a snapshot and plan."""
 
-    def __init__(self, config: AxisRangeConfig) -> None:
+    def __init__(
+        self,
+        config: AxisRangeConfig,
+        *,
+        max_sphere_radius: float = DEFAULT_MAX_SPHERE_RADIUS,
+        speed_clamps: dict[str, float] | None = None,
+    ) -> None:
         self.config = config
+        self.max_sphere_radius = float(max_sphere_radius)
+        self.speed_clamps = dict(DEFAULT_SPEED_CLAMPS if speed_clamps is None else speed_clamps)
 
     def run_l1(self, snapshot: dict[str, Any], plan: dict[str, Any] | None = None) -> dict[str, Any]:
         plan = plan or {}
@@ -45,7 +81,7 @@ class SafetyPrecheckService:
         ]
         items.extend(self._current_space_items(cartesian))
         items.extend(self._target_limit_items(plan.get("target", {})))
-        items.extend(self._speed_limit_items(plan.get("speed", {})))
+        items.extend(self._speed_limit_items(plan.get("speed", {}), plan))
 
         status = "pass" if all(item["status"] == "pass" for item in items) else "fail"
         return {
@@ -105,8 +141,28 @@ class SafetyPrecheckService:
                     f"目标 {label}={value:.1f} 超出软限位 {axis_range[0]:.1f}~{axis_range[1]:.1f}。",
                 )
             )
+        sphere_item = self._target_sphere_item(target)
+        if sphere_item is not None:
+            items.append(sphere_item)
         items.extend(self._joint_limit_items(target.get("joints")))
         return items
+
+    def _target_sphere_item(self, target: dict[str, Any]) -> dict[str, str] | None:
+        if self.max_sphere_radius <= 0:
+            return None
+        values = [self._float_or_none(target.get(axis)) for axis in ("x", "y", "z")]
+        if any(value is None for value in values):
+            return None
+        x, y, z = (float(value) for value in values if value is not None)
+        radius = math.sqrt(x * x + y * y + z * z)
+        return self._item(
+            "target_sphere_radius",
+            "L1",
+            "目标球面半径在上限内",
+            radius <= self.max_sphere_radius,
+            f"目标球面半径 {radius:.1f}mm 未超限。",
+            f"目标球面半径 {radius:.1f}mm 超过上限 {self.max_sphere_radius:.1f}mm。",
+        )
 
     def _joint_limit_items(self, joints: object) -> list[dict[str, str]]:
         if not self.config.joint_limits:
@@ -155,7 +211,7 @@ class SafetyPrecheckService:
             return int(text)
         return None
 
-    def _speed_limit_items(self, speed: object) -> list[dict[str, str]]:
+    def _speed_limit_items(self, speed: object, plan: dict[str, Any] | None = None) -> list[dict[str, str]]:
         if not isinstance(speed, dict):
             return []
         checks = [
@@ -178,6 +234,20 @@ class SafetyPrecheckService:
                     0 <= value <= max_value,
                     f"{label}未超限。",
                     f"{label}={value:.1f} 超过上限 {max_value:.1f}。",
+                )
+            )
+        action_type = infer_l1_action_type(plan or {})
+        clamp = self.speed_clamps.get(action_type)
+        speed_value = self._float_or_none(speed.get("spd_pct"))
+        if action_type and clamp is not None and speed_value is not None:
+            items.append(
+                self._item(
+                    "action_speed_clamp",
+                    "L1",
+                    "动作类型速度钳位",
+                    0 <= speed_value <= float(clamp),
+                    f"{action_type} 速度钳位 {float(clamp):.1f}% 内。",
+                    f"{action_type} 速度钳位 {float(clamp):.1f}%，当前 {speed_value:.1f}%。",
                 )
             )
         return items

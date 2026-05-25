@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .flow_registry import FlowEntry, FlowStep
 from .models import FlowDefinition
 
 
@@ -57,3 +58,26 @@ def save_flows_json(path: str | Path, flows: dict[str, FlowDefinition]) -> None:
         ]
     }
     file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def flow_definition_to_entry(flow: FlowDefinition) -> FlowEntry:
+    steps = [
+        FlowStep(
+            step_id=index + 1,
+            action=str(step),
+            func_id=0,
+            params={"query_key": str(step)},
+            description=str(step),
+        )
+        for index, step in enumerate(flow.steps)
+    ]
+    return FlowEntry(name=flow.name, steps=steps, step_delay_ms=flow.step_delay_ms)
+
+
+def flow_entry_to_definition(entry: FlowEntry) -> FlowDefinition:
+    steps = tuple(
+        str(step.params.get("query_key") or step.description or step.action)
+        for step in entry.steps
+        if str(step.params.get("query_key") or step.description or step.action).strip()
+    )
+    return FlowDefinition(name=entry.name, steps=steps, step_delay_ms=entry.step_delay_ms)

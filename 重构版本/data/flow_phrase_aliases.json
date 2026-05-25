@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "description": "现场流程口语动作别名配置。DeepSeek 只能引用 gesture 文本，真实轴号和正反方向必须在这里白名单配置后才可展开。",
+  "aliases": {}
+}

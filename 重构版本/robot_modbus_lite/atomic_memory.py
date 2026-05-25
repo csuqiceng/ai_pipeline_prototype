@@ -17,8 +17,8 @@ class AtomicMemory:
     current_speed: float = 50.0
     current_step_mm: float = 10.0
     current_step_deg: float = 5.0
-    current_acc: float = 100.0
-    current_dec: float = 100.0
+    current_acc: float = 50.0
+    current_dec: float = 50.0
     confirm_mode: str = "beginner"
     positions: dict[str, tuple[float, float, float, float, float, float]] = field(default_factory=dict)
     last_direction: tuple[float, float, float] | None = None
@@ -28,7 +28,10 @@ class AtomicMemory:
     position_stack: list[tuple[float, float, float, float, float, float]] = field(default_factory=list)
 
     def set_speed(self, value: float) -> None:
-        self.current_speed = self._clamp_pct(value)
+        clamped = self._clamp_pct(value)
+        self.current_speed = clamped
+        self.current_acc = clamped
+        self.current_dec = clamped
 
     def speed_up(self, delta: float = 10.0) -> None:
         self.set_speed(self.current_speed + delta)
@@ -73,6 +76,20 @@ class AtomicMemory:
     def remember_record(self, record: QueryRecord) -> None:
         self.last_record = record
         self.last_command_params = dict(record.params)
+        if record.func_num in {106, 107} and int(float(record.params.get("fuzzy_pos", 1))) == 1:
+            pos_val = float(record.params.get("pos_val", 0.0))
+            if pos_val != 0.0:
+                self.record_direction(
+                    func_num=record.func_num,
+                    axis_no=int(float(record.params.get("axis_no", 0))),
+                    direction=1 if pos_val > 0 else -1,
+                    step=abs(pos_val),
+                )
+
+    def record_direction(self, *, func_num: int, axis_no: int, direction: int, step: float) -> None:
+        normalized_direction = -1.0 if int(direction) < 0 else 1.0
+        self.last_direction = (float(func_num), float(axis_no), normalized_direction)
+        self.last_step = max(0.1, abs(float(step)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +101,8 @@ class AtomicMemory:
             "confirm_mode": self.confirm_mode,
             "positions": {name: list(pose) for name, pose in self.positions.items()},
             "position_stack": [list(pose) for pose in self.position_stack],
+            "last_direction": list(self.last_direction) if self.last_direction is not None else None,
+            "last_step": self.last_step,
         }
 
     @classmethod
@@ -114,6 +133,15 @@ class AtomicMemory:
                     memory.push_position(tuple(float(value) for value in pose[:6]))  # type: ignore[index]
                 except Exception:
                     continue
+        direction = payload.get("last_direction")
+        if isinstance(direction, list) and len(direction) >= 3:
+            try:
+                memory.last_direction = (float(direction[0]), float(direction[1]), float(direction[2]))
+                if payload.get("last_step") is not None:
+                    memory.last_step = max(0.1, abs(float(payload.get("last_step"))))
+            except Exception:
+                memory.last_direction = None
+                memory.last_step = None
         return memory
 
     def save(self, path: str | Path) -> None:

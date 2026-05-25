@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableWidget,
@@ -139,6 +140,9 @@ class GuiUiMixin:
         self.status_label = QLabel(f"系统就绪 | 数据源: {self.json_path}")
         self.status_label.setObjectName("footerStatus")
         self.status_label.setMinimumHeight(28)
+        self.status_label.setMaximumWidth(1100)
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         footer = QHBoxLayout()
         footer.setContentsMargins(8, 0, 8, 0)
@@ -1727,6 +1731,24 @@ class GuiUiMixin:
                 font-size: 15px;
                 line-height: 1.35;
                 color: #111827;
+            }
+            QPushButton#operatorThinkingToggle {
+                color: #64748b;
+                background: transparent;
+                border: 0;
+                padding: 2px 0;
+                text-align: left;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton#operatorThinkingToggle:checked {
+                color: #334155;
+            }
+            QLabel#operatorThinkingDetail {
+                color: #64748b;
+                font-size: 12px;
+                line-height: 1.25;
+                padding: 2px 0 0 0;
             }
             QFrame#operatorUserBubble QLabel#operatorChatText {
                 color: #111827;

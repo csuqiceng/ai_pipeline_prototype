@@ -1,4 +1,5 @@
 from robot_modbus_lite.models import FlowDefinition, QueryRecord
+from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
 from robot_modbus_lite.process_precheck import ProcessPrecheckService
 
 
@@ -48,6 +49,41 @@ def test_process_precheck_runs_l1_for_each_step_and_reports_failure():
     assert result["status"] == "fail"
     assert result["progress_percent"] == 100
     assert any(item["id"] == "step_l1" and item["status"] == "fail" for item in result["items"])
+
+
+def test_process_precheck_accepts_structured_flow_step_without_query_table_template():
+    calls = []
+    service = ProcessPrecheckService(
+        l1_runner=lambda _snapshot, plan: calls.append(plan["plan_id"]) or {"status": "pass", "items": []},
+        l2_runner=lambda record: {"status": "pass", "items": [], "query_key": record.query_key},
+    )
+    flow = FlowEntry(
+        name="structured",
+        steps=[
+            FlowStep(
+                step_id=1,
+                action="移动",
+                func_id=108,
+                params={
+                    "target_x": 10.0,
+                    "target_y": 20.0,
+                    "target_z": 30.0,
+                    "target_rx": 0.0,
+                    "target_ry": 0.0,
+                    "target_rz": 0.0,
+                    "spd_pct": 30.0,
+                },
+                description="结构化移动",
+            )
+        ],
+        step_delay_ms=10,
+    )
+
+    result = service.run_l3(flow=flow, table={}, snapshot={})
+
+    assert result["status"] == "pass"
+    assert calls == ["flow:structured:1"]
+    assert result["timing"]["step_count"] == 1
 
 
 def test_process_precheck_reports_step_progress_callback():

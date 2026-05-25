@@ -101,6 +101,26 @@ class DeepSeekClient:
         else:
             return self._generate_direct(prompt, resolved_model, thinking_enabled)
 
+    def generate_chat(self, prompt: str, *, system_prompt: str | None = None, model: str | None = None) -> str:
+        """生成普通问答文本。"""
+        resolved_model, thinking_enabled = self._resolve_model_options(model)
+        if self._use_proxy:
+            return self._generate_via_proxy(prompt, resolved_model, thinking_enabled)
+        return self._generate_direct(prompt, resolved_model, thinking_enabled, system_prompt=system_prompt)
+
+    def generate_chat_stream(self, prompt: str, *, system_prompt: str | None = None, model: str | None = None):
+        """流式生成普通问答文本，只产出最终回答内容。"""
+        resolved_model, thinking_enabled = self._resolve_model_options(model)
+        if self._use_proxy:
+            yield self._generate_via_proxy(prompt, resolved_model, thinking_enabled)
+            return
+        yield from self._generate_direct_stream(
+            prompt,
+            resolved_model,
+            thinking_enabled,
+            system_prompt=system_prompt,
+        )
+
     def _resolve_model_options(self, model: str | None) -> tuple[str, bool]:
         """解析相关数据。"""
         requested = (model or self.model or DEFAULT_DEEPSEEK_MODEL).strip()
@@ -109,12 +129,23 @@ class DeepSeekClient:
             return alias
         return requested, False
 
-    def _build_payload(self, prompt: str, model: str, thinking_enabled: bool) -> dict[str, Any]:
+    def _build_payload(
+        self,
+        prompt: str,
+        model: str,
+        thinking_enabled: bool,
+        *,
+        system_prompt: str | None = None,
+    ) -> dict[str, Any]:
         """构建载荷。"""
         payload: dict[str, Any] = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "你是一个机械手控制系统的自然语言处理助手，负责将用户输入归类到模板、流程或系统动作。"},
+                {
+                    "role": "system",
+                    "content": system_prompt
+                    or "你是一个机械手控制系统的自然语言处理助手，负责将用户输入归类到模板、流程或系统动作。",
+                },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.2,
@@ -150,20 +181,65 @@ class DeepSeekClient:
         result = response.json()
         return result["data"]["choices"][0]["message"]["content"]
 
-    def _generate_direct(self, prompt: str, model: str, thinking_enabled: bool) -> str:
+    def _generate_direct(
+        self,
+        prompt: str,
+        model: str,
+        thinking_enabled: bool,
+        *,
+        system_prompt: str | None = None,
+    ) -> str:
         """处理相关数据。"""
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        payload = self._build_payload(prompt, model, thinking_enabled)
+        payload = self._build_payload(prompt, model, thinking_enabled, system_prompt=system_prompt)
         payload["top_p"] = 0.95
 
         response = requests.post(self.base_url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         result = response.json()
         return result["choices"][0]["message"]["content"]
+
+    def _generate_direct_stream(
+        self,
+        prompt: str,
+        model: str,
+        thinking_enabled: bool,
+        *,
+        system_prompt: str | None = None,
+    ):
+        """直接请求 DeepSeek SSE 流，只输出 delta.content，忽略 reasoning_content。"""
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        payload = self._build_payload(prompt, model, thinking_enabled, system_prompt=system_prompt)
+        payload["top_p"] = 0.95
+        payload["stream"] = True
+
+        response = requests.post(self.base_url, headers=headers, json=payload, timeout=30, stream=True)
+        response.raise_for_status()
+        for raw_line in response.iter_lines(decode_unicode=True):
+            line = str(raw_line or "").strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line.removeprefix("data:").strip()
+            if data == "[DONE]":
+                break
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = event.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                yield str(content)
 
     def parse_json(self, prompt: str, model: str | None = None) -> dict[str, Any] | None:
         """解析配置文件。"""

@@ -1,5 +1,6 @@
 import json
 
+from robot_modbus_lite.dialog_logger import DialogLogger
 from robot_modbus_lite.interaction_archiver import InteractionArchiveWriter
 from robot_modbus_lite.json_schema import validate_interaction_record
 
@@ -56,3 +57,17 @@ def test_interaction_archive_writer_updates_nlp_result_in_existing_record(tmp_pa
     assert payload["nlp_result"]["func_id"] == 108
     assert payload["nlp_result"]["params"]["target_x"] == 1.0
     assert validate_interaction_record(payload) is None
+
+
+def test_interaction_archive_writer_can_mirror_daily_dialog(tmp_path):
+    writer = InteractionArchiveWriter(
+        path=tmp_path / "session_interactions.jsonl",
+        session_id="session-1",
+        dialog_logger=DialogLogger(tmp_path / "dialog"),
+    )
+
+    writer.append_input_record(source="text", raw_text="小正，状态")
+
+    files = list((tmp_path / "dialog").glob("dialog_*.jsonl"))
+    assert len(files) == 1
+    assert "小正，状态" in files[0].read_text(encoding="utf-8")

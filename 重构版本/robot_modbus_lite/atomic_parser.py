@@ -137,6 +137,21 @@ class AtomicParser:
             direction_map = {"前进": (6, 1), "后退": (6, -1), "左移": (7, 1), "右移": (7, -1), "上升": (8, 1), "下降": (8, -1)}
             axis_no, direction = direction_map[direction_text]
             return AtomicElements(raw_text=raw, command_text=compact, family="virtual", axis_no=axis_no, direction=direction, fuzzy_pos=1)
+        continue_last_match = re.fullmatch(
+            r"(?:继续|继续走|继续移动|沿上次方向继续|按上次方向继续)(-?\d+(?:\.\d+)?)(?:毫米|mm|度|°)?",
+            compact,
+            flags=re.IGNORECASE,
+        )
+        if continue_last_match:
+            return AtomicElements(
+                raw_text=raw,
+                command_text=compact,
+                family="history",
+                name="continue",
+                step=abs(float(continue_last_match.group(1))),
+            )
+        if compact in {"继续", "继续走", "继续移动", "沿上次方向继续", "按上次方向继续"}:
+            return AtomicElements(raw_text=raw, command_text=compact, family="history", name="continue")
         return None
 
     def _parse_delay(self, raw: str, compact: str) -> AtomicElements | None:

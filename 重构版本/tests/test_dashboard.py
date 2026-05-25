@@ -69,6 +69,40 @@ def test_dashboard_detects_alarm_active_from_alarm_code():
     assert snapshot.safety["alarm_active"] is True
     assert snapshot.safety["estop"] is True
     assert snapshot.connection["realtime_feedback"] == "offline"
+    assert snapshot.safety["alarm_detection"]["active"] is True
+    assert "E_STOP" in snapshot.safety["alarm_detection"]["codes"]
+
+
+def test_dashboard_exposes_long38_alarm_detection():
+    source = SimpleNamespace(
+        robot_x="-",
+        robot_y="-",
+        robot_z="-",
+        robot_r="-",
+        robot_joints=(),
+        robot_speed="-",
+        alarm_code="ERR_8",
+        alarm_text="速度超限",
+        six_long38=8,
+        estop_active=False,
+        pause_active=False,
+        busy="空闲",
+        run_state="空闲",
+        current_func_text="-",
+        motion_percent="-",
+        result="9",
+        io_status="0",
+        servo_enable="1",
+        claw_enable="1",
+        claw_brake="0",
+        monitor_label=SimpleNamespace(text=lambda: "实时监控运行中"),
+    )
+
+    snapshot = DashboardCache().update_from_source(source)
+
+    detection = snapshot.boards["device_status"]["alarm_detection"]
+    assert detection["codes"] == ["OVER_SPEED"]
+    assert detection["severity"] == "critical"
 
 
 def test_dashboard_snapshot_exposes_v21_seven_boards_with_50ms_refresh():

@@ -40,7 +40,7 @@ class ProcessPrecheckService:
     ) -> dict[str, Any]:
         self._publish_stage_progress(flow.name, "start", 0, "准备 L3 流程级预演。")
         self._publish_stage_progress(flow.name, "template_check", 5, "正在检查流程模板完整性。")
-        missing = [step for step in flow.steps if step not in table]
+        records, step_keys, missing = self._flow_records(flow, table)
         if missing:
             self._publish_stage_progress(flow.name, "complete", 100, "L3 流程级预演未通过，流程模板不完整。")
             return {
@@ -62,10 +62,8 @@ class ProcessPrecheckService:
         items: list[dict[str, str]] = []
         failed = False
         total = max(1, len(flow.steps))
-        records = [table[step] for step in flow.steps]
         midpoint_suggestions: list[dict[str, Any]] = []
-        for index, step in enumerate(flow.steps, start=1):
-            record = table[step]
+        for index, (step, record) in enumerate(zip(step_keys, records), start=1):
             plan = self._plan_dict(record)
             l1 = self.l1_runner(snapshot, plan)
             l1_status = "fail" if l1.get("status") == "fail" else "pass"
@@ -152,6 +150,71 @@ class ProcessPrecheckService:
             "midpoint_suggestions": midpoint_suggestions,
             "suggestion": final_suggestion,
         }
+
+    @staticmethod
+    def _step_key(step: Any) -> str:
+        if isinstance(step, str):
+            return step
+        params = getattr(step, "params", None)
+        if isinstance(params, dict) and params.get("query_key"):
+            return str(params["query_key"])
+        for attr in ("query_key", "description", "action"):
+            value = getattr(step, attr, None)
+            if value:
+                return str(value)
+        return str(step)
+
+    @classmethod
+    def _flow_records(
+        cls,
+        flow: Any,
+        table: dict[str, QueryRecord],
+    ) -> tuple[list[QueryRecord], list[str], list[str]]:
+        records: list[QueryRecord] = []
+        step_keys: list[str] = []
+        missing: list[str] = []
+        flow_name = str(getattr(flow, "name", "flow") or "flow")
+        for index, step in enumerate(getattr(flow, "steps", []) or [], start=1):
+            record = cls._record_from_step(step, table, flow_name=flow_name, index=index)
+            step_key = record.query_key if record is not None else cls._step_key(step)
+            step_keys.append(step_key)
+            if record is None:
+                missing.append(step_key)
+            else:
+                records.append(record)
+        return records, step_keys, missing
+
+    @classmethod
+    def _record_from_step(
+        cls,
+        step: Any,
+        table: dict[str, QueryRecord],
+        *,
+        flow_name: str,
+        index: int,
+    ) -> QueryRecord | None:
+        if isinstance(step, str):
+            return table.get(step)
+        params = getattr(step, "params", None)
+        if isinstance(params, dict):
+            query_key = str(params.get("query_key") or "").strip()
+            if query_key and query_key in table:
+                return table[query_key]
+            func_id = int(getattr(step, "func_id", 0) or 0)
+            if func_id > 0:
+                generated_key = query_key or f"flow:{flow_name}:{int(getattr(step, 'step_id', index) or index)}"
+                record_params = dict(params)
+                record_params.pop("query_key", None)
+                return QueryRecord(
+                    query_key=generated_key,
+                    func_num=func_id,
+                    params=record_params,
+                    keywords=str(getattr(step, "action", "") or ""),
+                    description=str(getattr(step, "description", "") or getattr(step, "action", "") or generated_key),
+                    safety_level=5,
+                )
+        step_key = cls._step_key(step)
+        return table.get(step_key)
 
     @staticmethod
     def _plan_dict(record: QueryRecord) -> dict[str, Any]:

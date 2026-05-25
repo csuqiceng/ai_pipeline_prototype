@@ -103,5 +103,44 @@ def test_l1_precheck_ignores_joint_limits_when_not_configured():
     assert not any(item["id"].startswith("target_j") for item in result["items"])
 
 
+def test_l1_blocks_target_outside_max_sphere_radius():
+    service = SafetyPrecheckService(make_config(), max_sphere_radius=120.0)
+
+    result = service.run_l1(make_snapshot(), {"plan_id": "p1", "target": {"x": 121.0, "y": 0.0, "z": 0.0}})
+
+    assert result["status"] == "fail"
+    assert find_item(result, "target_sphere_radius")["status"] == "fail"
+    assert "球面半径" in find_item(result, "target_sphere_radius")["message"]
+
+
+def test_l1_clamps_joint_motion_speed():
+    service = SafetyPrecheckService(make_config(), speed_clamps={"joint": 50})
+
+    result = service.run_l1(
+        make_snapshot(),
+        {"plan_id": "p1", "func_id": 106, "speed": {"spd_pct": 80.0}},
+    )
+
+    assert result["status"] == "fail"
+    assert find_item(result, "action_speed_clamp")["status"] == "fail"
+    assert "速度钳位" in find_item(result, "action_speed_clamp")["message"]
+
+
+def test_l1_allows_motion_inside_sphere_and_clamp():
+    service = SafetyPrecheckService(make_config(), max_sphere_radius=1200.0, speed_clamps={"joint": 50})
+
+    result = service.run_l1(
+        make_snapshot(),
+        {
+            "plan_id": "p1",
+            "func_id": 106,
+            "target": {"x": 10, "y": 10, "z": 10},
+            "speed": {"spd_pct": 50.0},
+        },
+    )
+
+    assert result["status"] == "pass"
+
+
 def find_item(result: dict, item_id: str) -> dict:
     return next(item for item in result["items"] if item["id"] == item_id)

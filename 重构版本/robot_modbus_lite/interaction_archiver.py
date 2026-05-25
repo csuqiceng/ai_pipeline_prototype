@@ -9,16 +9,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .dialog_logger import DialogLogger
 from .json_schema import InteractionRecord
 
 
 class InteractionArchiveWriter:
     """Writes standard interaction records without replacing the GUI log."""
 
-    def __init__(self, *, path: Path, session_id: str, clock: Callable[[], str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path,
+        session_id: str,
+        clock: Callable[[], str] | None = None,
+        dialog_logger: DialogLogger | None = None,
+    ) -> None:
         self.path = path
         self.session_id = session_id
         self.clock = clock or self._now_iso
+        self.dialog_logger = dialog_logger
 
     def append_input_record(
         self,
@@ -66,6 +75,13 @@ class InteractionArchiveWriter:
             device_snapshot=dict(device_snapshot or {}),
         )
         self._append(record.to_dict())
+        if self.dialog_logger is not None:
+            self.dialog_logger.append(
+                role="user",
+                text=raw_text,
+                result="received",
+                extra={"source": source, "session_id": self.session_id, "msg_id": record.msg_id},
+            )
         return record
 
     def update_nlp_result(self, msg_id: str, nlp_result: dict[str, Any]) -> bool:

@@ -129,6 +129,23 @@ def test_feedback_alarm_broadcast_uses_stable_context_id():
     assert message.context_id == "feedback:alarm:报警 1001"
 
 
+def test_feedback_alarm_broadcast_includes_advice_for_known_alarm_keyword():
+    builder = ResponseBuilder()
+
+    message = builder.from_log_entry(
+        {
+            "category": "反馈",
+            "action": "实时状态变化",
+            "result": "提示",
+            "detail": "报警 速度超限",
+        }
+    )
+
+    assert message is not None
+    assert "建议：" in message.text
+    assert "降低速度" in message.text
+
+
 def test_precheck_rejection_broadcasts_alert():
     builder = ResponseBuilder()
 
@@ -273,6 +290,23 @@ def test_six_axis_alarm_completion_broadcasts_alert():
     assert message.context_id == "six_axis:move_a:alarm"
 
 
+def test_six_axis_alarm_completion_includes_advice_for_known_alarm_code():
+    builder = ResponseBuilder()
+
+    message = builder.from_log_entry(
+        {
+            "category": "六轴",
+            "action": "完成+报警 move_a",
+            "result": "警告",
+            "detail": "OVER_SPEED",
+        }
+    )
+
+    assert message is not None
+    assert "建议：" in message.text
+    assert "降低速度" in message.text
+
+
 def test_operator_stop_current_broadcasts_local_cancel_result():
     builder = ResponseBuilder()
 
@@ -325,3 +359,40 @@ def test_blocked_direct_system_action_broadcasts_failure_alert():
     assert message.kind == "alert"
     assert message.text == "系统命令失败：流程执行中。"
     assert message.context_id == "system:alarm_reset:failed"
+
+
+def test_deepseek_diagnostics_broadcast_operator_progress_and_result():
+    builder = ResponseBuilder()
+
+    started = builder.from_log_entry(
+        {
+            "category": "自然语言",
+            "action": "DeepSeek解析",
+            "result": "开始",
+            "detail": "本地规则未命中",
+        }
+    )
+    success = builder.from_log_entry(
+        {
+            "category": "自然语言",
+            "action": "DeepSeek解析",
+            "result": "成功",
+            "detail": "template:位置A | 用户提到取料点",
+        }
+    )
+    failed = builder.from_log_entry(
+        {
+            "category": "自然语言",
+            "action": "DeepSeek解析",
+            "result": "失败",
+            "detail": "HTTPError；已回退本地规则",
+        }
+    )
+
+    assert started is not None
+    assert started.kind == "progress"
+    assert started.text == "本地规则未完全匹配，正在调用在线AI辅助识别进行中。"
+    assert success is not None
+    assert success.text == "在线AI已匹配到：template:位置A，正在进入安全链路。"
+    assert failed is not None
+    assert failed.text == "在线AI不可用或未通过校验，已回退本地规则。"

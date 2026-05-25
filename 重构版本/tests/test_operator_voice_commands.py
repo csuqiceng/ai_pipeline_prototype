@@ -16,8 +16,8 @@ def test_operator_voice_command_table_covers_required_user_buttons():
 
 
 def test_operator_voice_command_table_has_expected_aliases_for_key_buttons():
-    assert "解析当前指令" in aliases_for_button("解析")
-    assert "执行当前指令" in aliases_for_button("执行")
+    assert "发送当前指令" in aliases_for_button("发送")
+    assert "执行当前指令" in aliases_for_button("发送")
     assert "开始录音" in aliases_for_button("录音")
     assert "停止当前动作" in aliases_for_button("停止当前")
     assert "回到主界面" in aliases_for_button("主界面")
@@ -49,9 +49,9 @@ def test_operator_voice_command_export_rows_are_reviewable():
     rows = export_operator_voice_command_rows()
 
     assert rows[0] == {
-        "button_label": "解析",
-        "action": "parse_text",
-        "aliases": ["解析当前指令", "解析指令", "只解析"],
+        "button_label": "发送",
+        "action": "execute_text",
+        "aliases": ["发送当前指令", "发送指令", "发送输入", "执行当前指令", "执行指令", "执行输入"],
         "requires_emergency_code": False,
     }
     assert any(row["button_label"] == "急停" and row["requires_emergency_code"] is True for row in rows)
@@ -61,6 +61,6 @@ def test_operator_voice_command_export_markdown_contains_all_aliases():
     markdown = export_operator_voice_command_markdown()
 
     assert "| 按钮/入口 | 动作 | 语音说法 | 备注 |" in markdown
-    assert "解析当前指令、解析指令、只解析" in markdown
+    assert "发送当前指令、发送指令、发送输入、执行当前指令、执行指令、执行输入" in markdown
     assert "急停 授权码 急停" in markdown
     assert "需要三段式应急编码" in markdown

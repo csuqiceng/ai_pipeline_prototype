@@ -99,8 +99,10 @@ class AtomicResolver:
             return self._unsupported(elements, "位置命令缺少位置名称。")
         op, pos_name = name.split(":", 1)
         normalized_name = pos_name.strip().upper()
+        registry = getattr(self.memory, "position_registry", None)
         if op == "query":
-            pose = self.memory.get_position(normalized_name)
+            entry = registry.get(normalized_name) if registry is not None else None
+            pose = entry.pose if entry is not None else self.memory.get_position(normalized_name)
             if pose is None:
                 return self._unsupported(elements, f"位置{normalized_name}不存在。")
             return AtomicResolved(
@@ -121,7 +123,12 @@ class AtomicResolver:
                 requires_confirmation=False,
             )
         if op == "delete":
-            self.memory.delete_position(normalized_name)
+            if registry is not None:
+                ok, message = registry.remove(normalized_name)
+                if not ok:
+                    return self._unsupported(elements, message)
+            else:
+                self.memory.delete_position(normalized_name)
             return AtomicResolved(
                 kind="memory",
                 action_type="memory",
@@ -131,15 +138,28 @@ class AtomicResolver:
                 requires_confirmation=False,
             )
         if op == "move":
-            pose = self.memory.get_position(normalized_name)
+            entry = registry.get(normalized_name) if registry is not None else None
+            pose = entry.pose if entry is not None else self.memory.get_position(normalized_name)
             if pose is None:
                 return self._unsupported(elements, f"位置{normalized_name}不存在。")
-            record = self._pose_record(
-                elements,
-                pose,
-                query_key=f"atomic:position:{normalized_name}",
-                description=f"原子函数：移动到位置{normalized_name}",
-            )
+            if entry is not None:
+                params = entry.to_func108_params()
+                params.update({"stop_cmd": 0})
+                record = QueryRecord(
+                    query_key=f"atomic:position:{normalized_name}",
+                    func_num=108,
+                    keywords=elements.command_text,
+                    description=f"原子函数：移动到位置{normalized_name}",
+                    safety_level=5,
+                    params=params,
+                )
+            else:
+                record = self._pose_record(
+                    elements,
+                    pose,
+                    query_key=f"atomic:position:{normalized_name}",
+                    description=f"原子函数：移动到位置{normalized_name}",
+                )
             return self._template_result(elements, record, f"移动到位置{normalized_name}", risk_level="high")
         return self._unsupported(elements, "未识别的位置库命令。")
 
@@ -176,6 +196,32 @@ class AtomicResolver:
                 description="原子函数：返回上一步位置",
             )
             return self._template_result(elements, record, "返回上一步位置", risk_level="medium")
+        if elements.name == "continue":
+            direction = self.memory.last_direction
+            if direction is None:
+                return self._unsupported(elements, "没有上一次方向记录，无法继续。")
+            func_num = int(direction[0])
+            axis_no = int(direction[1])
+            sign = -1 if float(direction[2]) < 0 else 1
+            step = float(elements.step if elements.step is not None else (self.memory.last_step or 0.0))
+            if step <= 0.0:
+                step = self.memory.current_step_deg if func_num == 106 or axis_no >= 9 else self.memory.current_step_mm
+            continued = AtomicElements(
+                raw_text=elements.raw_text,
+                command_text=elements.command_text,
+                family="joint" if func_num == 106 else "virtual",
+                axis_no=axis_no,
+                direction=sign,
+                step=step,
+                fuzzy_pos=1,
+            )
+            record = self._joint_record(continued) if func_num == 106 else self._virtual_record(continued)
+            return self._template_result(
+                elements,
+                record,
+                "沿上一次方向继续点动",
+                risk_level=self._motion_risk_level(record),
+            )
         return self._unsupported(elements, "未识别的历史动作命令。")
 
     def _joint_record(self, elements: AtomicElements) -> QueryRecord:
@@ -202,6 +248,7 @@ class AtomicResolver:
         )
 
     def _cartesian_record(self, elements: AtomicElements) -> QueryRecord:
+        speed = self._pct(elements.spd_pct, self.memory.current_speed)
         params = {
             "target_x": float(elements.x or 0.0),
             "target_y": float(elements.y or 0.0),
@@ -209,9 +256,9 @@ class AtomicResolver:
             "target_rx": float(elements.rx or 0.0),
             "target_ry": float(elements.ry or 0.0),
             "target_rz": float(elements.rz or 0.0),
-            "spd_pct": self._pct(elements.spd_pct, self.memory.current_speed),
-            "acc_pct": self._pct(elements.acc_pct, self.memory.current_acc),
-            "dec_pct": self._pct(elements.dec_pct, self.memory.current_dec),
+            "spd_pct": speed,
+            "acc_pct": self._pct(elements.acc_pct, speed),
+            "dec_pct": self._pct(elements.dec_pct, speed),
             "stop_cmd": 0,
             "fuzzy_pos": int(elements.fuzzy_pos),
             "fuzzy_spd": 0 if elements.spd_pct is not None else 1,
@@ -287,12 +334,13 @@ class AtomicResolver:
         )
 
     def _jog_params(self, elements: AtomicElements, pos_val: float) -> dict[str, float | int]:
+        speed = self._pct(elements.spd_pct, self.memory.current_speed)
         return {
             "axis_no": int(elements.axis_no or 0),
             "pos_val": float(pos_val),
-            "spd_pct": self._pct(elements.spd_pct, self.memory.current_speed),
-            "acc_pct": self._pct(elements.acc_pct, self.memory.current_acc),
-            "dec_pct": self._pct(elements.dec_pct, self.memory.current_dec),
+            "spd_pct": speed,
+            "acc_pct": self._pct(elements.acc_pct, speed),
+            "dec_pct": self._pct(elements.dec_pct, speed),
             "fuzzy_pos": int(elements.fuzzy_pos),
             "fuzzy_spd": 0 if elements.spd_pct is not None else 1,
             "fuzzy_acc": 0 if elements.acc_pct is not None else 1,

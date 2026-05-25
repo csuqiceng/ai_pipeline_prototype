@@ -4,11 +4,36 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QTreeWidgetItem
 
+from .flow_registry import FlowEntry, FlowStep
 from .models import FlowDefinition
+from .permission_service import PermissionDenied, PermissionService
 
 
 class FlowManagementMixin:
     """维护流程列表、步骤树和流程文件的主窗口能力。"""
+    def _current_permission_actor(self) -> str:
+        role = getattr(self, "_authenticated_role", None)
+        if role is None:
+            role = getattr(self, "current_user_role", None)
+        if role is None:
+            role = getattr(self, "user_role", None)
+        if role is None:
+            role = "engineer"
+        return str(role or "operator").strip().lower()
+
+    def _permission_service(self) -> PermissionService:
+        return PermissionService(actor=self._current_permission_actor())
+
+    def _require_permission(self, action: str, title: str) -> bool:
+        try:
+            self._permission_service().require(action)
+            return True
+        except PermissionDenied as exc:
+            detail = str(exc)
+            self._show_warning(title, detail)
+            self._append_log("权限", action, "拒绝", detail)
+            return False
+
     def _refresh_flow_combo(self) -> None:
         """刷新流程下拉框。"""
         if not hasattr(self, "flow_combo"):
@@ -37,10 +62,9 @@ class FlowManagementMixin:
         self.flow_manage_tree.clear()
         flow_names = self.service.list_flow_names()
         for flow_name in flow_names:
-            flow = self.service.get_flow(flow_name)
-            item = QTreeWidgetItem([flow.name, f"{len(flow.steps)} | {flow.step_delay_ms}ms"])
+            item = QTreeWidgetItem(self._flow_manage_tree_columns(flow_name))
             self.flow_manage_tree.addTopLevelItem(item)
-            if self.current_flow_manage_name == flow.name:
+            if self.current_flow_manage_name == flow_name:
                 self.flow_manage_tree.setCurrentItem(item)
         if flow_names and not self.current_flow_manage_name:
             self.current_flow_manage_name = flow_names[0]
@@ -101,11 +125,99 @@ class FlowManagementMixin:
         self.current_flow_manage_name = flow_name
         self._load_flow_into_manage_form(self.service.get_flow(flow_name))
 
+    def _flow_entry_for_name(self, flow_name: str) -> FlowEntry | None:
+        getter = getattr(self.service, "get_flow_entry", None)
+        if not callable(getter):
+            return None
+        try:
+            entry = getter(flow_name)
+        except Exception:
+            return None
+        return entry if isinstance(entry, FlowEntry) else None
+
+    def _flow_manage_tree_columns(self, flow_name: str) -> list[str]:
+        entry = self._flow_entry_for_name(flow_name)
+        if entry is not None:
+            status = "已确认" if entry.confirmed else "草稿"
+            summary = (
+                f"{len(entry.steps)}步 | {entry.step_delay_ms}ms | "
+                f"v{entry.version} | {status} | 演练{entry.rehearsal_spd}% | {entry.state}"
+            )
+            return [entry.name, summary]
+        flow = self.service.get_flow(flow_name)
+        return [flow.name, f"{len(flow.steps)} | {flow.step_delay_ms}ms"]
+
+    def _flow_manage_step_labels(self, flow: FlowDefinition | FlowEntry) -> list[str]:
+        labels: list[str] = []
+        flow_name = getattr(flow, "name", "")
+        for index, step in enumerate(getattr(flow, "steps", ()), start=1):
+            if isinstance(step, str):
+                labels.append(step)
+                continue
+            if isinstance(step, FlowStep):
+                query_key = step.params.get("query_key")
+                if query_key:
+                    labels.append(str(query_key))
+                    continue
+                step_id = step.step_id or index
+                labels.append(f"flow:{flow_name}:{step_id}")
+                continue
+            labels.append(str(step))
+        return labels
+
+    def _structured_flow_entry_from_labels(
+        self,
+        *,
+        flow_name: str,
+        steps: list[str],
+        step_delay_ms: int,
+    ) -> FlowEntry | None:
+        source_name = self.current_flow_manage_name or flow_name
+        source = self._flow_entry_for_name(source_name)
+        if source is None:
+            return None
+        by_placeholder = {
+            f"flow:{source.name}:{step.step_id or index}": step
+            for index, step in enumerate(source.steps, start=1)
+        }
+        by_query_key = {
+            str(step.params.get("query_key")): step
+            for step in source.steps
+            if isinstance(step.params, dict) and step.params.get("query_key")
+        }
+        selected: list[FlowStep] = []
+        used_structured = False
+        for label in steps:
+            step = by_placeholder.get(label) or by_query_key.get(label)
+            if step is None:
+                if label in getattr(self, "table", {}):
+                    return None
+                return None
+            used_structured = True
+            selected.append(step)
+        if not used_structured:
+            return None
+        return FlowEntry(
+            name=flow_name,
+            description=source.description,
+            steps=selected,
+            step_delay_ms=step_delay_ms,
+            rehearsal_spd=source.rehearsal_spd,
+            confirmed=source.confirmed,
+            created_by=source.created_by,
+            version=source.version,
+            state=source.state,
+            current_step=source.current_step,
+            created_at=source.created_at,
+            updated_at=source.updated_at,
+        )
+
     def _load_flow_into_manage_form(self, flow) -> None:
         """加载流程表单。"""
-        self.flow_manage_name_edit.setText(flow.name)
-        self.flow_manage_delay_edit.setText(str(flow.step_delay_ms))
-        self._refresh_flow_step_manage_tree(list(flow.steps))
+        source = self._flow_entry_for_name(flow.name) or flow
+        self.flow_manage_name_edit.setText(source.name)
+        self.flow_manage_delay_edit.setText(str(source.step_delay_ms))
+        self._refresh_flow_step_manage_tree(self._flow_manage_step_labels(source))
 
     def _new_flow(self) -> None:
         """处理流程。"""
@@ -172,6 +284,8 @@ class FlowManagementMixin:
 
     def _save_flow(self) -> None:
         """保存流程。"""
+        if not self._require_permission("flow.update", "权限不足"):
+            return
         flow_name = self.flow_manage_name_edit.text().strip()
         steps = self._collect_flow_steps()
         try:
@@ -187,6 +301,20 @@ class FlowManagementMixin:
         if not steps:
             self._show_warning("保存失败", "流程至少需要一个步骤。")
             self._append_log("后台", "保存流程", "失败", "流程至少需要一个步骤")
+            return
+        structured_entry = self._structured_flow_entry_from_labels(
+            flow_name=flow_name,
+            steps=steps,
+            step_delay_ms=step_delay_ms,
+        )
+        if structured_entry is not None and hasattr(self.service, "save_flow_entry"):
+            self.service.save_flow_entry(structured_entry)
+            self.current_flow_manage_name = flow_name
+            self.current_flow_name = flow_name if self.current_flow_name in {None, "", flow_name} else self.current_flow_name
+            self._refresh_flow_combo()
+            self._refresh_flow_manage_tree()
+            self.status_label.setText(f"已保存流程: {flow_name}")
+            self._append_log("后台", "保存流程", "成功", f"{flow_name} | {len(steps)} 步 | 延时 {step_delay_ms}ms")
             return
         missing = [step for step in steps if step not in self.table]
         if missing:
@@ -209,6 +337,8 @@ class FlowManagementMixin:
 
     def _delete_flow(self) -> None:
         """删除流程。"""
+        if not self._require_permission("flow.delete", "权限不足"):
+            return
         flow_name = self.flow_manage_name_edit.text().strip()
         if not flow_name:
             self._show_warning("删除失败", "当前没有选中的流程。")
@@ -230,6 +360,23 @@ class FlowManagementMixin:
         self._refresh_flow_manage_tree()
         self.status_label.setText(f"已删除流程: {flow_name}")
         self._append_log("后台", "删除流程", "成功", flow_name)
+
+    def _start_flow_rehearsal(self) -> None:
+        """启动结构化流程演练模式。"""
+        if not self._require_permission("flow.rehearsal", "权限不足"):
+            return
+        flow_name = self.flow_manage_name_edit.text().strip() if hasattr(self, "flow_manage_name_edit") else ""
+        if not flow_name:
+            self._show_warning("演练失败", "当前没有选中的流程。")
+            self._append_log("后台", "演练流程", "失败", "当前没有选中的流程")
+            return
+        ok, msg = self.service.start_flow_rehearsal(flow_name)
+        if not ok:
+            self._show_warning("演练失败", msg)
+            self._append_log("后台", "演练流程", "失败", msg)
+            return
+        self.status_label.setText(msg)
+        self._append_log("后台", "演练流程", "成功", msg)
 
     def _refresh_flow_steps(self) -> None:
         """刷新流程。"""

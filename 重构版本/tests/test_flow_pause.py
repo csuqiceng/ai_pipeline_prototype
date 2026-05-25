@@ -1,4 +1,5 @@
 from robot_modbus_lite.flow_execution_mixin import FlowExecutionMixin
+from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
 from robot_modbus_lite.models import FlowDefinition
 
 
@@ -65,6 +66,49 @@ def test_finish_flow_run_clears_flow_pause_state():
     assert dummy.flow_status == "完成"
     assert dummy.flow_current_step == "-"
     assert refreshed == ["steps", "status"]
+
+
+def test_flow_execution_builds_record_from_structured_flow_step_without_table_template():
+    dummy = DummyFlow()
+    dummy.table = {}
+    step = FlowStep(
+        step_id=1,
+        action="移动",
+        func_id=108,
+        params={"target_x": 1.0, "target_y": 2.0, "target_z": 3.0, "spd_pct": 20.0},
+        description="结构化移动",
+    )
+
+    record = dummy._flow_step_record(step, flow_name="demo", index=1)
+
+    assert record.query_key == "flow:demo:1"
+    assert record.func_num == 108
+    assert record.params["target_x"] == 1.0
+    assert record.description == "结构化移动"
+
+
+def test_current_flow_definition_prefers_structured_flow_entry_from_service():
+    dummy = DummyFlow()
+    entry = FlowEntry(
+        name="demo",
+        steps=[FlowStep(step_id=1, action="移动", func_id=108, params={"target_x": 1.0})],
+    )
+    legacy = FlowDefinition(name="demo", steps=("结构化移动",))
+    dummy.current_flow_name = "demo"
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": legacy},
+            "get_flow": lambda self, name: self.flows[name],
+            "get_effective_flow": lambda self, name: entry,
+        },
+    )()
+
+    flow = dummy._current_flow_definition()
+
+    assert flow is entry
+    assert flow.steps[0].func_id == 108
 
 
 def test_reset_flow_clears_flow_pause_state():

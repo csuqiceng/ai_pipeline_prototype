@@ -11,13 +11,13 @@
     0.0,
     3000.0
   ],
-  "safe_r_min": 0.0,
-  "safe_r_max": 0.0,
+  "safe_r_min": 200.0,
+  "safe_r_max": 1800.0,
   "safe_z_min": 0.0,
-  "safe_z_max": 0.0,
-  "safe_speed_max": 0.0,
-  "safe_acc_max": 0.0,
-  "safe_dec_max": 0.0,
+  "safe_z_max": 2500.0,
+  "safe_speed_max": 150.0,
+  "safe_acc_max": 150.0,
+  "safe_dec_max": 150.0,
   "motion_timeout_sec": 180.0,
   "echo_retry_interval_sec": 0.005,
   "echo_retry_count": 3,
@@ -26,7 +26,7 @@
   "emergency_codes": [
     "A1B2"
   ],
-  "operator_tts_enabled": false,
+  "operator_tts_enabled": true,
   "broadcast_dedupe_window_sec": 5.0,
   "tts_retry_delay_sec": 5.0,
   "tts_max_failures": 3,

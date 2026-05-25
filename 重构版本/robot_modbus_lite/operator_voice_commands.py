@@ -8,7 +8,6 @@ from typing import Literal
 
 
 OperatorVoiceAction = Literal[
-    "parse_text",
     "execute_text",
     "record",
     "clear_text",
@@ -41,8 +40,11 @@ class OperatorVoiceCommandSpec:
 
 
 OPERATOR_BUTTON_VOICE_COMMANDS: tuple[OperatorVoiceCommandSpec, ...] = (
-    OperatorVoiceCommandSpec("解析", "parse_text", ("解析当前指令", "解析指令", "只解析")),
-    OperatorVoiceCommandSpec("执行", "execute_text", ("执行当前指令", "执行指令", "执行输入")),
+    OperatorVoiceCommandSpec(
+        "发送",
+        "execute_text",
+        ("发送当前指令", "发送指令", "发送输入", "执行当前指令", "执行指令", "执行输入"),
+    ),
     OperatorVoiceCommandSpec("录音", "record", ("开始录音", "打开录音", "录音")),
     OperatorVoiceCommandSpec("清空", "clear_text", ("清空输入", "清空文本", "清空指令")),
     OperatorVoiceCommandSpec("急停", "estop", ("急停 授权码 急停",), requires_emergency_code=True),
@@ -73,8 +75,7 @@ OPERATOR_BUTTON_VOICE_COMMANDS: tuple[OperatorVoiceCommandSpec, ...] = (
 
 OPERATOR_REQUIRED_BUTTON_LABELS = frozenset(
     {
-        "解析",
-        "执行",
+        "发送",
         "录音",
         "清空",
         "急停",

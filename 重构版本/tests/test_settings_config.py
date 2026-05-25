@@ -1,11 +1,22 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 from robot_modbus_lite.settings_mixin import SettingsMixin
-from robot_modbus_lite.system_config import AxisRangeConfig
+from robot_modbus_lite.system_config import AxisRangeConfig, load_system_config
 
 
 class DummySettings(SettingsMixin):
     pass
+
+
+def test_runtime_system_config_enables_nonzero_safety_limits():
+    config = load_system_config(Path("data/system_config.json"))
+
+    assert config.safe_r_max > 0
+    assert config.safe_z_max > 0
+    assert config.safe_speed_max > 0
+    assert config.safe_acc_max > 0
+    assert config.safe_dec_max > 0
 
 
 def edit(value: object):

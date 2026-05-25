@@ -1,0 +1,129 @@
+{
+  "version": "1.0",
+  "description": "AI 助手本地知识库。用于闲聊、功能说明、使用方式和安全边界问答，可由现场维护。",
+  "entries": [
+    {
+      "id": "system_identity",
+      "category": "identity",
+      "keywords": [
+        "你是谁",
+        "你是什么",
+        "介绍一下",
+        "问答助手"
+      ],
+      "content": "我是机械手自然语言交互系统的问答助手，可以帮助理解系统能力、查询状态和位置资料，并协助创建流程草案。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "identity"
+    },
+    {
+      "id": "system_capabilities",
+      "category": "usage",
+      "keywords": [
+        "能做什么",
+        "有什么功能",
+        "功能",
+        "能力",
+        "怎么用",
+        "帮助",
+        "有哪些命令"
+      ],
+      "content": "当前系统支持自然语言理解、状态/看板查询、位置示教与查询、流程草案创建、多轮澄清、安全预检、确认后执行和报警建议。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "usage"
+    },
+    {
+      "id": "safety_boundary",
+      "category": "safety",
+      "keywords": [
+        "AI控制",
+        "DeepSeek会操作吗",
+        "能不能直接控制",
+        "安全边界",
+        "直接执行",
+        "会不会自己执行"
+      ],
+      "content": "DeepSeek 和问答助手只负责理解问题、检索资料或生成草案，不直接控制机械手。所有执行都必须经过本地白名单、安全预检和人工确认。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "safety"
+    },
+    {
+      "id": "template_query",
+      "category": "template",
+      "keywords": [
+        "有哪些模板",
+        "模板命令",
+        "默认命令",
+        "有哪些指令",
+        "命令列表"
+      ],
+      "content": "可以询问当前加载的模板命令，例如“有哪些默认命令”“位置A的命令怎么说”。系统会结合模板表和当前配置回答。",
+      "priority": "normal",
+      "source": "system_default",
+      "answer_style": "usage"
+    },
+    {
+      "id": "position_query",
+      "category": "position",
+      "keywords": [
+        "位置参数",
+        "位置坐标",
+        "位置A",
+        "home位",
+        "坐标是什么",
+        "参数是什么"
+      ],
+      "content": "查询位置参数时可以问“位置A的参数是什么样的”或“home位坐标是多少”。系统会优先从位置库和当前草案中回答。",
+      "priority": "normal",
+      "source": "system_default",
+      "answer_style": "usage"
+    },
+    {
+      "id": "flow_draft_usage",
+      "category": "flow",
+      "keywords": [
+        "流程草案",
+        "创建流程",
+        "保存并执行",
+        "这个流程",
+        "流程是什么样",
+        "多轮对话"
+      ],
+      "content": "复杂口语流程会先生成草案，不会自动保存或执行。用户可查看草案步骤，再说“确认保存”或“保存并执行”。",
+      "priority": "normal",
+      "source": "system_default",
+      "answer_style": "usage"
+    },
+    {
+      "id": "alarm_usage",
+      "category": "alarm",
+      "keywords": [
+        "报警怎么办",
+        "报警处理",
+        "报警建议",
+        "报警怎么恢复",
+        "报警复位"
+      ],
+      "content": "报警时应先确认现场安全，再查看报警码、报警详情和建议；排除原因后再执行报警确认或复位。",
+      "priority": "normal",
+      "source": "system_default",
+      "answer_style": "safety"
+    },
+    {
+      "id": "tts_usage",
+      "category": "voice",
+      "keywords": [
+        "语音播报",
+        "TTS",
+        "为什么不播报",
+        "播报开关"
+      ],
+      "content": "语音播报可以在用户页开关中启用或关闭。未登录时系统不会播报，避免登录前产生无关语音提示。",
+      "priority": "normal",
+      "source": "system_default",
+      "answer_style": "usage"
+    }
+  ]
+}

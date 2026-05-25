@@ -159,7 +159,12 @@ class FlowExecutionMixin:
             if on_done:
                 on_done(False)
             return
-        missing = [s for s in flow.steps if s not in self.table]
+        step_keys = [self._flow_step_key(s, flow_name=flow.name, index=index) for index, s in enumerate(flow.steps, start=1)]
+        missing = [
+            step_key
+            for index, (step_key, step) in enumerate(zip(step_keys, flow.steps), start=1)
+            if self._flow_step_record(step, flow_name=flow.name, index=index) is None
+        ]
         if missing:
             self._show_warning(
                 "流程包含无效步骤",
@@ -261,7 +266,12 @@ class FlowExecutionMixin:
         if not flow.steps:
             self._show_warning("空流程", "当前流程没有任何步骤。")
             return
-        missing = [s for s in flow.steps if s not in self.table]
+        step_keys = [self._flow_step_key(s, flow_name=flow.name, index=index) for index, s in enumerate(flow.steps, start=1)]
+        missing = [
+            step_key
+            for index, (step_key, step) in enumerate(zip(step_keys, flow.steps), start=1)
+            if self._flow_step_record(step, flow_name=flow.name, index=index) is None
+        ]
         if missing:
             self._show_warning(
                 "流程包含无效步骤",
@@ -404,7 +414,7 @@ class FlowExecutionMixin:
             return
 
         current_step_index = self.flow_step_index
-        step_name = flow.steps[current_step_index]
+        step_name = self._flow_step_key(flow.steps[current_step_index], flow_name=flow.name, index=current_step_index + 1)
         self.flow_current_step = step_name
         self._refresh_flow_steps()
         self._refresh_flow_status_panel()
@@ -417,7 +427,8 @@ class FlowExecutionMixin:
         )
         self._append_log("流程", f"流程第{self.flow_step_index + 1}步开始", "成功", step_name, extra=step_extra)
 
-        if step_name not in self.table:
+        step_record = self._flow_step_record(flow.steps[current_step_index], flow_name=flow.name, index=current_step_index + 1)
+        if step_record is None:
             self._finish_flow_run("失败")
             self._append_log("流程", f"流程第{self.flow_step_index + 1}步失败", "失败", f"模板不存在: {step_name}", extra=step_extra)
             self._append_flow_summary(
@@ -499,7 +510,11 @@ class FlowExecutionMixin:
                 return
 
             self.flow_status = "运行中" if auto_continue else "空闲"
-            self.flow_current_step = current_flow.steps[self.flow_step_index]
+            self.flow_current_step = self._flow_step_key(
+                current_flow.steps[self.flow_step_index],
+                flow_name=current_flow.name,
+                index=self.flow_step_index + 1,
+            )
             if not auto_continue:
                 self.flow_running = False
                 self.flow_paused = False
@@ -520,7 +535,11 @@ class FlowExecutionMixin:
                     flow=flow,
                     run_id=active_run_id,
                     completed_step_index=current_step_index + 1,
-                    next_step=current_flow.steps[self.flow_step_index],
+                    next_step=self._flow_step_key(
+                        current_flow.steps[self.flow_step_index],
+                        flow_name=current_flow.name,
+                        index=self.flow_step_index + 1,
+                    ),
                 ):
                     return
                 delay_ms = max(0, int(getattr(current_flow, "step_delay_ms", 0)))
@@ -531,12 +550,17 @@ class FlowExecutionMixin:
                         "流程",
                         f"流程步间等待 {flow.name}",
                         "成功",
-                        f"第{current_step_index + 1}步后等待 {delay_ms}ms，再执行 {current_flow.steps[self.flow_step_index]}",
+                        f"第{current_step_index + 1}步后等待 {delay_ms}ms，再执行 "
+                        f"{self._flow_step_key(current_flow.steps[self.flow_step_index], flow_name=current_flow.name, index=self.flow_step_index + 1)}",
                         extra=self._flow_log_extra(
                             flow,
                             active_run_id,
                             flow_step_index=current_step_index + 1,
-                            next_step=current_flow.steps[self.flow_step_index],
+                            next_step=self._flow_step_key(
+                                current_flow.steps[self.flow_step_index],
+                                flow_name=current_flow.name,
+                                index=self.flow_step_index + 1,
+                            ),
                             delay_ms=delay_ms,
                         ),
                     )
@@ -565,8 +589,8 @@ class FlowExecutionMixin:
         # 其它组合保持串行，避免把同槽互斥规则藏在流程调度里。
         if start_index + 1 >= len(flow.steps):
             return None
-        first = self.table.get(flow.steps[start_index])
-        second = self.table.get(flow.steps[start_index + 1])
+        first = self._flow_step_record(flow.steps[start_index], flow_name=flow.name, index=start_index + 1)
+        second = self._flow_step_record(flow.steps[start_index + 1], flow_name=flow.name, index=start_index + 2)
         if not isinstance(first, QueryRecord) or not isinstance(second, QueryRecord):
             return None
         if first.func_num not in SIX_MOTION_FUNCS or second.func_num != 110:
@@ -580,7 +604,7 @@ class FlowExecutionMixin:
             return None
         group = [first, second]
         if start_index + 2 < len(flow.steps):
-            third = self.table.get(flow.steps[start_index + 2])
+            third = self._flow_step_record(flow.steps[start_index + 2], flow_name=flow.name, index=start_index + 3)
             if isinstance(third, QueryRecord) and third.func_num == 120:
                 try:
                     third_plan, _ = self._build_execution_plan(third)
@@ -589,6 +613,48 @@ class FlowExecutionMixin:
                 if len(third_plan) == 1:
                     group.append(third)
         return group
+
+    def _flow_step_record(self, step, *, flow_name: str = "flow", index: int = 1) -> QueryRecord | None:
+        if isinstance(step, str):
+            return self.table.get(step)
+        params = getattr(step, "params", None)
+        if isinstance(params, dict):
+            query_key = str(params.get("query_key") or "").strip()
+            if query_key and query_key in self.table:
+                return self.table[query_key]
+            func_id = int(getattr(step, "func_id", 0) or 0)
+            if func_id > 0:
+                generated_key = query_key or f"flow:{flow_name}:{int(getattr(step, 'step_id', index) or index)}"
+                record_params = dict(params)
+                record_params.pop("query_key", None)
+                record = QueryRecord(
+                    query_key=generated_key,
+                    func_num=func_id,
+                    params=record_params,
+                    keywords=str(getattr(step, "action", "") or ""),
+                    description=str(getattr(step, "description", "") or getattr(step, "action", "") or generated_key),
+                    safety_level=5,
+                )
+                self.table[generated_key] = record
+                if hasattr(self, "service") and hasattr(self.service, "table"):
+                    self.service.table[generated_key] = record
+                return record
+        return self.table.get(self._flow_step_key(step, flow_name=flow_name, index=index))
+
+    @staticmethod
+    def _flow_step_key(step, *, flow_name: str = "flow", index: int = 1) -> str:
+        if isinstance(step, str):
+            return step
+        params = getattr(step, "params", None)
+        if isinstance(params, dict) and params.get("query_key"):
+            return str(params["query_key"])
+        if int(getattr(step, "func_id", 0) or 0) > 0:
+            return f"flow:{flow_name}:{int(getattr(step, 'step_id', index) or index)}"
+        for attr in ("query_key", "description", "action"):
+            value = getattr(step, attr, None)
+            if value:
+                return str(value)
+        return str(step)
 
     def _run_parallel_flow_group(
         self,
@@ -734,7 +800,7 @@ class FlowExecutionMixin:
                 return
 
             self.flow_status = "运行中" if auto_continue else "空闲"
-            self.flow_current_step = current_flow.steps[self.flow_step_index]
+            self.flow_current_step = self._flow_step_key(current_flow.steps[self.flow_step_index])
             if not auto_continue:
                 self.flow_running = False
                 self.flow_paused = False
@@ -757,7 +823,7 @@ class FlowExecutionMixin:
                     flow=flow,
                     run_id=run_id,
                     completed_step_index=start_index + len(group),
-                    next_step=current_flow.steps[self.flow_step_index],
+                    next_step=self._flow_step_key(current_flow.steps[self.flow_step_index]),
                 ):
                     return
                 QTimer.singleShot(delay_ms, lambda: self._run_next_flow_step(run_id=run_id))
@@ -770,6 +836,9 @@ class FlowExecutionMixin:
             return None
         if self.current_flow_name not in self.service.flows:
             return None
+        getter = getattr(self.service, "get_effective_flow", None)
+        if callable(getter):
+            return getter(self.current_flow_name)
         return self.service.get_flow(self.current_flow_name)
 
     def _defer_flow_auto_continue_if_paused(
