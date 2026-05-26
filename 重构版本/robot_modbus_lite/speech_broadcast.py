@@ -51,6 +51,41 @@ class Pyttsx3SpeechSink:
         engine.runAndWait()
 
 
+class WindowsSapiSpeechSink:
+    """Windows SAPI sink.
+
+    A fresh COM voice is created for each utterance. In practice this is more
+    reliable for repeated GUI timer deliveries than reusing a pyttsx3 engine.
+    """
+
+    def __init__(self, dispatch_factory: Callable[[str], object] | None = None) -> None:
+        self._dispatch_factory = dispatch_factory
+
+    @staticmethod
+    def available() -> bool:
+        try:
+            import win32com.client  # type: ignore[import-untyped]  # noqa: F401
+        except Exception:
+            return False
+        return True
+
+    def _dispatch(self, name: str) -> object:
+        if self._dispatch_factory is not None:
+            return self._dispatch_factory(name)
+        try:
+            import win32com.client  # type: ignore[import-untyped]
+        except Exception as exc:
+            raise RuntimeError("未安装 win32com，无法使用 Windows SAPI 播报。") from exc
+        return win32com.client.Dispatch(name)
+
+    def speak(self, text: str) -> None:
+        voice = self._dispatch("SAPI.SpVoice")
+        speak = getattr(voice, "Speak", None)
+        if not callable(speak):
+            raise RuntimeError("Windows SAPI 语音接口不可用。")
+        speak(text)
+
+
 class SpeechBroadcastDeliveryService:
     """Delivers queued broadcast messages to a configured speech sink."""
 

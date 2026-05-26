@@ -7,6 +7,9 @@ from .atomic_models import AtomicElements, AtomicResolved
 from .models import QueryRecord
 
 
+DEFAULT_REST_POSE: tuple[float, float, float, float, float, float] = (900.0, 0.0, 1000.0, 0.0, 0.0, 0.0)
+
+
 class AtomicResolver:
     """Convert atomic elements into executable records or memory updates."""
 
@@ -38,6 +41,8 @@ class AtomicResolver:
             return self._template_result(elements, record, "笛卡尔空间原子动作", risk_level=self._motion_risk_level(record))
         if family == "position":
             return self._resolve_position(elements)
+        if family == "rest_pose":
+            return self._resolve_rest_pose(elements)
         if family == "history":
             return self._resolve_history(elements)
         if family == "delay":
@@ -162,6 +167,16 @@ class AtomicResolver:
                 )
             return self._template_result(elements, record, f"移动到位置{normalized_name}", risk_level="high")
         return self._unsupported(elements, "未识别的位置库命令。")
+
+    def _resolve_rest_pose(self, elements: AtomicElements) -> AtomicResolved:
+        pose = getattr(self.memory, "default_rest_pose", DEFAULT_REST_POSE)
+        record = self._pose_record(
+            elements,
+            pose,
+            query_key="atomic:rest_pose",
+            description="原子函数：移动到默认休息姿态",
+        )
+        return self._template_result(elements, record, "移动到默认休息姿态", risk_level="high")
 
     def _resolve_history(self, elements: AtomicElements) -> AtomicResolved:
         if elements.name == "repeat":

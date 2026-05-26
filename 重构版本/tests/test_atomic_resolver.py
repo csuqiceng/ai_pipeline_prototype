@@ -146,3 +146,35 @@ def test_resolver_prefers_structured_position_registry(tmp_path):
     assert record.float_param("target_x") == 1
     assert record.float_param("spd_pct") == 35
     assert record.int_param("move_type") == 1
+
+
+def test_resolver_maps_rest_phrase_to_default_rest_pose():
+    result = resolve("小正，休息了")
+    record = result.params["record"]
+
+    assert result.kind == "template"
+    assert result.requires_confirmation is True
+    assert isinstance(record, QueryRecord)
+    assert record.query_key == "atomic:rest_pose"
+    assert record.func_num == 108
+    assert record.params["target_x"] == 900.0
+    assert record.params["target_y"] == 0.0
+    assert record.params["target_z"] == 1000.0
+    assert record.params["target_rx"] == 0.0
+    assert record.params["target_ry"] == 0.0
+    assert record.params["target_rz"] == 0.0
+    assert record.params["fuzzy_pos"] == 0
+
+
+def test_resolver_allows_configured_rest_pose_from_memory():
+    memory = AtomicMemory()
+    memory.default_rest_pose = (901.0, 2.0, 1003.0, 4.0, 5.0, 6.0)
+
+    record = record_from("小正，回休息姿态", memory)
+
+    assert record.params["target_x"] == 901.0
+    assert record.params["target_y"] == 2.0
+    assert record.params["target_z"] == 1003.0
+    assert record.params["target_rx"] == 4.0
+    assert record.params["target_ry"] == 5.0
+    assert record.params["target_rz"] == 6.0

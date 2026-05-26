@@ -26,6 +26,7 @@ class AtomicMemory:
     last_record: QueryRecord | None = None
     last_command_params: dict[str, Any] | None = None
     position_stack: list[tuple[float, float, float, float, float, float]] = field(default_factory=list)
+    default_rest_pose: tuple[float, float, float, float, float, float] = (900.0, 0.0, 1000.0, 0.0, 0.0, 0.0)
 
     def set_speed(self, value: float) -> None:
         clamped = self._clamp_pct(value)

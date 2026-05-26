@@ -148,6 +148,30 @@
       }
     },
     {
+      "query_key": "休息姿态",
+      "func_num": 108,
+      "keywords": "休息 休息了 休息姿态 回休息姿态 0位 零位",
+      "description": "移动到默认休息姿态",
+      "safety_level": 5,
+      "params": {
+        "target_x": 900.0,
+        "target_y": 0.0,
+        "target_z": 1000.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
       "query_key": "home",
       "func_num": 108,
       "keywords": "home 回零 原点",

@@ -1,7 +1,12 @@
 import pytest
 
 from robot_modbus_lite.broadcast_queue import BroadcastMessage
-from robot_modbus_lite.speech_broadcast import CallableSpeechSink, Pyttsx3SpeechSink, SpeechBroadcastDeliveryService
+from robot_modbus_lite.speech_broadcast import (
+    CallableSpeechSink,
+    Pyttsx3SpeechSink,
+    SpeechBroadcastDeliveryService,
+    WindowsSapiSpeechSink,
+)
 
 
 def test_speech_delivery_speaks_messages_in_given_order():
@@ -61,3 +66,27 @@ def test_pyttsx3_speech_sink_uses_injected_engine():
     sink.speak("报警")
 
     assert calls == [("say", "报警"), ("runAndWait", "")]
+
+
+def test_windows_sapi_speech_sink_uses_dispatch_factory_each_call():
+    calls = []
+
+    class FakeVoice:
+        def Speak(self, text: str) -> None:
+            calls.append(("Speak", text))
+
+    def dispatch(name: str):
+        calls.append(("Dispatch", name))
+        return FakeVoice()
+
+    sink = WindowsSapiSpeechSink(dispatch_factory=dispatch)
+
+    sink.speak("第一条")
+    sink.speak("第二条")
+
+    assert calls == [
+        ("Dispatch", "SAPI.SpVoice"),
+        ("Speak", "第一条"),
+        ("Dispatch", "SAPI.SpVoice"),
+        ("Speak", "第二条"),
+    ]

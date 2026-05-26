@@ -172,6 +172,11 @@ class VoiceNlpAdapter:
                 reason="命中看板查询规则",
             )
 
+        if self._is_wakeless_rest_command(normalized):
+            rest_plan = self._parse_with_atomic(normalized, raw_text=text)
+            if rest_plan is not None:
+                return rest_plan
+
         command_text = self._strip_wake_word(normalized)
         if command_text is None:
             knowledge_plan = self._answer_chat_with_knowledge_base(normalized, raw_text=text)
@@ -394,11 +399,51 @@ class VoiceNlpAdapter:
             if compact.startswith(wake_word):
                 command = compact[len(wake_word):].lstrip(" ，,。:：")
                 return command or ""
+        for wake_word in WAKE_WORDS:
+            index = compact.find(wake_word)
+            if index <= 0:
+                continue
+            prefix = compact[:index].strip(" ，,。:：")
+            command = compact[index + len(wake_word):].lstrip(" ，,。:：")
+            if command and VoiceNlpAdapter._allows_embedded_wake_prefix(prefix):
+                return command
         return None
+
+    @staticmethod
+    def _allows_embedded_wake_prefix(prefix: str) -> bool:
+        compact = re.sub(r"\s+", "", prefix or "")
+        if not compact or len(compact) > 20:
+            return False
+        return any(
+            keyword in compact
+            for keyword in (
+                "请",
+                "帮",
+                "麻烦",
+                "直接",
+                "编写",
+                "生成",
+                "创建",
+                "新建",
+                "我要",
+                "我想",
+                "能不能",
+                "可以",
+            )
+        )
 
     @staticmethod
     def _is_coded_emergency(text: str) -> bool:
         return bool(re.match(r"^\s*(?:急停|紧急停止)\s+[A-Za-z0-9_-]{3,16}\s+(?:急停|紧急停止)\s*$", text))
+
+    @staticmethod
+    def _is_wakeless_rest_command(text: str) -> bool:
+        compact = re.sub(r"\s+", "", text or "")
+        return bool(
+            re.fullmatch(r"(?:机械手|机器人)?(?:休息|休息了|去休息|回去休息)", compact)
+            or re.fullmatch(r"(?:回到|回|到|去|移动到)?(?:默认)?休息姿态", compact)
+            or re.fullmatch(r"(?:回到|回|到|去|移动到)?(?:0位|零位)", compact)
+        )
 
     def _looks_like_control_text(self, text: str) -> bool:
         compact = text.replace(" ", "")
@@ -729,10 +774,11 @@ class VoiceNlpAdapter:
             flow_name = match.group(1).strip("，,。")
         pose = self._extract_pose6(compact)
         positions = [{"name": "home", "pose": pose}] if pose else []
-        gesture = ""
-        gesture_match = re.search(r"(小臂[^，,。]*?点头|[^，,。]*?点头)", compact)
-        if gesture_match:
-            gesture = gesture_match.group(1)
+        gesture = self._match_configured_flow_gesture(compact)
+        if not gesture:
+            gesture_match = re.search(r"(小臂[^，,。]*?点头|[^，,。]*?点头)", compact)
+            if gesture_match:
+                gesture = gesture_match.group(1)
         virtual_motion = self._extract_virtual_repeat_step(compact)
         angle = self._extract_number_before_unit(compact, "度") or 0.0
         repeat_match = re.search(r"(\d+)(?:次|遍|回)", compact)
@@ -748,6 +794,14 @@ class VoiceNlpAdapter:
             virtual_motion["repeat"] = repeat
             steps.append(virtual_motion)
         return {"intent": "create_flow", "flowName": flow_name, "positions": positions, "steps": steps, "reason": "本地规则生成流程草案"}
+
+    def _match_configured_flow_gesture(self, text: str) -> str:
+        compact = re.sub(r"\s+", "", text or "")
+        for gesture in sorted(self.flow_phrase_aliases, key=len, reverse=True):
+            name = re.sub(r"\s+", "", str(gesture or ""))
+            if name and name in compact:
+                return str(gesture)
+        return ""
 
     def _build_complex_flow_draft(self, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]] | None:
         flow_name = str(payload.get("flowName") or payload.get("flow_name") or "").strip()

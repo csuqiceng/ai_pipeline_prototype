@@ -22,6 +22,7 @@ class NlpMixin:
         if not hasattr(self, "_atomic_memory"):
             self._atomic_memory = AtomicMemory.load(self._atomic_memory_path())
         self._atomic_memory.position_registry = self._position_registry()
+        self._configure_default_rest_pose_from_table()
         adapter = getattr(self, "_voice_nlp_adapter_instance", None)
         if adapter is None:
             adapter = VoiceNlpAdapter(self.table, self.service.list_flow_names(), atomic_memory=self._atomic_memory)
@@ -39,6 +40,23 @@ class NlpMixin:
         if hasattr(adapter, "set_runtime_context_provider") and hasattr(self, "_operator_deepseek_runtime_context"):
             adapter.set_runtime_context_provider(self._operator_deepseek_runtime_context)
         return adapter
+
+    def _configure_default_rest_pose_from_table(self) -> None:
+        record = self.table.get("休息姿态") if isinstance(getattr(self, "table", None), dict) else None
+        params = getattr(record, "params", None)
+        if not isinstance(params, dict):
+            return
+        try:
+            self._atomic_memory.default_rest_pose = (
+                float(params.get("target_x", 900.0)),
+                float(params.get("target_y", 0.0)),
+                float(params.get("target_z", 1000.0)),
+                float(params.get("target_rx", 0.0)),
+                float(params.get("target_ry", 0.0)),
+                float(params.get("target_rz", 0.0)),
+            )
+        except (TypeError, ValueError):
+            return
 
     def _set_nlp_result_plan(self, plan: VoiceNlpPlan) -> None:
         """设置自然语言结果。"""

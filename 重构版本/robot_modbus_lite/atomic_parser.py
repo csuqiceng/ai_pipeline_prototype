@@ -56,6 +56,9 @@ class AtomicParser:
         memory = self._parse_memory(raw, compact, spd_pct)
         if memory is not None:
             return memory
+        rest_pose = self._parse_rest_pose(raw, compact)
+        if rest_pose is not None:
+            return rest_pose
         position = self._parse_position(raw, compact)
         if position is not None:
             return position
@@ -103,6 +106,15 @@ class AtomicParser:
             return AtomicElements(raw_text=raw, command_text=compact, family="memory", name="confirm_mode", target=1, fuzzy_pos=0)
         if "新手模式" in compact:
             return AtomicElements(raw_text=raw, command_text=compact, family="memory", name="confirm_mode", target=2, fuzzy_pos=0)
+        return None
+
+    def _parse_rest_pose(self, raw: str, compact: str) -> AtomicElements | None:
+        if re.fullmatch(r"(?:机械手|机器人)?(?:休息|休息了|去休息|回去休息)", compact):
+            return AtomicElements(raw_text=raw, command_text=compact, family="rest_pose", name="default_rest", fuzzy_pos=0)
+        if re.fullmatch(r"(?:回到|回|到|去|移动到)?(?:默认)?休息姿态", compact):
+            return AtomicElements(raw_text=raw, command_text=compact, family="rest_pose", name="default_rest", fuzzy_pos=0)
+        if re.fullmatch(r"(?:回到|回|到|去|移动到)?(?:0位|零位)", compact):
+            return AtomicElements(raw_text=raw, command_text=compact, family="rest_pose", name="default_rest", fuzzy_pos=0)
         return None
 
     def _parse_position(self, raw: str, compact: str) -> AtomicElements | None:

@@ -1,0 +1,12 @@
+start
+patched
+import_qapp
+qapp_created
+import_window
+before_window
+skip_ensure_mic_stream
+skip_refresh_microphone_devices
+skip_check_connection
+after_window
+after_show
+after_exec

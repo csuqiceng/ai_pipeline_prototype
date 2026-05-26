@@ -1,0 +1,12 @@
+{
+  "current_speed": 50.0,
+  "current_step_mm": 10.0,
+  "current_step_deg": 5.0,
+  "current_acc": 50.0,
+  "current_dec": 50.0,
+  "confirm_mode": "beginner",
+  "positions": {},
+  "position_stack": [],
+  "last_direction": null,
+  "last_step": null
+}
