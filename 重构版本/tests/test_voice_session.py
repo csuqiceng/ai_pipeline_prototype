@@ -32,6 +32,24 @@ def test_segmenter_emits_segment_after_voiced_start_and_trailing_silence():
     assert len(emitted[0]) == 7 * len(pcm_frame(0))
 
 
+def test_segmenter_exposes_active_state_after_voiced_start():
+    segmenter = VoiceSessionSegmenter(
+        silence_threshold=350,
+        frame_ms=20,
+        start_voice_ms=40,
+        end_silence_ms=80,
+        min_segment_ms=80,
+        max_segment_ms=1000,
+    )
+
+    assert segmenter.is_active is False
+    assert segmenter.feed(pcm_frame(600)) is None
+    assert segmenter.is_active is False
+    assert segmenter.feed(pcm_frame(600)) is None
+
+    assert segmenter.is_active is True
+
+
 def test_segmenter_drops_short_noise_burst():
     segmenter = VoiceSessionSegmenter(
         silence_threshold=350,

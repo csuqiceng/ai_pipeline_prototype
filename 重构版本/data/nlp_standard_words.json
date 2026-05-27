@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "description": "现场自然语言标准词配置，可扩展 homophones 和 sichuan_variants。",
+  "description": "现场自然语言标准词配置，可扩展 homophones 和 sichuan_variants；当前内置 250+ 同音/误听变体和常用方言短语，后续按现场 ASR 日志继续追加。",
   "words": [
     {
       "standard": "执行",
@@ -8,9 +8,24 @@
       "category": "flow",
       "homophones": [
         "直行",
-        "执形"
+        "执形",
+        "只行",
+        "指行",
+        "运行",
+        "开始运行",
+        "动起来",
+        "运行吧",
+        "开始吧",
+        "照做",
+        "按这个做",
+        "按这个运行"
       ],
-      "sichuan_variants": [],
+      "sichuan_variants": [
+        "跑一哈",
+        "走一哈",
+        "做一哈",
+        "整一遍"
+      ],
       "func_id": null
     },
     {
@@ -20,9 +35,24 @@
       "homophones": [
         "保村",
         "宝存",
-        "报存"
+        "报存",
+        "包存",
+        "保寸",
+        "存起来",
+        "记下来",
+        "记录下",
+        "保成",
+        "宝村",
+        "报村",
+        "存档",
+        "存到"
       ],
-      "sichuan_variants": [],
+      "sichuan_variants": [
+        "存起",
+        "存一哈",
+        "给我存起",
+        "帮我存到"
+      ],
       "func_id": null
     },
     {
@@ -31,17 +61,50 @@
       "category": "flow",
       "homophones": [
         "山除",
-        "善除"
+        "善除",
+        "删出",
+        "删掉",
+        "移除",
+        "去掉",
+        "清除",
+        "清空",
+        "删了",
+        "删这个",
+        "删流程",
+        "删位置",
+        "取消登记",
+        "注销",
+        "抹掉"
       ],
-      "sichuan_variants": [],
+      "sichuan_variants": [
+        "删起",
+        "丢掉",
+        "不要这个了"
+      ],
       "func_id": null
     },
     {
       "standard": "流程",
       "pinyin": "liucheng",
       "category": "flow",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "刘成",
+        "流成",
+        "留成",
+        "榴城",
+        "柳城",
+        "流层",
+        "留层",
+        "硫程",
+        "流呈",
+        "留呈"
+      ],
+      "sichuan_variants": [
+        "流程儿",
+        "一套动作",
+        "一哈流程",
+        "这个套动作"
+      ],
       "func_id": null
     },
     {
@@ -72,8 +135,28 @@
       "standard": "位置",
       "pinyin": "weizhi",
       "category": "position",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "未知",
+        "未置",
+        "卫置",
+        "为止",
+        "点位",
+        "工位",
+        "位姿",
+        "姿态",
+        "坐标点",
+        "坐标位",
+        "位姿点",
+        "定位点",
+        "目标点"
+      ],
+      "sichuan_variants": [
+        "位子",
+        "那个位子",
+        "这个位子",
+        "放的位置",
+        "摆的位置"
+      ],
       "func_id": 108
     },
     {
@@ -88,18 +171,57 @@
       "standard": "移动",
       "pinyin": "yidong",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "移洞",
+        "异动",
+        "仪动",
+        "易动",
+        "挪动",
+        "挪过去",
+        "挪到",
+        "移到",
+        "移栋",
+        "走到",
+        "去到",
+        "到达",
+        "过去",
+        "过去到"
+      ],
+      "sichuan_variants": [
+        "挪一哈",
+        "移一哈",
+        "走过去",
+        "拿过去",
+        "弄过去",
+        "整过去"
+      ],
       "func_id": 108
     },
     {
       "standard": "上升",
       "pinyin": "shangsheng",
       "category": "motion",
-      "homophones": [],
+      "homophones": [
+        "上身",
+        "上生",
+        "尚升",
+        "上深",
+        "上去",
+        "向上",
+        "往上",
+        "升高",
+        "抬高",
+        "上移",
+        "往上走",
+        "抬起来",
+        "升起来",
+        "上头"
+      ],
       "sichuan_variants": [
         "上头走",
-        "往上头走"
+        "往上头走",
+        "抬高点",
+        "朝上走"
       ],
       "func_id": 107
     },
@@ -107,10 +229,24 @@
       "standard": "下降",
       "pinyin": "xiajiang",
       "category": "motion",
-      "homophones": [],
+      "homophones": [
+        "下将",
+        "夏江",
+        "下去",
+        "向下",
+        "往下",
+        "降低",
+        "下移",
+        "往下走",
+        "落下",
+        "放低",
+        "下头"
+      ],
       "sichuan_variants": [
         "下切",
-        "往下头走"
+        "往下头走",
+        "下头走",
+        "放低点"
       ],
       "func_id": 107
     },
@@ -118,128 +254,399 @@
       "standard": "左移",
       "pinyin": "zuoyi",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "左翼",
+        "向左",
+        "往左",
+        "左边",
+        "朝左",
+        "左走",
+        "左挪",
+        "往左走",
+        "左过去",
+        "向左走",
+        "左侧",
+        "左侧移动"
+      ],
+      "sichuan_variants": [
+        "往左边走",
+        "朝左边挪",
+        "左边去"
+      ],
       "func_id": 107
     },
     {
       "standard": "右移",
       "pinyin": "youyi",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "右翼",
+        "向右",
+        "往右",
+        "右边",
+        "朝右",
+        "右走",
+        "右挪",
+        "往右走",
+        "右过去",
+        "向右走",
+        "右侧",
+        "右侧移动",
+        "有移"
+      ],
+      "sichuan_variants": [
+        "往右边走",
+        "朝右边挪",
+        "右边去"
+      ],
       "func_id": 107
     },
     {
       "standard": "前进",
       "pinyin": "qianjin",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "钱进",
+        "前近",
+        "前行",
+        "向前",
+        "往前",
+        "前面",
+        "朝前",
+        "前走",
+        "前移",
+        "往前走",
+        "向前走",
+        "前过去",
+        "前方",
+        "前方移动",
+        "前移哈"
+      ],
+      "sichuan_variants": [
+        "朝前头走",
+        "往前头走",
+        "前头去"
+      ],
       "func_id": 107
     },
     {
       "standard": "后退",
       "pinyin": "houtui",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "后腿",
+        "后推",
+        "向后",
+        "往后",
+        "后面",
+        "朝后",
+        "后走",
+        "后移",
+        "往后走",
+        "向后走",
+        "后过去",
+        "后方",
+        "后方移动",
+        "后移哈",
+        "退后"
+      ],
+      "sichuan_variants": [
+        "朝后头走",
+        "往后头走",
+        "后头去"
+      ],
       "func_id": 107
     },
     {
       "standard": "关节",
       "pinyin": "guanjie",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "官节",
+        "关结",
+        "关捷",
+        "机械轴"
+      ],
+      "sichuan_variants": [
+        "关节轴哈",
+        "第一个轴",
+        "第二个轴"
+      ],
       "func_id": 106
     },
     {
       "standard": "虚拟轴",
       "pinyin": "xunizhou",
       "category": "motion",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "虚你轴",
+        "需拟轴",
+        "虚拟周",
+        "虚轴",
+        "工具轴",
+        "空间轴",
+        "坐标轴",
+        "笛卡尔轴",
+        "虚拟坐标",
+        "虚拟关节",
+        "虚拟方向",
+        "虚拟移动"
+      ],
+      "sichuan_variants": [
+        "空间方向",
+        "坐标方向",
+        "虚轴方向"
+      ],
       "func_id": 107
     },
     {
       "standard": "回零",
       "pinyin": "huiling",
       "category": "system",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "回林",
+        "回原点",
+        "复原",
+        "回初始",
+        "回基准",
+        "会林",
+        "灰林",
+        "辉林",
+        "回灵",
+        "辉零",
+        "灰零",
+        "会零",
+        "汇零"
+      ],
+      "sichuan_variants": [
+        "回零撒",
+        "归到零位",
+        "回到头"
+      ],
       "func_id": 104
     },
     {
       "standard": "复位",
       "pinyin": "fuwei",
       "category": "system",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "夫位",
+        "副位",
+        "复魏",
+        "扶位",
+        "复伟",
+        "复为",
+        "清报警",
+        "解除报警",
+        "消报警",
+        "重置",
+        "回复",
+        "复原位",
+        "清除报警",
+        "解除故障",
+        "消故障"
+      ],
+      "sichuan_variants": [
+        "复一哈",
+        "把报警消了",
+        "把故障清了"
+      ],
       "func_id": 104
     },
     {
       "standard": "暂停",
       "pinyin": "zanting",
       "category": "system",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "赞停",
+        "暂挺",
+        "先停住",
+        "暂定",
+        "赞挺",
+        "等哈",
+        "先别动"
+      ],
+      "sichuan_variants": [
+        "等一哈",
+        "先停到",
+        "暂停哈"
+      ],
       "func_id": 104
     },
     {
       "standard": "继续",
       "pinyin": "jixu",
       "category": "system",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "寄续",
+        "记叙",
+        "际续",
+        "接着来",
+        "接着执行",
+        "接着走",
+        "往下走",
+        "延续",
+        "接续",
+        "继序"
+      ],
+      "sichuan_variants": [
+        "接到整",
+        "继续噻",
+        "接着干"
+      ],
       "func_id": 110
     },
     {
       "standard": "停止",
       "pinyin": "tingzhi",
       "category": "system",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "停职",
+        "亭子",
+        "挺值",
+        "停下",
+        "停住",
+        "别动了",
+        "结束",
+        "结束当前",
+        "终止",
+        "终止当前",
+        "取消当前",
+        "停机",
+        "停了",
+        "停到"
+      ],
+      "sichuan_variants": [
+        "停一哈",
+        "莫动了",
+        "停起"
+      ],
       "func_id": 104
     },
     {
       "standard": "急停",
       "pinyin": "jiting",
       "category": "emergency",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "机停",
+        "基停",
+        "极停",
+        "急亭",
+        "急挺",
+        "马上停",
+        "立即停",
+        "立刻停",
+        "马上停止",
+        "立即停止",
+        "快停",
+        "急刹",
+        "停机",
+        "紧停"
+      ],
+      "sichuan_variants": [
+        "赶紧停",
+        "马上给我停",
+        "快点停"
+      ],
       "func_id": 104
     },
     {
       "standard": "报警",
       "pinyin": "baojing",
       "category": "alarm",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "兰警",
+        "兰紧",
+        "报井",
+        "报景",
+        "抱警",
+        "告警",
+        "告警码",
+        "警报",
+        "警报码"
+      ],
+      "sichuan_variants": [
+        "报个警",
+        "亮报警",
+        "报故障"
+      ],
       "func_id": null
     },
     {
       "standard": "确认",
       "pinyin": "queren",
       "category": "confirm",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "确人",
+        "却认",
+        "确定",
+        "可以",
+        "可以了",
+        "没问题",
+        "同意",
+        "是的",
+        "对",
+        "对的",
+        "保存并执行",
+        "就这样",
+        "就这样执行",
+        "按这个",
+        "按这个执行",
+        "确定哈"
+      ],
+      "sichuan_variants": [
+        "要得",
+        "可以噻",
+        "就这样嘛",
+        "整嘛"
+      ],
       "func_id": null
     },
     {
       "standard": "取消",
       "pinyin": "quxiao",
       "category": "confirm",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "取笑",
+        "不要",
+        "算了",
+        "撤销",
+        "放弃",
+        "不要执行",
+        "不要保存",
+        "别动",
+        "先别动",
+        "作废",
+        "删掉草案",
+        "不保存",
+        "不执行",
+        "退回"
+      ],
+      "sichuan_variants": [
+        "算咯",
+        "不要整",
+        "莫动",
+        "莫执行"
+      ],
       "func_id": null
     },
     {
       "standard": "速度",
       "pinyin": "sudu",
       "category": "param",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "速读",
+        "速渡",
+        "速率",
+        "快慢",
+        "速速",
+        "苏度"
+      ],
+      "sichuan_variants": [
+        "快慢程度",
+        "跑的速度",
+        "走的快慢"
+      ],
       "func_id": null
     },
     {
@@ -262,24 +669,71 @@
       "standard": "慢速",
       "pinyin": "mansu",
       "category": "param",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "慢点",
+        "低速",
+        "慢慢",
+        "慢慢走",
+        "低速度",
+        "小速度",
+        "放慢",
+        "调慢",
+        "慢些",
+        "减慢",
+        "速度慢",
+        "慢哈"
+      ],
+      "sichuan_variants": [
+        "慢点儿",
+        "整慢点",
+        "走慢点"
+      ],
       "func_id": null
     },
     {
       "standard": "快速",
       "pinyin": "kuaisu",
       "category": "param",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "块速",
+        "筷速",
+        "快点",
+        "高速",
+        "高速度",
+        "大速度",
+        "加快",
+        "调快",
+        "快些",
+        "提速",
+        "速度快",
+        "快哈",
+        "快点儿"
+      ],
+      "sichuan_variants": [
+        "整快点",
+        "走快点",
+        "快点噻"
+      ],
       "func_id": null
     },
     {
       "standard": "毫米",
       "pinyin": "haomi",
       "category": "unit",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "豪米",
+        "豪秒",
+        "毫厘",
+        "毫迷",
+        "豪米米",
+        "毫咪",
+        "毫末"
+      ],
+      "sichuan_variants": [
+        "毫米噻",
+        "个豪米",
+        "豪米距离"
+      ],
       "func_id": null
     },
     {
@@ -294,8 +748,17 @@
       "standard": "度",
       "pinyin": "du",
       "category": "unit",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "杜",
+        "渡",
+        "肚",
+        "多少杜"
+      ],
+      "sichuan_variants": [
+        "好多度",
+        "转好多",
+        "角度哈"
+      ],
       "func_id": null
     },
     {
@@ -310,16 +773,46 @@
       "standard": "打开",
       "pinyin": "dakai",
       "category": "io",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "大开",
+        "答开",
+        "开启",
+        "开",
+        "开阀",
+        "开灯",
+        "开夹爪",
+        "开起哈",
+        "开到"
+      ],
+      "sichuan_variants": [
+        "开起",
+        "给我开起",
+        "打开噻"
+      ],
       "func_id": 120
     },
     {
       "standard": "关闭",
       "pinyin": "guanbi",
       "category": "io",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "官闭",
+        "关壁",
+        "观壁",
+        "关掉",
+        "关上",
+        "关",
+        "关阀",
+        "关灯",
+        "关夹爪",
+        "关起哈",
+        "关到"
+      ],
+      "sichuan_variants": [
+        "关起",
+        "给我关起",
+        "关掉噻"
+      ],
       "func_id": 120
     },
     {
@@ -334,16 +827,33 @@
       "standard": "看板",
       "pinyin": "kanban",
       "category": "query",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "看版",
+        "看办",
+        "看班",
+        "面板",
+        "看版数据"
+      ],
+      "sichuan_variants": [
+        "看哈面板",
+        "瞅哈看板",
+        "看一下看板"
+      ],
       "func_id": null
     },
     {
       "standard": "状态",
       "pinyin": "zhuangtai",
       "category": "query",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "状太",
+        "庄态"
+      ],
+      "sichuan_variants": [
+        "啥子状态",
+        "现在咋样",
+        "机器咋样"
+      ],
       "func_id": null
     },
     {
@@ -430,9 +940,164 @@
       "standard": "延时",
       "pinyin": "yanshi",
       "category": "flow",
-      "homophones": [],
-      "sichuan_variants": [],
+      "homophones": [
+        "言时",
+        "延期",
+        "延迟",
+        "等待",
+        "等候",
+        "停顿",
+        "停留",
+        "延迟下",
+        "等待时间"
+      ],
+      "sichuan_variants": [
+        "等一哈",
+        "停一哈",
+        "等到起"
+      ],
       "func_id": 110
+    },
+    {
+      "standard": "小正",
+      "pinyin": "xiaozheng",
+      "category": "wake",
+      "homophones": [
+        "小郑",
+        "校正",
+        "小政",
+        "小镇",
+        "肖正",
+        "晓正",
+        "小证",
+        "小曾",
+        "小真",
+        "小针",
+        "小振",
+        "小争",
+        "小整",
+        "校证",
+        "小蒸",
+        "小征",
+        "小睁",
+        "小峥",
+        "小枕",
+        "小珍"
+      ],
+      "sichuan_variants": [
+        "小正儿",
+        "小郑儿",
+        "小镇儿",
+        "小政儿"
+      ],
+      "func_id": null
+    },
+    {
+      "standard": "点头",
+      "pinyin": "diantou",
+      "category": "motion",
+      "homophones": [
+        "点投",
+        "点透",
+        "低头抬头",
+        "打招呼动作",
+        "招手",
+        "摆动",
+        "上下摆动",
+        "小臂摆动"
+      ],
+      "sichuan_variants": [
+        "点哈头",
+        "摆一哈"
+      ],
+      "func_id": null
+    },
+    {
+      "standard": "休息",
+      "pinyin": "xiuxi",
+      "category": "position",
+      "homophones": [
+        "待机位",
+        "回到默认位",
+        "回待机位",
+        "待机姿态",
+        "安全姿态",
+        "收工位",
+        "下班位"
+      ],
+      "sichuan_variants": [
+        "休息哈",
+        "收工了",
+        "下班了",
+        "回去歇到"
+      ],
+      "func_id": null
+    },
+    {
+      "standard": "模板",
+      "pinyin": "muban",
+      "category": "flow",
+      "homophones": [
+        "模版",
+        "木板",
+        "模版列表",
+        "命令清单"
+      ],
+      "sichuan_variants": [
+        "模板些",
+        "命令些",
+        "有啥子模板"
+      ],
+      "func_id": null
+    },
+    {
+      "standard": "参数",
+      "pinyin": "canshu",
+      "category": "param",
+      "homophones": [
+        "参树",
+        "参宿",
+        "参术",
+        "数值"
+      ],
+      "sichuan_variants": [
+        "参数些",
+        "啥子参数",
+        "看哈参数"
+      ],
+      "func_id": null
+    },
+    {
+      "standard": "夹取",
+      "pinyin": "jiaqu",
+      "category": "motion",
+      "homophones": [
+        "加取",
+        "夹去",
+        "加区",
+        "夹区",
+        "夹起",
+        "夹具",
+        "夹曲",
+        "家取",
+        "嘉取",
+        "夹起来",
+        "夹工件",
+        "抓取",
+        "抓起",
+        "取料",
+        "拿取",
+        "夹住",
+        "夹紧",
+        "夹持"
+      ],
+      "sichuan_variants": [
+        "夹一哈",
+        "抓一哈",
+        "拿一哈",
+        "夹起来噻"
+      ],
+      "func_id": 120
     }
   ]
 }

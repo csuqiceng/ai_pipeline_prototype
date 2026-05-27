@@ -38,6 +38,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "l3_cumulative_error_limit_mm": 0.0,
     "l3_forbidden_boxes": [],
     "joint_limits": [],
+    "ui_scale": "auto",
 }
 
 
@@ -73,6 +74,7 @@ class AxisRangeConfig:
     l3_cumulative_error_limit_mm: float = 0.0
     l3_forbidden_boxes: tuple[dict[str, Any], ...] = ()
     joint_limits: tuple[tuple[float, float], ...] = ()
+    ui_scale: str | float = "auto"
 
     @classmethod
     def from_dict(cls, data: dict) -> "AxisRangeConfig":
@@ -121,6 +123,7 @@ class AxisRangeConfig:
             ),
             l3_forbidden_boxes=_box_tuple(data.get("l3_forbidden_boxes", DEFAULT_SYSTEM_CONFIG["l3_forbidden_boxes"])),
             joint_limits=_pair_tuple(data.get("joint_limits", DEFAULT_SYSTEM_CONFIG["joint_limits"])),
+            ui_scale=_ui_scale_value(data.get("ui_scale", DEFAULT_SYSTEM_CONFIG["ui_scale"])),
         )
 
     def to_dict(self) -> dict:
@@ -155,6 +158,7 @@ class AxisRangeConfig:
             "l3_cumulative_error_limit_mm": float(self.l3_cumulative_error_limit_mm),
             "l3_forbidden_boxes": [dict(box) for box in self.l3_forbidden_boxes],
             "joint_limits": [[float(item[0]), float(item[1])] for item in self.joint_limits],
+            "ui_scale": self.ui_scale,
         }
 
 
@@ -232,6 +236,8 @@ def validate_system_config(config: AxisRangeConfig) -> str | None:
     for index, joint_range in enumerate(config.joint_limits, start=1):
         if joint_range[0] > joint_range[1]:
             return f"J{index} 软限位最小值不能大于最大值。"
+    if not _valid_ui_scale(config.ui_scale):
+        return "UI 缩放比例必须在 0.6 到 1.2 之间，或使用 auto。"
     return None
 
 
@@ -266,3 +272,23 @@ def _pair_tuple(value: object) -> tuple[tuple[float, float], ...]:
             continue
         pairs.append((float(item[0]), float(item[1])))
     return tuple(pairs)
+
+
+def _ui_scale_value(value: object) -> str | float:
+    """Return persisted UI scale setting."""
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return "auto"
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return str(value).strip() if isinstance(value, str) else value  # type: ignore[return-value]
+
+
+def _valid_ui_scale(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() == "auto"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return 0.6 <= number <= 1.2

@@ -44,6 +44,25 @@ def test_voice_nlp_adapter_accepts_wake_word_homophones():
     assert plan.actions[0].target == "sys_pause"
 
 
+def test_voice_nlp_adapter_rejects_wake_word_only_before_deepseek():
+    adapter = VoiceNlpAdapter(table={}, flow_names=("home点头流程",))
+    client = FakeDeepSeekClient(
+        {
+            "actionType": "flow",
+            "target": "home点头流程",
+            "reason": "用户要求执行已有点头流程",
+        }
+    )
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("小镇", use_deepseek=True)
+
+    assert plan.source == "rule"
+    assert plan.actions[0].action_type == "unknown"
+    assert "补充" in plan.reason
+    assert client.prompts == []
+
+
 def test_voice_nlp_adapter_marks_template_command_as_l3_production_execution():
     adapter = VoiceNlpAdapter(
         table={

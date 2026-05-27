@@ -45,15 +45,52 @@ def test_pinyin_normalization_is_safe_when_dependency_missing():
 def test_pinyin_normalization_can_require_dependency():
     normalizer = NlpNormalizer(enable_pinyin=True, require_pinyin=True)
 
-    try:
-        import pypinyin  # type: ignore  # noqa: F401
-    except Exception:
-        try:
-            normalizer.normalize("小正，执行流程A")
-        except RuntimeError as exc:
-            assert "pypinyin" in str(exc)
-        else:
-            raise AssertionError("missing pypinyin should raise when require_pinyin=True")
+    import pypinyin  # type: ignore  # noqa: F401
+
+    result = normalizer.normalize("灰零")
+
+    assert result.text == "回零"
+
+
+def test_pinyin_normalization_is_enabled_by_default_for_exact_terms():
+    words = {
+        "夹取": STANDARD_WORDS["夹取"],
+    }
+    normalizer = NlpNormalizer(standard_words=words)
+
+    result = normalizer.normalize("佳渠")
+
+    assert result.text == "夹取"
+    assert any(step.kind == "pinyin" for step in result.steps)
+
+
+def test_standard_word_variants_meet_manual_scale():
+    homophones = {
+        variant
+        for word in STANDARD_WORDS.values()
+        for variant in word.homophones
+    }
+    dialect = {
+        variant
+        for word in STANDARD_WORDS.values()
+        for variant in word.sichuan_variants
+    }
+
+    assert len(homophones) >= 250
+    assert len(dialect) >= 40
+
+
+def test_extended_field_vocabulary_normalizes_common_asr_errors():
+    normalizer = NlpNormalizer()
+
+    result = normalizer.normalize("小镇，保村打招呼刘成，然后辉零再往上头走十五杜")
+
+    assert "小正" in result.text
+    assert "保存" in result.text
+    assert "流程" in result.text
+    assert "回零" in result.text
+    assert "上升" in result.text
+    assert "度" in result.text
 
 
 def test_sichuan_phonetic_confusion_maps_common_words_without_pypinyin():

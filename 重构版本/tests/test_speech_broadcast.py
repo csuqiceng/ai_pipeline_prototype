@@ -53,26 +53,32 @@ def test_speech_delivery_requires_sink():
 
 def test_pyttsx3_speech_sink_uses_injected_engine():
     calls = []
+    speaking_states = []
 
     class FakeEngine:
         def say(self, text: str) -> None:
             calls.append(("say", text))
 
         def runAndWait(self) -> None:
+            speaking_states.append(sink.is_speaking)
             calls.append(("runAndWait", ""))
 
     sink = Pyttsx3SpeechSink(engine=FakeEngine())
 
     sink.speak("报警")
 
+    assert speaking_states == [True]
+    assert sink.is_speaking is False
     assert calls == [("say", "报警"), ("runAndWait", "")]
 
 
 def test_windows_sapi_speech_sink_uses_dispatch_factory_each_call():
     calls = []
+    speaking_states = []
 
     class FakeVoice:
         def Speak(self, text: str) -> None:
+            speaking_states.append(sink.is_speaking)
             calls.append(("Speak", text))
 
     def dispatch(name: str):
@@ -84,6 +90,8 @@ def test_windows_sapi_speech_sink_uses_dispatch_factory_each_call():
     sink.speak("第一条")
     sink.speak("第二条")
 
+    assert speaking_states == [True, True]
+    assert sink.is_speaking is False
     assert calls == [
         ("Dispatch", "SAPI.SpVoice"),
         ("Speak", "第一条"),

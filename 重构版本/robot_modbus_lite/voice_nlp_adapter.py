@@ -209,6 +209,13 @@ class VoiceNlpAdapter:
                 raw_text=text,
                 reason="生产指令缺少“小正”唤醒词，未执行",
             )
+        if self._is_empty_command_after_wake(command_text):
+            return self._build_plan(
+                actions=(VoiceNlpAction("unknown", None, "rule", text, "已听到唤醒词，请补充具体指令。"),),
+                source="rule",
+                raw_text=text,
+                reason="已听到唤醒词，请补充具体指令。",
+            )
 
         complex_flow_plan = self._parse_complex_flow_draft(command_text, raw_text=text, use_deepseek=use_deepseek)
         if complex_flow_plan is not None:
@@ -428,6 +435,11 @@ class VoiceNlpAdapter:
                 "可以",
             )
         )
+
+    @staticmethod
+    def _is_empty_command_after_wake(text: str) -> bool:
+        compact = re.sub(r"[\s，,。:：.!！?？、；;]+", "", text or "")
+        return not compact
 
     @staticmethod
     def _is_coded_emergency(text: str) -> bool:

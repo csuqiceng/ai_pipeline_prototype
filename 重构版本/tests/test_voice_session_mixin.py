@@ -7,11 +7,92 @@ class DummyVoiceSession(VoiceMixin):
     pass
 
 
-def test_voice_session_ignores_audio_while_tts_busy():
+def test_voice_session_does_not_ignore_audio_while_tts_busy():
     dummy = DummyVoiceSession()
     dummy._operator_speech_async_busy = True
 
+    assert dummy._voice_session_should_ignore_audio() is False
+
+
+def test_voice_session_ignores_audio_while_ai_is_answering():
+    dummy = DummyVoiceSession()
+
+    dummy.nlp_sequence_running = True
     assert dummy._voice_session_should_ignore_audio() is True
+
+    dummy.nlp_sequence_running = False
+    dummy._operator_streaming_chat_active = True
+    assert dummy._voice_session_should_ignore_audio() is True
+
+
+def test_voice_session_does_not_ignore_audio_while_speech_sink_is_speaking():
+    dummy = DummyVoiceSession()
+    dummy.operator_speech_sink = SimpleNamespace(is_speaking=True)
+
+    assert dummy._voice_session_should_ignore_audio() is False
+
+
+def test_voice_session_segment_stops_current_speech_before_asr():
+    dummy = DummyVoiceSession()
+    stops = []
+    dummy._voice_session_active = True
+    dummy._operator_interrupt_current_speech_for_user_input = lambda: stops.append("stop")
+    dummy._voice_session_process_next_segment = lambda: None
+
+    dummy._on_mic_audio_segment(b"user-voice")
+
+    assert stops == ["stop"]
+
+
+def test_voice_session_voice_start_interrupts_speech_before_segment_done():
+    dummy = DummyVoiceSession()
+    stops = []
+    dummy._voice_session_active = True
+    dummy._operator_interrupt_current_speech_for_user_input = lambda: stops.append("stop")
+
+    class Thread:
+        def __init__(self):
+            self.paused = []
+            self.voice_start_count = 1
+            self.reset_count = 0
+
+        def pop_audio_capture(self):
+            return None
+
+        def set_session_paused(self, value):
+            self.paused.append(value)
+
+        def pop_voice_start(self):
+            if self.voice_start_count:
+                self.voice_start_count -= 1
+                return True
+            return False
+
+        def reset_session_segmenter(self):
+            self.reset_count += 1
+
+        def pop_audio_segment(self):
+            return None
+
+    dummy._mic_recorder_thread = Thread()
+
+    dummy._poll_voice_session_segments()
+
+    assert stops == ["stop"]
+    assert dummy._mic_recorder_thread.reset_count == 1
+
+
+def test_voice_session_drops_segment_while_ai_is_answering():
+    dummy = DummyVoiceSession()
+    dummy._voice_session_active = True
+    dummy._operator_streaming_chat_active = True
+    handled = []
+    dummy._operator_handle_voice_session_text = handled.append
+
+    dummy._on_mic_audio_segment(b"ai-voice")
+
+    assert handled == []
+    assert not hasattr(dummy, "_voice_session_segment_queue") or dummy._voice_session_segment_queue.empty()
 
 
 def test_voice_session_segment_is_transcribed_and_routed_to_operator_handler():
@@ -74,12 +155,25 @@ def test_voice_session_partial_callback_is_scheduled_on_main_thread():
 def test_voice_session_partial_text_updates_input_before_final_result():
     dummy = DummyVoiceSession()
     partials = []
-    dummy.operator_command_edit = SimpleNamespace(setText=partials.append)
+    dummy.operator_command_edit = SimpleNamespace(setText=partials.append, hasFocus=lambda: False)
 
     dummy._voice_session_update_partial_text("你好")
     dummy._voice_session_update_partial_text("你好小正")
 
     assert partials == ["你好", "你好小正"]
+
+
+def test_voice_session_partial_text_does_not_overwrite_focused_manual_input():
+    dummy = DummyVoiceSession()
+    partials = []
+    statuses = []
+    dummy.operator_command_edit = SimpleNamespace(setText=partials.append, hasFocus=lambda: True)
+    dummy._operator_update_voice_recognition_status = statuses.append
+
+    dummy._voice_session_update_partial_text("小正移动到位置A")
+
+    assert partials == []
+    assert statuses == ["小正移动到位置A"]
 
 
 def test_voice_session_shows_recognition_status_and_replaces_on_success():

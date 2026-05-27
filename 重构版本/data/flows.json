@@ -27,6 +27,19 @@
         "flowdraft:打个招呼的小:01"
       ],
       "step_delay_ms": 300
+    },
+    {
+      "name": "未命名流程",
+      "steps": [
+        "flowdraft:未命名流程:01",
+        "flowdraft:未命名流程:02",
+        "flowdraft:未命名流程:03",
+        "flowdraft:未命名流程:04",
+        "flowdraft:未命名流程:05",
+        "flowdraft:未命名流程:06",
+        "flowdraft:未命名流程:07"
+      ],
+      "step_delay_ms": 300
     }
   ]
 }

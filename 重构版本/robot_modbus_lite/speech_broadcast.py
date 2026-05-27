@@ -11,7 +11,14 @@ from .broadcast_queue import BroadcastMessage
 class SpeechSink(Protocol):
     """Output target for spoken operator messages."""
 
+    @property
+    def is_speaking(self) -> bool:
+        ...
+
     def speak(self, text: str) -> None:
+        ...
+
+    def stop(self) -> None:
         ...
 
 
@@ -28,8 +35,15 @@ class CallableSpeechSink:
     def __init__(self, callback: Callable[[str], None]) -> None:
         self._callback = callback
 
+    @property
+    def is_speaking(self) -> bool:
+        return False
+
     def speak(self, text: str) -> None:
         self._callback(text)
+
+    def stop(self) -> None:
+        return None
 
 
 class Pyttsx3SpeechSink:
@@ -37,6 +51,11 @@ class Pyttsx3SpeechSink:
 
     def __init__(self, engine: object | None = None) -> None:
         self._engine = engine
+        self._is_speaking = False
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._is_speaking
 
     def speak(self, text: str) -> None:
         engine = self._engine
@@ -47,8 +66,18 @@ class Pyttsx3SpeechSink:
                 raise RuntimeError("未安装 pyttsx3，无法使用本地 TTS 播报。") from exc
             engine = pyttsx3.init()
             self._engine = engine
-        engine.say(text)
-        engine.runAndWait()
+        self._is_speaking = True
+        try:
+            engine.say(text)
+            engine.runAndWait()
+        finally:
+            self._is_speaking = False
+
+    def stop(self) -> None:
+        engine = self._engine
+        stop = getattr(engine, "stop", None)
+        if callable(stop):
+            stop()
 
 
 class WindowsSapiSpeechSink:
@@ -60,6 +89,12 @@ class WindowsSapiSpeechSink:
 
     def __init__(self, dispatch_factory: Callable[[str], object] | None = None) -> None:
         self._dispatch_factory = dispatch_factory
+        self._is_speaking = False
+        self._voice: object | None = None
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._is_speaking
 
     @staticmethod
     def available() -> bool:
@@ -80,10 +115,25 @@ class WindowsSapiSpeechSink:
 
     def speak(self, text: str) -> None:
         voice = self._dispatch("SAPI.SpVoice")
+        self._voice = voice
         speak = getattr(voice, "Speak", None)
         if not callable(speak):
             raise RuntimeError("Windows SAPI 语音接口不可用。")
-        speak(text)
+        self._is_speaking = True
+        try:
+            speak(text)
+        finally:
+            self._is_speaking = False
+            self._voice = None
+
+    def stop(self) -> None:
+        voice = self._voice
+        speak = getattr(voice, "Speak", None)
+        if callable(speak):
+            try:
+                speak("", 2)
+            except TypeError:
+                speak("")
 
 
 class SpeechBroadcastDeliveryService:
@@ -92,13 +142,20 @@ class SpeechBroadcastDeliveryService:
     def __init__(self, sink: SpeechSink | None = None) -> None:
         self.sink = sink
 
-    def deliver(self, messages: list[BroadcastMessage] | tuple[BroadcastMessage, ...]) -> SpeechDeliveryResult:
+    def deliver(
+        self,
+        messages: list[BroadcastMessage] | tuple[BroadcastMessage, ...],
+        *,
+        should_continue: Callable[[], bool] | None = None,
+    ) -> SpeechDeliveryResult:
         if not messages:
             return SpeechDeliveryResult(success=True)
         if self.sink is None:
             return SpeechDeliveryResult(success=False, error="未配置语音播报输出接口。")
         delivered: list[int] = []
         for message in messages:
+            if should_continue is not None and not should_continue():
+                return SpeechDeliveryResult(success=True, delivered_seq=tuple(delivered))
             try:
                 self.sink.speak(message.text)
             except Exception as exc:

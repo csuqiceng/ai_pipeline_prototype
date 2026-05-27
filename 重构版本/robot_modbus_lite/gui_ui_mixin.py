@@ -37,6 +37,80 @@ from .gui_constants import FUNC_OPTIONS, STOP_CMD_LABELS, SYSTEM_COMMANDS
 
 class GuiUiMixin:
     """构建主窗口控件、页面和样式。"""
+    _UI_SCALE_BASE_WIDTH = 1834
+    _UI_SCALE_BASE_HEIGHT = 784
+    _UI_SCALE_MIN = 0.6
+    _UI_SCALE_MAX = 1.2
+
+    @staticmethod
+    def _calculate_ui_scale(config_value: object, *, available_width: int, available_height: int) -> float:
+        """Calculate effective UI scale from config and available screen size."""
+        if isinstance(config_value, str) and config_value.strip().lower() == "auto":
+            width_scale = float(available_width) / float(GuiUiMixin._UI_SCALE_BASE_WIDTH)
+            height_scale = float(available_height) / float(GuiUiMixin._UI_SCALE_BASE_HEIGHT)
+            raw = min(width_scale, height_scale, 1.0)
+        else:
+            try:
+                raw = float(config_value)
+            except (TypeError, ValueError):
+                raw = 1.0
+        return max(GuiUiMixin._UI_SCALE_MIN, min(GuiUiMixin._UI_SCALE_MAX, round(raw, 3)))
+
+    def _screen_available_size(self) -> tuple[int, int]:
+        # Qt returns logical pixels here; Windows 150% DPI on 2560x1080 is roughly 1706x720.
+        screen = self.screen()
+        if screen is None:
+            return 1380, 860
+        available = screen.availableGeometry()
+        return max(1, int(available.width())), max(1, int(available.height()))
+
+    def _configure_ui_scale(self) -> None:
+        available_width, available_height = self._screen_available_size()
+        config_value = getattr(getattr(self, "axis_ranges", None), "ui_scale", "auto")
+        self._ui_scale_factor = self._calculate_ui_scale(
+            config_value,
+            available_width=available_width,
+            available_height=available_height,
+        )
+
+    def _scaled(self, value: int | float) -> int:
+        factor = float(getattr(self, "_ui_scale_factor", 1.0) or 1.0)
+        return max(1, int(round(float(value) * factor)))
+
+    def _scaled_min(self, value: int | float, minimum: int) -> int:
+        return max(int(minimum), self._scaled(value))
+
+    def _target_window_size(
+        self,
+        width: int,
+        height: int,
+        *,
+        available_width: int | None = None,
+        available_height: int | None = None,
+    ) -> tuple[int, int]:
+        if available_width is None or available_height is None:
+            available_width, available_height = self._screen_available_size()
+        scaled_width = self._scaled(width)
+        scaled_height = self._scaled(height)
+        return min(scaled_width, int(available_width)), min(scaled_height, int(available_height))
+
+    def _resize_to_fit_screen(self, width: int, height: int) -> None:
+        target_width, target_height = self._target_window_size(width, height)
+        self.resize(target_width, target_height)
+
+    def _make_workspace_scroll(self, widget: QWidget, object_name: str) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setObjectName(object_name)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        scroll.setMinimumSize(0, 0)
+        widget.setMinimumSize(0, 0)
+        scroll.setWidget(widget)
+        return scroll
+
     def _build_message_box(self, icon: QMessageBox.Icon, title: str, text: str) -> QMessageBox:
         """构建相关数据。"""
         box = QMessageBox(self)
@@ -104,7 +178,8 @@ class GuiUiMixin:
         self._authenticated_role = ""
         self._login_target_role = "operator"
         self._login_role = "operator"
-        self.resize(900, 620)
+        self._configure_ui_scale()
+        self._resize_to_fit_screen(900, 620)
 
         main = QWidget()
         main_layout = QHBoxLayout(main)
@@ -117,8 +192,9 @@ class GuiUiMixin:
         content_layout.setContentsMargins(10, 4, 10, 10)
         content_layout.setSpacing(0)
         self.pages = QStackedWidget()
+        self.pages.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.pages.addWidget(self._build_run_page())
-        self.pages.addWidget(self._build_manage_page())
+        self.pages.addWidget(self._make_workspace_scroll(self._build_manage_page(), "manageWorkspaceScroll"))
         self.pages.addWidget(self._build_log_page())
         content_layout.addWidget(self.pages)
         right_panel = self._build_system_panel()
@@ -129,7 +205,7 @@ class GuiUiMixin:
 
         self.workspace_pages = QStackedWidget()
         self.workspace_pages.addWidget(main)
-        self.workspace_pages.addWidget(self._build_operator_page())
+        self.workspace_pages.addWidget(self._make_workspace_scroll(self._build_operator_page(), "operatorWorkspaceScroll"))
 
         shell = QWidget()
         shell_layout = QVBoxLayout(shell)
@@ -140,7 +216,7 @@ class GuiUiMixin:
         self.status_label = QLabel(f"系统就绪 | 数据源: {self.json_path}")
         self.status_label.setObjectName("footerStatus")
         self.status_label.setMinimumHeight(28)
-        self.status_label.setMaximumWidth(1100)
+        self.status_label.setMaximumWidth(self._scaled(1100))
         self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
@@ -195,7 +271,7 @@ class GuiUiMixin:
 
         card = QFrame()
         card.setObjectName("loginCard")
-        card.setFixedWidth(420)
+        card.setFixedWidth(self._scaled(420))
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(32, 30, 32, 30)
         card_layout.setSpacing(12)
@@ -346,7 +422,7 @@ class GuiUiMixin:
                 self.app_pages.removeWidget(self._main_shell)
             self.app_pages.setCurrentIndex(0)
         if not self.isFullScreen():
-            self.resize(900, 620)
+            self._resize_to_fit_screen(900, 620)
             self._center_window_on_screen()
 
     def _sync_login_connection_from_main(self) -> None:
@@ -407,7 +483,8 @@ class GuiUiMixin:
                 main_index = self.app_pages.addWidget(self._main_shell)
             self.app_pages.setCurrentIndex(main_index if main_index >= 0 else 0)
         if not self.isFullScreen():
-            self.resize(1380, 860)
+            self._configure_ui_scale()
+            self._resize_to_fit_screen(1380, 860)
             self._center_window_on_screen()
         self._set_workspace_mode("engineer" if role == "engineer" else "operator")
         if hasattr(self, "status_label"):
@@ -419,7 +496,7 @@ class GuiUiMixin:
         """构建相关数据。"""
         frame = QFrame()
         frame.setObjectName("nav")
-        frame.setFixedWidth(96)
+        frame.setFixedWidth(self._scaled(96))
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -445,7 +522,7 @@ class GuiUiMixin:
         """构建系统面板。"""
         panel = QFrame()
         panel.setObjectName("rightPanel")
-        panel.setFixedWidth(150)
+        panel.setFixedWidth(self._scaled(150))
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(12)
@@ -475,7 +552,7 @@ class GuiUiMixin:
         layout.addWidget(status_group)
 
         self._license_btn = QPushButton("授权")
-        self._license_btn.setFixedHeight(28)
+        self._license_btn.setFixedHeight(self._scaled(28))
         self._license_btn.clicked.connect(self._show_license_dialog)
         layout.addWidget(self._license_btn)
 
@@ -633,7 +710,7 @@ class GuiUiMixin:
         self.mic_device_combo.setMinimumWidth(220)
         nlp_head.addWidget(self.mic_device_combo)
         refresh_mic_btn = QPushButton("刷新设备")
-        refresh_mic_btn.setFixedWidth(100)
+        refresh_mic_btn.setFixedWidth(self._scaled_min(100, 80))
         refresh_mic_btn.clicked.connect(self._refresh_microphone_devices)
         nlp_head.addWidget(refresh_mic_btn)
         nlp_head.addStretch(1)
@@ -645,17 +722,17 @@ class GuiUiMixin:
         nlp_btn_layout = QHBoxLayout()
         self.nlp_parse_btn = QPushButton("解析文本")
         self.nlp_parse_btn.clicked.connect(self._parse_nlp_text)
-        self.nlp_parse_btn.setFixedWidth(120)
+        self.nlp_parse_btn.setFixedWidth(self._scaled_min(120, 80))
         self.nlp_execute_btn = QPushButton("执行")
         self.nlp_execute_btn.clicked.connect(self._execute_nlp_text)
-        self.nlp_execute_btn.setFixedWidth(120)
+        self.nlp_execute_btn.setFixedWidth(self._scaled_min(120, 80))
         self.nlp_execute_btn.setProperty("klass", "green")
         self.mic_toggle_btn = QPushButton("开始录音")
         self.mic_toggle_btn.clicked.connect(self._toggle_microphone_recording)
-        self.mic_toggle_btn.setFixedWidth(120)
+        self.mic_toggle_btn.setFixedWidth(self._scaled_min(120, 80))
         self.nlp_clear_btn = QPushButton("清空")
         self.nlp_clear_btn.clicked.connect(self._clear_nlp_text)
-        self.nlp_clear_btn.setFixedWidth(120)
+        self.nlp_clear_btn.setFixedWidth(self._scaled_min(120, 80))
         nlp_btn_layout.addWidget(self.nlp_parse_btn)
         nlp_btn_layout.addWidget(self.mic_toggle_btn)
         nlp_btn_layout.addWidget(self.nlp_clear_btn)

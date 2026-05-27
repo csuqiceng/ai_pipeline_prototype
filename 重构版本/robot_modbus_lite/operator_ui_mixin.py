@@ -186,7 +186,7 @@ class OperatorUiMixin:
     def _build_operator_status_bar(self) -> QWidget:
         bar = QFrame()
         bar.setObjectName("operatorLeftSidebar")
-        bar.setFixedWidth(268)
+        bar.setFixedWidth(self._scaled(268))
         layout = QVBoxLayout(bar)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -294,7 +294,7 @@ class OperatorUiMixin:
     def _build_operator_right_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("operatorRightSidebar")
-        sidebar.setFixedWidth(336)
+        sidebar.setFixedWidth(self._scaled(336))
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
@@ -905,6 +905,7 @@ class OperatorUiMixin:
     def _operator_execute_text(self) -> None:
         if not self._operator_push_text_to_nlp():
             return
+        self._operator_interrupt_current_speech_for_user_input()
         self._operator_scene_override = None
         self._execute_nlp_text()
         if hasattr(self, "operator_command_edit"):
@@ -4152,6 +4153,8 @@ class OperatorUiMixin:
         spoken_text = str(text or "").strip()
         if not spoken_text:
             return None
+        self._operator_replace_pending_speech()
+        self._operator_stop_current_speech_best_effort()
         queue = getattr(self, "operator_broadcast_queue", None)
         if queue is None:
             queue = BroadcastQueue()
@@ -4167,6 +4170,29 @@ class OperatorUiMixin:
         if published is not None:
             self._operator_last_broadcast_seq = published.seq
         return published
+
+    def _operator_replace_pending_speech(self) -> int:
+        generation = int(getattr(self, "_operator_speech_generation", 0) or 0) + 1
+        self._operator_speech_generation = generation
+        queue = getattr(self, "operator_broadcast_queue", None)
+        if queue is not None:
+            messages = queue.messages_since(0)
+            if messages:
+                self._operator_last_delivered_broadcast_seq = max(message.seq for message in messages)
+        return generation
+
+    def _operator_stop_current_speech_best_effort(self) -> None:
+        sink = getattr(self, "operator_speech_sink", None)
+        stop = getattr(sink, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+
+    def _operator_interrupt_current_speech_for_user_input(self) -> None:
+        self._operator_replace_pending_speech()
+        self._operator_stop_current_speech_best_effort()
 
     @staticmethod
     def _operator_should_show_broadcast_in_chat(message: BroadcastMessage) -> bool:
@@ -4270,13 +4296,18 @@ class OperatorUiMixin:
         if sink is None:
             return SpeechDeliveryResult(success=False, error="未配置语音播报输出接口。")
         service = SpeechBroadcastDeliveryService(sink=sink)
+        speech_generation = int(getattr(self, "_operator_speech_generation", 0) or 0)
         executor = getattr(self, "_operator_speech_executor", None)
         if executor is None:
             executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="operator-tts")
             self._operator_speech_executor = executor
         self._operator_speech_async_busy = True
         try:
-            future = executor.submit(service.deliver, tuple(speech_pending))
+            future = executor.submit(
+                service.deliver,
+                tuple(speech_pending),
+                should_continue=lambda: int(getattr(self, "_operator_speech_generation", 0) or 0) == speech_generation,
+            )
         except Exception as exc:
             self._operator_speech_async_busy = False
             return SpeechDeliveryResult(success=False, error=str(exc))
@@ -4419,7 +4450,8 @@ class OperatorUiMixin:
             if not self.isFullScreen():
                 self._operator_previous_geometry = self.saveGeometry()
             self.showNormal()
-            self.resize(620, 820)
+            self._configure_ui_scale()
+            self._resize_to_fit_screen(620, 820)
             screen = self.screen()
             if screen is not None:
                 geo = screen.availableGeometry()
@@ -4450,7 +4482,8 @@ class OperatorUiMixin:
         if geometry is not None:
             self.restoreGeometry(geometry)
         else:
-            self.resize(1380, 860)
+            self._configure_ui_scale()
+            self._resize_to_fit_screen(1380, 860)
         self._operator_compact = False
         self._operator_update_window_mode_buttons()
         self.status_label.setText("已恢复普通窗口模式。")

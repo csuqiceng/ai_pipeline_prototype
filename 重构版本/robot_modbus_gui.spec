@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 
 spec_dir = Path(SPECPATH)
@@ -21,6 +22,7 @@ if sdk_dir.exists():
 if env_file.exists():
     datas.append((str(env_file), "."))
     datas.append((str(env_file), "robot_modbus_lite"))
+datas += collect_data_files("setuptools._vendor.jaraco.text")
 
 a = Analysis(
     [str(spec_dir / "gui_main.py")],
@@ -67,7 +69,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "PyQt5",
+        "PyQt6",
+        "qtpy",
+    ],
     noarchive=False,
     optimize=0,
 )

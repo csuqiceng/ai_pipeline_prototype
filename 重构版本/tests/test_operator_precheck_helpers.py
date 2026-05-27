@@ -3,7 +3,7 @@ import time
 from types import SimpleNamespace
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QStackedWidget
 
 from robot_modbus_lite.avoidance_config import AvoidanceConfig, SafePoint
 from robot_modbus_lite.broadcast_queue import BroadcastQueue
@@ -336,6 +336,24 @@ def test_operator_pending_flow_status_text_summarizes_pending_draft():
     assert "确认保存" in text
     assert "保存并执行" in text
     assert "完整步骤和参数已显示在对话中" in text
+
+
+def test_operator_sidebars_use_ui_scale():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyOperator()
+    dummy._ui_scale_factor = 0.8
+    dummy._scaled = lambda value: max(1, int(round(float(value) * dummy._ui_scale_factor)))
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.table = {}
+    dummy.service = SimpleNamespace()
+    dummy.operator_scene_stack = QStackedWidget()
+    left = dummy._build_operator_status_bar()
+    right = dummy._build_operator_right_sidebar()
+    assert left.minimumWidth() == 214
+    assert left.maximumWidth() == 214
+    assert right.minimumWidth() == 269
+    assert right.maximumWidth() == 269
+    app.processEvents()
 
 
 def test_operator_context_query_answers_pending_flow_draft_parameters(tmp_path):
@@ -4650,6 +4668,62 @@ def test_operator_deliver_pending_broadcasts_to_speech_advances_cursor_after_suc
     assert second.delivered_seq == ()
     assert spoken == ["我是AI回答。"]
     assert dummy._operator_last_delivered_broadcast_seq == 3
+
+
+def test_operator_new_ai_answer_replaces_pending_speech_queue():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    spoken = []
+    dummy.operator_speech_sink = CallableSpeechSink(spoken.append)
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech("旧回答")
+
+    dummy._operator_publish_ai_answer_for_speech("新回答")
+    result = dummy._operator_deliver_pending_broadcasts_to_speech()
+
+    assert result.success is True
+    assert spoken == ["新回答"]
+
+
+def test_operator_new_ai_answer_stops_current_speech():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    stops = []
+
+    class StopSink(CallableSpeechSink):
+        def stop(self) -> None:
+            stops.append("stop")
+
+    dummy.operator_speech_sink = StopSink(lambda _text: None)
+
+    dummy._operator_publish_ai_answer_for_speech("新回答")
+
+    assert stops == ["stop"]
+
+
+def test_operator_user_input_interrupts_current_speech_and_discards_pending():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    stops = []
+
+    class StopSink(CallableSpeechSink):
+        def stop(self) -> None:
+            stops.append("stop")
+
+    dummy.operator_speech_sink = StopSink(lambda _text: None)
+    dummy._operator_publish_ai_answer_for_speech("旧回答")
+    stops.clear()
+
+    dummy._operator_interrupt_current_speech_for_user_input()
+    pending = dummy._operator_pending_broadcasts_for_delivery(
+        int(getattr(dummy, "_operator_last_delivered_broadcast_seq", 0) or 0)
+    )
+
+    assert stops == ["stop"]
+    assert pending == []
 
 
 def test_operator_deliver_pending_broadcasts_skips_all_speech_before_login():

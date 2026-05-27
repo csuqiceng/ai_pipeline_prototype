@@ -40,8 +40,8 @@ class NlpNormalizer:
     def __init__(
         self,
         *,
-        enable_pinyin: bool = False,
-        require_pinyin: bool = False,
+        enable_pinyin: bool = True,
+        require_pinyin: bool = True,
         standard_words: dict[str, StandardWord] | None = None,
     ):
         self.enable_pinyin = enable_pinyin
@@ -65,11 +65,6 @@ class NlpNormalizer:
         current = original
         steps: list[NormalizationStep] = []
 
-        for source, target in sorted(self.homophones.items(), key=lambda item: len(item[0]), reverse=True):
-            if source in current:
-                current = current.replace(source, target)
-                steps.append(NormalizationStep("homophone", source, target))
-
         for source, target in sorted(self.dialect.items(), key=lambda item: len(item[0]), reverse=True):
             if source in current:
                 current = current.replace(source, target)
@@ -79,6 +74,11 @@ class NlpNormalizer:
             if source in current:
                 current = current.replace(source, target)
                 steps.append(NormalizationStep("dialect_phonetic", source, target))
+
+        for source, target in sorted(self.homophones.items(), key=lambda item: len(item[0]), reverse=True):
+            if source in current:
+                current = current.replace(source, target)
+                steps.append(NormalizationStep("homophone", source, target))
 
         for source, target in sorted(self.units.items(), key=lambda item: len(item[0]), reverse=True):
             if source in current:

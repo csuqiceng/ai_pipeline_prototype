@@ -462,6 +462,7 @@ class VoiceMixin:
                 self._session_enabled = False
                 self._session_paused = False
                 self._segment_queue = queue.Queue()
+                self._voice_start_queue = queue.Queue()
                 self._capture_queue = queue.Queue()
                 self._segmenter = VoiceSessionSegmenter(
                     silence_threshold=parent_win._VOICE_SILENCE_THRESHOLD,
@@ -492,6 +493,10 @@ class VoiceMixin:
                 self._session_enabled = False
                 self._segmenter.reset()
 
+            def reset_session_segmenter(self):
+                """重置当前会话分段，丢弃触发打断的播报残音。"""
+                self._segmenter.reset()
+
             def set_session_paused(self, paused: bool):
                 """设置会话监听暂停状态。"""
                 self._session_paused = bool(paused)
@@ -502,6 +507,14 @@ class VoiceMixin:
                     return self._segment_queue.get_nowait()
                 except queue.Empty:
                     return None
+
+            def pop_voice_start(self) -> bool:
+                """取出会话模式下的起声事件。"""
+                try:
+                    self._voice_start_queue.get_nowait()
+                    return True
+                except queue.Empty:
+                    return False
 
             def pop_audio_capture(self) -> bytes | None:
                 """取出手动录音模式下的一段语音。"""
@@ -528,7 +541,11 @@ class VoiceMixin:
                         if self._capturing:
                             self._frames.append(indata.copy())
                         if self._session_enabled:
+                            was_active = bool(getattr(self._segmenter, "is_active", False))
                             segment = self._segmenter.feed(indata.tobytes(), paused=self._session_paused)
+                            is_active = bool(getattr(self._segmenter, "is_active", False))
+                            if is_active and not was_active:
+                                self._voice_start_queue.put(True)
                             if segment:
                                 self._segment_queue.put(segment)
                         if self._shutdown:
@@ -639,8 +656,22 @@ class VoiceMixin:
             if capture is not None:
                 self._on_mic_audio_captured(capture)
         if getattr(self, "_voice_session_active", False) and hasattr(thread, "pop_audio_segment"):
+            ignore_audio = self._voice_session_should_ignore_audio()
             if hasattr(thread, "set_session_paused"):
-                thread.set_session_paused(self._voice_session_should_ignore_audio())
+                thread.set_session_paused(ignore_audio)
+            if ignore_audio:
+                self._voice_session_clear_queue()
+                for _ in range(10):
+                    if not thread.pop_audio_segment():
+                        break
+                return
+            if hasattr(thread, "pop_voice_start") and thread.pop_voice_start():
+                interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
+                if callable(interrupter):
+                    interrupter()
+                reset_segmenter = getattr(thread, "reset_session_segmenter", None)
+                if callable(reset_segmenter):
+                    reset_segmenter()
             for _ in range(3):
                 segment = thread.pop_audio_segment()
                 if not segment:
@@ -648,8 +679,14 @@ class VoiceMixin:
                 self._on_mic_audio_segment(segment)
 
     def _voice_session_should_ignore_audio(self) -> bool:
-        """TTS 正在播报时忽略麦克风帧，避免自激。"""
-        return bool(getattr(self, "_operator_speech_async_busy", False))
+        """AI 正在生成文本时忽略麦克风帧；TTS 播报不阻塞下一轮输入。"""
+        if bool(getattr(self, "nlp_parse_running", False)):
+            return True
+        if bool(getattr(self, "nlp_sequence_running", False)):
+            return True
+        if bool(getattr(self, "_operator_streaming_chat_active", False)):
+            return True
+        return False
 
     def _voice_session_clear_queue(self) -> None:
         q = getattr(self, "_voice_session_segment_queue", None)
@@ -665,8 +702,14 @@ class VoiceMixin:
         """会话模式下收到一句语音段。"""
         if not getattr(self, "_voice_session_active", False):
             return
+        if self._voice_session_should_ignore_audio():
+            self._voice_session_clear_queue()
+            return
         if not pcm_data:
             return
+        interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
+        if callable(interrupter):
+            interrupter()
         q = getattr(self, "_voice_session_segment_queue", None)
         if q is None:
             q = queue.Queue()
@@ -676,6 +719,9 @@ class VoiceMixin:
 
     def _voice_session_process_next_segment(self) -> None:
         if not getattr(self, "_voice_session_active", False):
+            return
+        if self._voice_session_should_ignore_audio():
+            self._voice_session_clear_queue()
             return
         if getattr(self, "_voice_session_asr_busy", False):
             return
@@ -755,7 +801,13 @@ class VoiceMixin:
         if callable(update_status):
             update_status(partial)
         if hasattr(self, "operator_command_edit"):
-            self.operator_command_edit.setText(partial)
+            has_focus = False
+            try:
+                has_focus = bool(self.operator_command_edit.hasFocus())
+            except Exception:
+                has_focus = False
+            if not has_focus:
+                self.operator_command_edit.setText(partial)
         elif hasattr(self, "nlp_input_edit"):
             self.nlp_input_edit.setPlainText(partial)
         if hasattr(self, "status_label"):

@@ -26,7 +26,7 @@
   "emergency_codes": [
     "A1B2"
   ],
-  "operator_tts_enabled": false,
+  "operator_tts_enabled": true,
   "broadcast_dedupe_window_sec": 5.0,
   "tts_retry_delay_sec": 5.0,
   "tts_max_failures": 3,
@@ -38,5 +38,6 @@
   "l3_min_step_delay_ms": 0,
   "l3_cumulative_error_limit_mm": 0.0,
   "l3_forbidden_boxes": [],
-  "joint_limits": []
+  "joint_limits": [],
+  "ui_scale": "auto"
 }
