@@ -18,6 +18,8 @@ def test_operator_voice_command_table_covers_required_user_buttons():
 def test_operator_voice_command_table_has_expected_aliases_for_key_buttons():
     assert "发送当前指令" in aliases_for_button("发送")
     assert "执行当前指令" in aliases_for_button("发送")
+    assert "开启会话" in aliases_for_button("录音")
+    assert "结束会话" in aliases_for_button("录音")
     assert "开始录音" in aliases_for_button("录音")
     assert "停止当前动作" in aliases_for_button("停止当前")
     assert "回到主界面" in aliases_for_button("主界面")
@@ -35,6 +37,8 @@ def test_operator_voice_command_matcher_resolves_common_ui_commands():
     assert match_operator_voice_command("回到主界面").action == "go_home"
     assert match_operator_voice_command("进入全屏").action == "enter_fullscreen"
     assert match_operator_voice_command("退出全屏").action == "exit_fullscreen"
+    assert match_operator_voice_command("开启会话").action == "record"
+    assert match_operator_voice_command("结束会话").action == "record"
     assert match_operator_voice_command("暂停").action == "pause"
     assert match_operator_voice_command("继续").action == "resume"
     assert match_operator_voice_command("报警复位").action == "alarm_reset"

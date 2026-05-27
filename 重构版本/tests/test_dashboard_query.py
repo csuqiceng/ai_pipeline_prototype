@@ -320,6 +320,22 @@ def test_dashboard_query_answers_v20_position_and_joint_queries():
     assert "J6=6.0" in all_joints.text
 
 
+def test_dashboard_query_accepts_configured_asr_wake_word_alias():
+    snapshot = {
+        "boards": {
+            "device_status": {
+                "dpos_c": (350.0, 200.0, 500.0, 0.0, 90.0, 0.0),
+            }
+        }
+    }
+
+    answer = DashboardQueryService().answer("小郭，当前位置", snapshot)
+
+    assert answer is not None
+    assert answer.board_key == "device_status"
+    assert "X=350.0" in answer.text
+
+
 def test_dashboard_query_answers_v20_alarm_speed_and_feasibility_queries():
     snapshot = {
         "boards": {

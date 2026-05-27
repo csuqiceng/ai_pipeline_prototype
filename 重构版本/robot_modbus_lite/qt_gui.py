@@ -284,8 +284,6 @@ class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMi
                     self._use_license_voice = True
 
                 self._update_license_status_label()
-                # 预打开麦克风流（无论订阅还是本地模式，都零延迟）
-                self._ensure_mic_stream()
                 return
         except Exception:
             pass
@@ -299,7 +297,6 @@ class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMi
                 self._deepseek_client = None
 
         self._update_license_status_label()
-        self._ensure_mic_stream()
 
     def _show_license_dialog(self) -> None:
         """显示授权对话框。"""

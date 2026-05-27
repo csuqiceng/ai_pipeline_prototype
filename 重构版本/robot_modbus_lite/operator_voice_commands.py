@@ -45,7 +45,7 @@ OPERATOR_BUTTON_VOICE_COMMANDS: tuple[OperatorVoiceCommandSpec, ...] = (
         "execute_text",
         ("发送当前指令", "发送指令", "发送输入", "执行当前指令", "执行指令", "执行输入"),
     ),
-    OperatorVoiceCommandSpec("录音", "record", ("开始录音", "打开录音", "录音")),
+    OperatorVoiceCommandSpec("录音", "record", ("开启会话", "打开会话", "结束会话", "关闭会话", "开始录音", "打开录音", "录音")),
     OperatorVoiceCommandSpec("清空", "clear_text", ("清空输入", "清空文本", "清空指令")),
     OperatorVoiceCommandSpec("急停", "estop", ("急停 授权码 急停",), requires_emergency_code=True),
     OperatorVoiceCommandSpec("暂停", "pause", ("暂停",)),

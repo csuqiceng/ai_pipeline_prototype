@@ -8,6 +8,13 @@ def test_parser_blocks_production_command_without_wake_word():
     assert parsed.params["command_text"] == "上升3毫米"
 
 
+def test_parser_accepts_configured_asr_wake_word_aliases():
+    parsed = AtomicParser().parse("小镇，移动到位置A")
+
+    assert parsed.family == "position"
+    assert parsed.name == "move:A"
+
+
 def test_parser_warns_single_emergency_word_without_code():
     parsed = AtomicParser().classify("急停")
 

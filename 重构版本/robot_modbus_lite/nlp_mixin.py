@@ -34,9 +34,17 @@ class NlpMixin:
         adapter.knowledge_base = AssistantKnowledgeBase.load()
         if self._deepseek_client:
             adapter.set_deepseek_client(self._deepseek_client)
-        adapter.set_diagnostic_callback(
-            lambda action, result, detail: self._append_log("自然语言", action, result, detail)
-        )
+        def diagnostic_callback(action: str, result: str, detail: str) -> None:
+            def append() -> None:
+                self._append_log("自然语言", action, result, detail)
+
+            runner = getattr(self, "_run_on_main_thread", None)
+            if callable(runner):
+                runner(append)
+            else:
+                append()
+
+        adapter.set_diagnostic_callback(diagnostic_callback)
         if hasattr(adapter, "set_runtime_context_provider") and hasattr(self, "_operator_deepseek_runtime_context"):
             adapter.set_runtime_context_provider(self._operator_deepseek_runtime_context)
         return adapter

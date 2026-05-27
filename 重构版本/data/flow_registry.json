@@ -1,7 +1,99 @@
 {
   "version": "1.1",
-  "updated_at": "2026-05-25T21:57:42.938656",
+  "updated_at": "2026-05-27T10:36:12.056076",
   "flows": [
+    {
+      "name": "home点头流程",
+      "description": "",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "flowdraft:home点头流程:01",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:01"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:01"
+        },
+        {
+          "step_id": 2,
+          "action": "flowdraft:home点头流程:02",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:02"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:02"
+        },
+        {
+          "step_id": 3,
+          "action": "flowdraft:home点头流程:03",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:03"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:03"
+        },
+        {
+          "step_id": 4,
+          "action": "flowdraft:home点头流程:04",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:04"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:04"
+        },
+        {
+          "step_id": 5,
+          "action": "flowdraft:home点头流程:05",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:05"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:05"
+        },
+        {
+          "step_id": 6,
+          "action": "flowdraft:home点头流程:06",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:06"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:06"
+        },
+        {
+          "step_id": 7,
+          "action": "flowdraft:home点头流程:07",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:07"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:07"
+        }
+      ],
+      "step_delay_ms": 300,
+      "rehearsal_spd": 20,
+      "confirmed": false,
+      "created_by": "operator",
+      "version": 1,
+      "state": "idle",
+      "current_step": 0,
+      "created_at": "2026-05-27T10:36:12.055075",
+      "updated_at": "2026-05-27T10:36:12.055075"
+    },
     {
       "name": "打个招呼的小",
       "description": "",

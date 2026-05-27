@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import queue
 import subprocess
 import sys
+import threading
 import time
 from array import array
 from datetime import datetime
@@ -14,6 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Signal
 
 from .voice_ipc import cleanup_stop_flag, make_voice_worker_files, reset_stop_flag, write_stop_flag
+from .voice_session import VoiceSessionSegmenter
 
 
 class VoiceMixin:
@@ -47,7 +50,11 @@ class VoiceMixin:
             ) from exc
 
     def _get_local_iflytek_client(self, *, reset: bool = False):
-        """获取并缓存本地讯飞客户端。"""
+        """获取本地讯飞客户端。
+
+        讯飞 IAT SDK 的 stream 连接在一次识别后会关闭。连续会话分段识别
+        必须为每段语音创建新客户端，避免复用已关闭的 websocket。
+        """
         from .iflytek_iat import IFlytekIATClient, IFlytekIATConfig
 
         lock = getattr(self, "_iflytek_local_client_lock", None)
@@ -126,7 +133,7 @@ class VoiceMixin:
             parts.append(f"文本: {text or '-'}")
         return " | ".join(parts)
 
-    def _transcribe_pcm_via_local_client(self, pcm_data: bytes) -> dict[str, object]:
+    def _transcribe_pcm_via_local_client(self, pcm_data: bytes, *, partial_callback=None) -> dict[str, object]:
         """在后台线程中复用本地讯飞客户端识别 PCM。"""
         import tempfile
 
@@ -143,16 +150,19 @@ class VoiceMixin:
         timing["voice_temp_file_ms"] = int((time.perf_counter() - file_start) * 1000)
 
         try:
-            client, init_ms = self._get_local_iflytek_client()
+            client, init_ms = self._get_local_iflytek_client(reset=True)
             timing["voice_client_init_ms"] = init_ms
             transcribe_start = time.perf_counter()
             try:
-                result = client.transcribe_file(tmp_name)
+                result = client.transcribe_file(tmp_name, chunk_callback=partial_callback)
             except Exception:
                 client, retry_init_ms = self._get_local_iflytek_client(reset=True)
                 timing["voice_client_retry"] = 1
                 timing["voice_client_retry_init_ms"] = retry_init_ms
-                result = client.transcribe_file(tmp_name)
+                result = client.transcribe_file(tmp_name, chunk_callback=partial_callback)
+            finally:
+                if hasattr(self, "_iflytek_local_client"):
+                    self._iflytek_local_client = None
             timing["voice_transcribe_ms"] = int((time.perf_counter() - transcribe_start) * 1000)
             timing["voice_total_ms"] = int((time.perf_counter() - total_start) * 1000)
             return {"text": result.text.strip(), "timing": timing}
@@ -433,24 +443,34 @@ class VoiceMixin:
         except ImportError:
             return
 
-        from PySide6.QtCore import QThread as _QThread
-
         selected_device = self._selected_microphone_device()
         sample_rate = 16000
 
-        class MicStreamThread(_QThread):
+        class MicStreamThread(threading.Thread):
             """麦克风流线程，负责持续采集并在停止时回传音频。"""
-            audio_captured = Signal(bytes)  # 原始音频数据
 
             def __init__(self, parent_win, sample_rate, device):
                 """初始化对象。"""
-                super().__init__(parent_win)
+                super().__init__(daemon=True)
+                self._parent_win = parent_win
                 self._sample_rate = sample_rate
                 self._device = device
                 self._capturing = False
                 self._shutdown = False
                 self._frames = []
                 self._stop_requested = False
+                self._session_enabled = False
+                self._session_paused = False
+                self._segment_queue = queue.Queue()
+                self._capture_queue = queue.Queue()
+                self._segmenter = VoiceSessionSegmenter(
+                    silence_threshold=parent_win._VOICE_SILENCE_THRESHOLD,
+                    frame_ms=parent_win._VOICE_FRAME_MS,
+                    start_voice_ms=120,
+                    end_silence_ms=500,
+                    min_segment_ms=300,
+                    max_segment_ms=5000,
+                )
 
             def start_capturing(self):
                 """启动相关数据。"""
@@ -462,10 +482,43 @@ class VoiceMixin:
                 self._capturing = False
                 self._stop_requested = True
 
+            def enable_session_mode(self):
+                """开启连续会话分段。"""
+                self._segmenter.reset()
+                self._session_enabled = True
+
+            def disable_session_mode(self):
+                """关闭连续会话分段。"""
+                self._session_enabled = False
+                self._segmenter.reset()
+
+            def set_session_paused(self, paused: bool):
+                """设置会话监听暂停状态。"""
+                self._session_paused = bool(paused)
+
+            def pop_audio_segment(self) -> bytes | None:
+                """取出会话模式下的一段语音。"""
+                try:
+                    return self._segment_queue.get_nowait()
+                except queue.Empty:
+                    return None
+
+            def pop_audio_capture(self) -> bytes | None:
+                """取出手动录音模式下的一段语音。"""
+                try:
+                    return self._capture_queue.get_nowait()
+                except queue.Empty:
+                    return None
+
             def shutdown(self):
                 """关闭相关数据。"""
                 self._shutdown = True
                 self._capturing = False
+
+            def wait(self, timeout_ms: int | None = None):
+                """兼容 QThread.wait。"""
+                timeout = None if timeout_ms is None else max(0, float(timeout_ms) / 1000.0)
+                self.join(timeout=timeout)
 
             def run(self):
                 """运行相关数据。"""
@@ -474,6 +527,10 @@ class VoiceMixin:
                         """处理相关数据。"""
                         if self._capturing:
                             self._frames.append(indata.copy())
+                        if self._session_enabled:
+                            segment = self._segmenter.feed(indata.tobytes(), paused=self._session_paused)
+                            if segment:
+                                self._segment_queue.put(segment)
                         if self._shutdown:
                             raise sd.CallbackStop()
 
@@ -493,19 +550,216 @@ class VoiceMixin:
                                 self._frames = []
                                 if captured:
                                     audio = np.concatenate(captured)
-                                    self.audio_captured.emit(audio.tobytes())
+                                    self._capture_queue.put(audio.tobytes())
                                 else:
-                                    self.audio_captured.emit(b'')
+                                    self._capture_queue.put(b'')
                 except sd.CallbackStop:
                     pass
                 except Exception:
                     if not self._shutdown:
-                        self.audio_captured.emit(b'')
+                        self._capture_queue.put(b'')
 
         self._mic_recorder_thread = MicStreamThread(self, sample_rate, selected_device)
-        self._mic_recorder_thread.audio_captured.connect(self._on_mic_audio_captured)
         self._mic_recorder_thread.start()
+        self._start_voice_session_poll_timer()
         self._append_log("语音", "预热麦克风", "成功", "麦克风流已后台启动")
+
+    def _start_voice_session(self) -> None:
+        """开启连续语音会话。"""
+        if getattr(self, "_voice_session_active", False):
+            return
+        try:
+            self._create_iflytek_client()
+            if getattr(self, "_use_license_voice", False):
+                raise RuntimeError("当前授权代理语音模式暂不支持连续会话，请继续使用手动录音。")
+            self._ensure_mic_stream()
+            thread = getattr(self, "_mic_recorder_thread", None)
+            if thread is None:
+                raise RuntimeError("无法启动麦克风流，请确认 sounddevice 和麦克风设备可用。")
+            if not hasattr(self, "_voice_session_segment_queue"):
+                self._voice_session_segment_queue = queue.Queue()
+            else:
+                self._voice_session_clear_queue()
+            self._voice_session_asr_busy = False
+            self._voice_session_active = True
+            thread.enable_session_mode()
+            self._start_voice_session_poll_timer()
+            if hasattr(self, "mic_toggle_btn"):
+                self.mic_toggle_btn.setText("结束会话")
+                self.mic_toggle_btn.setEnabled(True)
+            if hasattr(self, "status_label"):
+                self.status_label.setText("语音会话已开启，等待说话。")
+            self._append_log("语音会话", "开启会话", "成功", "静音分段模式")
+        except Exception as exc:
+            self._voice_session_active = False
+            if hasattr(self, "status_label"):
+                self.status_label.setText("语音会话启动失败")
+            if hasattr(self, "_show_critical"):
+                self._show_critical("语音会话启动失败", str(exc))
+            self._append_log("语音会话", "开启会话", "失败", str(exc))
+
+    def _stop_voice_session(self) -> None:
+        """关闭连续语音会话。"""
+        self._stop_voice_session_poll_timer()
+        thread = getattr(self, "_mic_recorder_thread", None)
+        if thread is not None and hasattr(thread, "disable_session_mode"):
+            thread.disable_session_mode()
+        self._voice_session_active = False
+        self._voice_session_asr_busy = False
+        self._voice_session_clear_queue()
+        if hasattr(self, "mic_toggle_btn"):
+            self.mic_toggle_btn.setText("开启会话")
+            self.mic_toggle_btn.setEnabled(True)
+        if hasattr(self, "status_label"):
+            self.status_label.setText("语音会话已关闭。")
+        self._append_log("语音会话", "关闭会话", "成功", "已停止连续监听")
+
+    def _start_voice_session_poll_timer(self) -> None:
+        """启动主线程轮询语音分段，避免音频线程直接触碰 Qt。"""
+        timer = getattr(self, "_voice_session_poll_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setInterval(80)
+            timer.timeout.connect(self._poll_voice_session_segments)
+            self._voice_session_poll_timer = timer
+        if not timer.isActive():
+            timer.start()
+
+    def _stop_voice_session_poll_timer(self) -> None:
+        timer = getattr(self, "_voice_session_poll_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+
+    def _poll_voice_session_segments(self) -> None:
+        thread = getattr(self, "_mic_recorder_thread", None)
+        if thread is None:
+            return
+        if hasattr(thread, "pop_audio_capture"):
+            capture = thread.pop_audio_capture()
+            if capture is not None:
+                self._on_mic_audio_captured(capture)
+        if getattr(self, "_voice_session_active", False) and hasattr(thread, "pop_audio_segment"):
+            if hasattr(thread, "set_session_paused"):
+                thread.set_session_paused(self._voice_session_should_ignore_audio())
+            for _ in range(3):
+                segment = thread.pop_audio_segment()
+                if not segment:
+                    break
+                self._on_mic_audio_segment(segment)
+
+    def _voice_session_should_ignore_audio(self) -> bool:
+        """TTS 正在播报时忽略麦克风帧，避免自激。"""
+        return bool(getattr(self, "_operator_speech_async_busy", False))
+
+    def _voice_session_clear_queue(self) -> None:
+        q = getattr(self, "_voice_session_segment_queue", None)
+        if q is None:
+            return
+        try:
+            while True:
+                q.get_nowait()
+        except queue.Empty:
+            return
+
+    def _on_mic_audio_segment(self, pcm_data: bytes) -> None:
+        """会话模式下收到一句语音段。"""
+        if not getattr(self, "_voice_session_active", False):
+            return
+        if not pcm_data:
+            return
+        q = getattr(self, "_voice_session_segment_queue", None)
+        if q is None:
+            q = queue.Queue()
+            self._voice_session_segment_queue = q
+        q.put(bytes(pcm_data))
+        self._voice_session_process_next_segment()
+
+    def _voice_session_process_next_segment(self) -> None:
+        if not getattr(self, "_voice_session_active", False):
+            return
+        if getattr(self, "_voice_session_asr_busy", False):
+            return
+        q = getattr(self, "_voice_session_segment_queue", None)
+        if q is None:
+            return
+        try:
+            segment = q.get_nowait()
+        except queue.Empty:
+            return
+        self._voice_session_asr_busy = True
+        if hasattr(self, "status_label"):
+            self.status_label.setText("语音会话正在识别...")
+        begin_status = getattr(self, "_operator_begin_voice_recognition_status", None)
+        if callable(begin_status):
+            begin_status()
+
+        def work():
+            return self._transcribe_pcm_via_local_client(
+                segment,
+                partial_callback=self._voice_session_schedule_partial_text,
+            )
+
+        def on_result(result):
+            self._voice_session_asr_busy = False
+            if isinstance(result, Exception):
+                message = str(result)
+                if hasattr(self, "status_label"):
+                    self.status_label.setText("语音会话识别失败")
+                clear_status = getattr(self, "_operator_clear_voice_recognition_status", None)
+                if callable(clear_status):
+                    clear_status()
+                self._append_log("语音会话", "分段识别", "失败", message)
+                self._voice_session_process_next_segment()
+                return
+            text = str(result.get("text", "") if isinstance(result, dict) else result).strip()
+            timing = result.get("timing", {}) if isinstance(result, dict) else {}
+            if text:
+                if hasattr(self, "status_label"):
+                    self.status_label.setText("语音会话识别完成，正在处理。")
+                self._append_log("语音会话", "分段识别", "成功", self._format_voice_timing_detail(timing, text=text), extra=timing)
+                handler = getattr(self, "_operator_handle_voice_session_text", None)
+                if callable(handler):
+                    finish_status = getattr(self, "_operator_finish_voice_recognition_status", None)
+                    if callable(finish_status):
+                        finish_status(text)
+                    handler(text)
+                elif hasattr(self, "nlp_input_edit"):
+                    self.nlp_input_edit.setPlainText(text)
+            else:
+                clear_status = getattr(self, "_operator_clear_voice_recognition_status", None)
+                if callable(clear_status):
+                    clear_status()
+                self._append_log("语音会话", "分段识别", "提示", "空文本")
+            if getattr(self, "_voice_session_active", False) and hasattr(self, "status_label"):
+                self.status_label.setText("语音会话等待说话。")
+            self._voice_session_process_next_segment()
+
+        self._run_in_background(work, on_result)
+
+    def _voice_session_schedule_partial_text(self, text: str) -> None:
+        """从识别线程安全地调度分段识别文本到 Qt 主线程。"""
+        partial = str(text or "").strip()
+        if not partial:
+            return
+        runner = getattr(self, "_run_on_main_thread", None)
+        if callable(runner):
+            runner(lambda partial=partial: self._voice_session_update_partial_text(partial))
+        else:
+            self._voice_session_update_partial_text(partial)
+
+    def _voice_session_update_partial_text(self, text: str) -> None:
+        partial = str(text or "").strip()
+        if not partial:
+            return
+        update_status = getattr(self, "_operator_update_voice_recognition_status", None)
+        if callable(update_status):
+            update_status(partial)
+        if hasattr(self, "operator_command_edit"):
+            self.operator_command_edit.setText(partial)
+        elif hasattr(self, "nlp_input_edit"):
+            self.nlp_input_edit.setPlainText(partial)
+        if hasattr(self, "status_label"):
+            self.status_label.setText("语音会话正在识别文本...")
 
     def _on_mic_audio_captured(self, pcm_data: bytes) -> None:
         """处理麦克风音频。"""

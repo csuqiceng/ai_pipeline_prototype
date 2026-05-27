@@ -5,9 +5,7 @@ from __future__ import annotations
 import re
 
 from .atomic_models import AtomicElements, AtomicResolved
-
-
-WAKE_WORDS = ("小正", "小郑", "校正")
+from .voice_wake_words import strip_wake_word
 
 
 class AtomicParser:
@@ -295,11 +293,7 @@ class AtomicParser:
 
     @staticmethod
     def _strip_wake_word(text: str) -> str | None:
-        compact = text.strip()
-        for wake_word in WAKE_WORDS:
-            if compact.startswith(wake_word):
-                return compact[len(wake_word):].lstrip(" ，,。:：") or ""
-        return None
+        return strip_wake_word(text)
 
     @staticmethod
     def _compact(text: str) -> str:

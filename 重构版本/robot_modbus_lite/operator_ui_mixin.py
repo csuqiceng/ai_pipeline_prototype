@@ -61,6 +61,7 @@ from .permission_service import PermissionDenied
 from .process_precheck import ProcessPrecheckService
 from .query_table import save_query_table_json
 from .system_config import save_system_config
+from .voice_wake_words import configured_wake_words, strip_wake_word_from_compact
 
 
 @dataclass(frozen=True)
@@ -337,6 +338,16 @@ class OperatorUiMixin:
 
         self.operator_idle_title = QLabel("系统在线，等待指令")
         self.operator_idle_title.setObjectName("operatorSceneTitle")
+        self.operator_pending_flow_title = QLabel("待确认草案")
+        self.operator_pending_flow_title.setObjectName("operatorSceneSubtitle")
+        self.operator_pending_flow_browser = QTextBrowser()
+        self.operator_pending_flow_browser.setObjectName("operatorRecentBrowser")
+        self.operator_pending_flow_browser.setOpenExternalLinks(False)
+        self.operator_pending_flow_browser.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.operator_pending_flow_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.operator_pending_flow_browser.setMaximumHeight(142)
+        self.operator_pending_flow_title.setVisible(False)
+        self.operator_pending_flow_browser.setVisible(False)
         self.operator_idle_subtitle = QLabel("最近操作")
         self.operator_idle_subtitle.setObjectName("operatorSceneSubtitle")
         self.operator_recent_browser = QTextBrowser()
@@ -345,6 +356,8 @@ class OperatorUiMixin:
         self.operator_recent_browser.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.operator_recent_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self.operator_idle_title)
+        layout.addWidget(self.operator_pending_flow_title)
+        layout.addWidget(self.operator_pending_flow_browser)
         layout.addWidget(self.operator_idle_subtitle)
         layout.addWidget(self.operator_recent_browser, 1)
         return scene
@@ -531,7 +544,7 @@ class OperatorUiMixin:
         input_row.addWidget(self.operator_command_edit, 1)
         for text, slot, klass in [
             ("发送", self._operator_execute_text, "green"),
-            ("录音", self._operator_toggle_microphone_recording, ""),
+            ("开启会话", self._operator_toggle_microphone_recording, ""),
             ("清空", self._operator_clear_text, ""),
         ]:
             btn = QPushButton(text)
@@ -540,7 +553,7 @@ class OperatorUiMixin:
                 btn.setProperty("klass", klass)
             btn.clicked.connect(slot)
             input_row.addWidget(btn)
-            if text == "录音":
+            if text == "开启会话":
                 self.operator_mic_btn = btn
         layout.addLayout(input_row)
         return panel
@@ -828,7 +841,11 @@ class OperatorUiMixin:
             steps = draft.get("expanded_steps") if isinstance(draft, dict) else None
             step_count = len(steps) if isinstance(steps, list) else 0
             reason = str(getattr(plan, "reason", "") or "已生成流程草案。")
-            text = f"{reason}\n当前仅生成草案，不自动保存或执行。草案步骤数：{step_count} 步。可说“确认保存”或“保存并执行”。"
+            if isinstance(draft, dict) and draft:
+                preview = self._operator_flow_draft_preview_text(draft, include_params=True)
+                text = f"{reason}\n{preview}"
+            else:
+                text = f"{reason}\n当前仅生成草案，不自动保存或执行。草案步骤数：{step_count} 步。可说“确认保存”或“保存并执行”。"
             notices = getattr(self._operator_execution_plan_service(), "default_notices", [])
             if notices:
                 text += "\n" + "\n".join(str(item) for item in notices)
@@ -899,18 +916,115 @@ class OperatorUiMixin:
         self._clear_nlp_text()
 
     def _operator_toggle_microphone_recording(self) -> None:
-        starting = not self._operator_voice_recording_active()
+        starting = not bool(getattr(self, "_voice_session_active", False))
         started_at_sec = self._operator_now_seconds()
         if starting:
             builder = getattr(self, "operator_response_builder", None) or ResponseBuilder()
             self.operator_response_builder = builder
-            self._operator_publish_response(builder.receipt(input_mode="voice", context_id="voice:receipt"))
-        self._toggle_microphone_recording()
+            self._operator_publish_response(builder.receipt(input_mode="voice", context_id="voice:session_receipt"))
+            self._start_voice_session()
+        else:
+            self._stop_voice_session()
         if starting:
             delay_ms = self._operator_elapsed_ms_since(started_at_sec)
             self._operator_last_voice_receipt_delay_ms = delay_ms
             self._operator_last_voice_receipt_sla_passed = delay_ms <= self._operator_ack_limit_ms("voice")
         self._sync_operator_mic_button()
+
+    def _operator_handle_voice_session_text(self, text: str) -> None:
+        command = str(text or "").strip()
+        if not command:
+            return
+        if hasattr(self, "operator_command_edit"):
+            self.operator_command_edit.setText(command)
+        elif hasattr(self, "nlp_input_edit"):
+            self.nlp_input_edit.setPlainText(command)
+        self._operator_execute_text()
+
+    def _operator_begin_voice_recognition_status(self) -> None:
+        """Show a temporary chat status while ASR is recognizing speech."""
+        if not hasattr(self, "_operator_chat_messages"):
+            self._operator_chat_messages = []
+        if not hasattr(self, "_operator_chat_thinking_steps"):
+            self._operator_chat_thinking_steps = [[] for _ in self._operator_chat_messages]
+        if not hasattr(self, "_operator_chat_thinking_meta"):
+            self._operator_chat_thinking_meta = [{} for _ in self._operator_chat_messages]
+        index = getattr(self, "_operator_voice_recognition_status_index", None)
+        if isinstance(index, int) and 0 <= index < len(self._operator_chat_messages):
+            self._operator_chat_messages[index] = ("user", "正在识别语音...")
+            self._operator_render_voice_recognition_status()
+            return
+        self._operator_chat_messages.append(("user", "正在识别语音..."))
+        self._operator_chat_thinking_steps.append([])
+        self._operator_chat_thinking_meta.append({"voice_recognition_status": True})
+        self._operator_voice_recognition_status_index = len(self._operator_chat_messages) - 1
+        self._operator_chat_autoscroll_pending = True
+        self._render_operator_chat()
+
+    def _operator_update_voice_recognition_status(self, text: str) -> None:
+        partial = str(text or "").strip()
+        if not partial:
+            return
+        index = getattr(self, "_operator_voice_recognition_status_index", None)
+        if not isinstance(index, int) or index < 0 or index >= len(getattr(self, "_operator_chat_messages", [])):
+            self._operator_begin_voice_recognition_status()
+            index = getattr(self, "_operator_voice_recognition_status_index", None)
+        if isinstance(index, int) and 0 <= index < len(self._operator_chat_messages):
+            text = f"正在识别：{partial}"
+            self._operator_chat_messages[index] = ("user", text)
+            label = getattr(self, "_operator_voice_recognition_status_label", None)
+            if label is not None and hasattr(label, "setText"):
+                try:
+                    label.setText(text)
+                    self._operator_chat_autoscroll_pending = True
+                    self._operator_scroll_chat_to_bottom()
+                    return
+                except Exception:
+                    self._operator_voice_recognition_status_label = None
+            self._operator_render_voice_recognition_status()
+
+    def _operator_finish_voice_recognition_status(self, text: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            self._operator_clear_voice_recognition_status()
+            return
+        index = getattr(self, "_operator_voice_recognition_status_index", None)
+        if isinstance(index, int) and 0 <= index < len(getattr(self, "_operator_chat_messages", [])):
+            self._operator_chat_messages[index] = ("user", clean)
+            if index < len(getattr(self, "_operator_chat_thinking_steps", [])):
+                self._operator_chat_thinking_steps[index] = []
+            if index < len(getattr(self, "_operator_chat_thinking_meta", [])):
+                self._operator_chat_thinking_meta[index] = {}
+            self._operator_voice_recognition_status_index = None
+            self._operator_voice_recognition_status_label = None
+            self._operator_last_user_text = clean
+            self._operator_chat_autoscroll_pending = True
+            self._render_operator_chat()
+            return
+        self._operator_voice_recognition_status_index = None
+        self._operator_add_chat_message("user", clean)
+        self._operator_last_user_text = clean
+
+    def _operator_clear_voice_recognition_status(self) -> None:
+        index = getattr(self, "_operator_voice_recognition_status_index", None)
+        self._operator_voice_recognition_status_index = None
+        self._operator_voice_recognition_status_label = None
+        if not isinstance(index, int):
+            return
+        messages = getattr(self, "_operator_chat_messages", [])
+        if index < 0 or index >= len(messages):
+            return
+        self._operator_chat_messages[index:index + 1] = []
+        if hasattr(self, "_operator_chat_thinking_steps"):
+            self._operator_chat_thinking_steps[index:index + 1] = []
+        if hasattr(self, "_operator_chat_thinking_meta"):
+            self._operator_chat_thinking_meta[index:index + 1] = []
+        self._operator_chat_autoscroll_pending = True
+        self._render_operator_chat()
+
+    def _operator_render_voice_recognition_status(self) -> None:
+        self._operator_chat_autoscroll_pending = True
+        self._render_operator_chat()
 
     def _operator_voice_receipt_sla_result(self) -> dict[str, object]:
         delay_ms = int(getattr(self, "_operator_last_voice_receipt_delay_ms", 0) or 0)
@@ -922,6 +1036,8 @@ class OperatorUiMixin:
         }
 
     def _operator_voice_recording_active(self) -> bool:
+        if getattr(self, "_voice_session_active", False):
+            return True
         if getattr(self, "_local_voice_streaming", False):
             return True
         if getattr(self, "_proxy_mic_capturing", False):
@@ -1850,8 +1966,30 @@ class OperatorUiMixin:
             return True
         execute_after_save = any(
             keyword in compact
-            for keyword in ("保存并执行", "确认并执行", "确认执行", "执行这个流程", "运行这个流程", "保存后执行")
-        )
+            for keyword in (
+                "保存并执行",
+                "确认并执行",
+                "确认执行",
+                "执行这个流程",
+                "运行这个流程",
+                "保存后执行",
+                "开始执行",
+            )
+        ) or compact in {
+            "执行",
+            "运行",
+            "确认",
+            "确认执行",
+            "开始",
+            "开始吧",
+            "执行吧",
+            "运行吧",
+            "可以执行",
+            "可以运行",
+            "就这样执行",
+            "按这个执行",
+            "照这个执行",
+        }
         save_only = execute_after_save or any(
             keyword in compact for keyword in ("确认保存", "保存流程", "保存草案", "保存这个流程", "确认草案")
         )
@@ -2010,8 +2148,7 @@ class OperatorUiMixin:
                 best_len = len(compact_name)
         return best
 
-    @staticmethod
-    def _operator_flow_entry_preview_text(flow: Any, *, include_params: bool = False) -> str:
+    def _operator_flow_entry_preview_text(self, flow: Any, *, include_params: bool = False) -> str:
         name = str(getattr(flow, "name", "") or "未命名流程").strip() or "未命名流程"
         description = str(getattr(flow, "description", "") or "").strip()
         confirmed = "是" if bool(getattr(flow, "confirmed", False)) else "否"
@@ -2023,24 +2160,43 @@ class OperatorUiMixin:
         if description:
             lines.append(f"说明：{description}")
         if steps:
-            lines.append("步骤：")
+            lines.append("步骤流：")
             for index, step in enumerate(steps[:12], start=1):
-                action = str(getattr(step, "description", "") or getattr(step, "action", "") or "执行动作").strip()
-                func_id = getattr(step, "func_id", "")
-                position_name = str(getattr(step, "position_name", "") or "").strip()
-                suffix_parts = []
-                if func_id not in ("", None, 0):
-                    suffix_parts.append(f"Func{int(float(func_id))}")
-                if position_name:
-                    suffix_parts.append(f"位置 {position_name}")
-                suffix = f"（{'，'.join(suffix_parts)}）" if suffix_parts else ""
-                lines.append(f"{index}. {action}{suffix}")
-                params = getattr(step, "params", None)
+                record = self._operator_flow_step_record(step)
+                source = record if record is not None else step
+                action = str(getattr(source, "description", "") or getattr(source, "action", "") or "执行动作").strip()
+                func_id = getattr(source, "func_num", getattr(source, "func_id", ""))
+                position_name = str(getattr(source, "position_name", "") or "").strip()
+                func_text = f"Func{int(float(func_id))}" if func_id not in ("", None, 0) else "Func?"
+                position_text = f"  位置={position_name}" if position_name else ""
+                lines.append(f"{index:02d}  {func_text}  {action}{position_text}")
+                params = getattr(source, "params", None)
                 if include_params and isinstance(params, dict) and params:
-                    lines.append(f"   参数：{OperatorUiMixin._operator_format_params_inline(params)}")
+                    lines.extend(f"    {line}" for line in OperatorUiMixin._operator_format_flow_step_param_lines(params))
             if len(steps) > 12:
                 lines.append(f"... 还有 {len(steps) - 12} 步未展开显示。")
         return "\n".join(lines)
+
+    def _operator_flow_step_record(self, step: Any):
+        query_key = ""
+        if isinstance(step, str):
+            query_key = step
+        else:
+            params = getattr(step, "params", None)
+            if isinstance(params, dict):
+                query_key = str(params.get("query_key") or "").strip()
+            if not query_key:
+                query_key = str(getattr(step, "query_key", "") or "").strip()
+            if not query_key:
+                action = str(getattr(step, "action", "") or "").strip()
+                if action:
+                    query_key = action
+        if not query_key:
+            return None
+        table = getattr(self, "table", None)
+        if isinstance(table, dict):
+            return table.get(query_key)
+        return None
 
     @staticmethod
     def _operator_text_looks_like_flow_creation_request(compact_text: str) -> bool:
@@ -2052,7 +2208,7 @@ class OperatorUiMixin:
             for keyword in ("编写", "创建", "生成", "新建", "写一下", "做一个", "打个")
         )
         has_sequence = any(keyword in compact_text for keyword in ("先", "再", "然后", "接着", "之后"))
-        has_wake = any(keyword in compact_text for keyword in ("小正", "小郑", "校正"))
+        has_wake = any(keyword in compact_text for keyword in configured_wake_words())
         return has_flow and has_wake and (has_create or has_sequence)
 
     @staticmethod
@@ -2370,6 +2526,39 @@ class OperatorUiMixin:
             return ""
         return "最近对话：\n" + "\n".join(lines)
 
+    def _refresh_operator_pending_flow_status(self) -> None:
+        if not hasattr(self, "operator_pending_flow_browser"):
+            return
+        draft = getattr(self, "_operator_pending_flow_draft", None)
+        text = self._operator_pending_flow_status_text(draft) if isinstance(draft, dict) else ""
+        visible = bool(text)
+        if hasattr(self, "operator_pending_flow_title"):
+            self.operator_pending_flow_title.setVisible(visible)
+        self.operator_pending_flow_browser.setVisible(visible)
+        if not visible:
+            self.operator_pending_flow_browser.clear()
+            return
+        if self.operator_pending_flow_browser.toPlainText() != text:
+            self.operator_pending_flow_browser.setPlainText(text)
+
+    @staticmethod
+    def _operator_pending_flow_status_text(draft: dict[str, Any] | None) -> str:
+        if not isinstance(draft, dict) or not draft:
+            return ""
+        flow_name = str(draft.get("flow_name") or draft.get("flowName") or "未命名流程").strip() or "未命名流程"
+        steps = draft.get("expanded_steps")
+        step_count = len(steps) if isinstance(steps, list) else 0
+        status = "待重新预检" if draft.get("needs_precheck") else "等待确认"
+        lines = [
+            "待确认流程草案",
+            f"流程名：{flow_name}",
+            f"步骤数：{step_count}",
+            f"状态：{status}",
+            "下一步：可说“确认保存”“保存并执行”“重新预检”或“取消草案”。",
+            "完整步骤和参数已显示在对话中。",
+        ]
+        return "\n".join(lines)
+
     @staticmethod
     def _operator_flow_draft_preview_text(draft: dict[str, Any], *, include_params: bool = False) -> str:
         flow_name = str(draft.get("flow_name") or draft.get("flowName") or "未命名流程").strip() or "未命名流程"
@@ -2395,26 +2584,20 @@ class OperatorUiMixin:
             if pose_lines:
                 lines.append("位置：" + "；".join(pose_lines))
         if step_items:
-            lines.append("步骤：")
-            for index, step in enumerate(step_items[:8], start=1):
+            lines.append("步骤流：")
+            for index, step in enumerate(step_items, start=1):
                 if not isinstance(step, dict):
-                    lines.append(f"{index}. 非结构化步骤")
+                    lines.append(f"{index:02d}  非结构化步骤")
                     continue
                 description = str(step.get("description") or step.get("action") or "").strip()
                 func_id = step.get("func_id") or step.get("func_num")
                 position_name = str(step.get("position_name") or "").strip()
-                suffix_parts = []
-                if func_id:
-                    suffix_parts.append(f"Func{int(float(func_id))}")
-                if position_name:
-                    suffix_parts.append(f"位置 {position_name}")
-                suffix = f"（{'，'.join(suffix_parts)}）" if suffix_parts else ""
-                lines.append(f"{index}. {description or '执行动作'}{suffix}")
+                func_text = f"Func{int(float(func_id))}" if func_id else "Func?"
+                position_text = f"  位置={position_name}" if position_name else ""
+                lines.append(f"{index:02d}  {func_text}  {description or '执行动作'}{position_text}")
                 params = step.get("params")
                 if include_params and isinstance(params, dict) and params:
-                    lines.append(f"   参数：{OperatorUiMixin._operator_format_params_inline(params)}")
-            if len(step_items) > 8:
-                lines.append(f"... 还有 {len(step_items) - 8} 步未展开显示。")
+                    lines.extend(f"    {line}" for line in OperatorUiMixin._operator_format_flow_step_param_lines(params))
         lines.append("可说“确认保存”保存草案，或说“保存并执行”。")
         return "\n".join(lines)
 
@@ -2439,6 +2622,71 @@ class OperatorUiMixin:
                 value_text = str(value)
             parts.append(f"{key}={value_text}")
         return "，".join(parts) if parts else "-"
+
+    @staticmethod
+    def _operator_format_flow_step_param_lines(params: dict[str, Any]) -> list[str]:
+        def has_any(keys: tuple[str, ...]) -> bool:
+            return any(key in params for key in keys)
+
+        def value(key: str) -> str:
+            return OperatorUiMixin._operator_compact_number(params.get(key))
+
+        used: set[str] = set()
+        lines: list[str] = []
+        target_keys = ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")
+        if has_any(target_keys):
+            labels = (
+                ("target_x", "X"),
+                ("target_y", "Y"),
+                ("target_z", "Z"),
+                ("target_rx", "RX"),
+                ("target_ry", "RY"),
+                ("target_rz", "RZ"),
+            )
+            parts = [f"{label} {key}={value(key)}" for key, label in labels if key in params]
+            if parts:
+                lines.append("目标  " + "  ".join(parts))
+                used.update(key for key, _ in labels)
+        jog_keys = ("axis_no", "pos_val", "io_no", "io_action", "delay_sec")
+        if has_any(jog_keys):
+            labels = (
+                ("axis_no", "axis_no"),
+                ("pos_val", "pos_val"),
+                ("io_no", "io_no"),
+                ("io_action", "io_action"),
+                ("delay_sec", "delay_sec"),
+            )
+            parts = [f"{label}={value(key)}" for key, label in labels if key in params]
+            if parts:
+                lines.append("动作  " + "  ".join(parts))
+                used.update(key for key, _ in labels)
+        motion_keys = ("spd_pct", "acc_pct", "dec_pct", "move_type")
+        if has_any(motion_keys):
+            labels = (
+                ("spd_pct", "速度"),
+                ("acc_pct", "加速度"),
+                ("dec_pct", "减速度"),
+                ("move_type", "move_type"),
+            )
+            parts = []
+            for key, label in labels:
+                if key not in params:
+                    continue
+                suffix = "%" if key in {"spd_pct", "acc_pct", "dec_pct"} else ""
+                parts.append(f"{label} {key}={value(key)}{suffix}" if key != "move_type" else f"{key}={value(key)}")
+            if parts:
+                lines.append("运动  " + "  ".join(parts))
+                used.update(key for key, _ in labels)
+        flag_keys = ("stop_cmd", "fuzzy_pos", "fuzzy_spd", "fuzzy_acc", "fuzzy_dec")
+        if has_any(flag_keys):
+            parts = [f"{key}={value(key)}" for key in flag_keys if key in params]
+            if parts:
+                lines.append("标志  " + "  ".join(parts))
+                used.update(flag_keys)
+        other = [f"{key}={OperatorUiMixin._operator_compact_number(params[key])}" for key in sorted(params) if key not in used]
+        if other:
+            lines.append("其他  " + "  ".join(other))
+        return lines or ["参数：-"]
 
     def _operator_save_flow_draft(self, draft: dict[str, Any]) -> tuple[bool, str, str]:
         flow_name = str(draft.get("flow_name") or draft.get("flowName") or "").strip()
@@ -4252,6 +4500,7 @@ class OperatorUiMixin:
         self.operator_current_label.setText(f"当前: {self._operator_current_task_text()}")
         self._refresh_operator_axis_labels()
         self._refresh_operator_scene_content(detail)
+        self._refresh_operator_pending_flow_status()
         self._refresh_operator_recent_events()
         self._refresh_operator_dialog_labels()
         self._refresh_operator_full_status()
@@ -4865,10 +5114,7 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return False
-        for wake_word in ("小正", "小郑", "校正"):
-            if compact.startswith(wake_word):
-                compact = compact[len(wake_word):].lstrip("，,。:：")
-                break
+        compact = strip_wake_word_from_compact(compact)
         chat_keywords = (
             "你好",
             "您好",
@@ -4995,7 +5241,7 @@ class OperatorUiMixin:
             except Exception:
                 self._operator_streaming_chat_content_label = None
         self._operator_chat_autoscroll_pending = True
-        self._render_operator_chat()
+        self._operator_scroll_chat_to_bottom()
         if pending:
             self._operator_schedule_streaming_chat_char_flush()
         elif getattr(self, "_operator_streaming_chat_finalizing", False):
@@ -5422,6 +5668,11 @@ class OperatorUiMixin:
         content.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         if is_user:
             content.setStyleSheet("color: #111827;")
+        if is_user and bool((thinking_meta or {}).get("voice_recognition_status")):
+            content.setMinimumWidth(220)
+            content.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            if message_index is not None:
+                self._operator_voice_recognition_status_label = content
         if not text:
             content.setVisible(False)
         if (
@@ -5654,10 +5905,13 @@ class OperatorUiMixin:
         )
 
     def _sync_operator_mic_button(self) -> None:
-        if not hasattr(self, "operator_mic_btn") or not hasattr(self, "mic_toggle_btn"):
+        if not hasattr(self, "operator_mic_btn"):
             return
-        self.operator_mic_btn.setText(self.mic_toggle_btn.text())
-        self.operator_mic_btn.setEnabled(self.mic_toggle_btn.isEnabled())
+        active = bool(getattr(self, "_voice_session_active", False))
+        self.operator_mic_btn.setText("结束会话" if active else "开启会话")
+        self.operator_mic_btn.setEnabled(True)
+        if hasattr(self, "mic_toggle_btn"):
+            self.mic_toggle_btn.setText("结束会话" if active else "开始录音")
 
     @staticmethod
     def _operator_parse_percent(value: str) -> int | None:

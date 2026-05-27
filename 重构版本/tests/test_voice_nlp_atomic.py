@@ -60,6 +60,15 @@ def test_voice_nlp_adapter_parses_atomic_virtual_command():
     assert record.params["pos_val"] == 3.0
 
 
+def test_voice_nlp_adapter_accepts_configured_asr_wake_alias():
+    plan = make_adapter().parse("小郭，上升3毫米")
+
+    assert plan.actions[0].action_type == "atomic_template"
+    assert plan.requires_confirmation is True
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.func_num == 107
+
+
 def test_voice_nlp_adapter_keeps_dashboard_query_before_atomic():
     plan = make_adapter().parse("小正，查一下安全范围")
 

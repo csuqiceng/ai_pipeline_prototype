@@ -6,7 +6,9 @@ import base64
 import os
 import time
 from dataclasses import dataclass, field
+from io import BytesIO
 from pathlib import Path
+from typing import Callable
 
 import requests
 
@@ -35,7 +37,7 @@ class IFlytekIATConfig:
     accent: str = "mandarin"
     format: str = "audio/L16;rate=16000"
     encoding: str = "raw"
-    vad_eos: int = 2000
+    vad_eos: int = 800
     vinfo: int = 1
 
     @classmethod
@@ -113,7 +115,7 @@ class IFlytekIATClient:
         instance._use_proxy = True
         return instance
 
-    def transcribe_file(self, file_path: str) -> IFlytekIATResult:
+    def transcribe_file(self, file_path: str, *, chunk_callback: Callable[[str], None] | None = None) -> IFlytekIATResult:
         """处理文件。"""
         if self._use_proxy:
             return self._transcribe_via_proxy(file_path)
@@ -124,11 +126,13 @@ class IFlytekIATClient:
 
         chunks: list[str] = []
         try:
-            with path.open("rb") as audio_file:
-                for chunk in self._client.stream(audio_file):
-                    normalized = self._extract_text(chunk)
-                    if normalized:
-                        chunks.append(normalized)
+            audio_file = BytesIO(path.read_bytes())
+            for chunk in self._client.stream(audio_file):
+                normalized = self._extract_text(chunk)
+                if normalized:
+                    chunks.append(normalized)
+                    if chunk_callback is not None:
+                        chunk_callback("".join(chunks).strip())
         except Exception as exc:
             raise IFlytekRTASRError(f"讯飞 IAT 调用失败: {exc}") from exc
 
@@ -172,7 +176,12 @@ class IFlytekIATClient:
         text = result.get("data", {}).get("text", "")
         return IFlytekIATResult(text=text.strip(), chunks=[text.strip()] if text.strip() else [])
 
-    def transcribe_microphone(self, mic_config: IFlytekMicrophoneConfig | None = None) -> IFlytekIATResult:
+    def transcribe_microphone(
+        self,
+        mic_config: IFlytekMicrophoneConfig | None = None,
+        *,
+        chunk_callback: Callable[[str], None] | None = None,
+    ) -> IFlytekIATResult:
         """处理麦克风。"""
         mic_config = mic_config or IFlytekMicrophoneConfig()
 
@@ -187,6 +196,8 @@ class IFlytekIATClient:
                 normalized = self._extract_text(chunk)
                 if normalized:
                     chunks.append(normalized)
+                    if chunk_callback is not None:
+                        chunk_callback("".join(chunks).strip())
         except Exception as exc:
             raise IFlytekRTASRError(f"讯飞 IAT 麦克风调用失败: {exc}") from exc
         finally:

@@ -17,6 +17,7 @@ from .dashboard_query_specs import dashboard_query_specs, match_dashboard_query_
 from .deepseek_client import DeepSeekClient
 from .models import QueryRecord
 from .nlp_normalization import NlpNormalizer
+from .voice_wake_words import configured_wake_words, strip_wake_word
 
 
 SYSTEM_ACTION_ALIASES = {
@@ -31,9 +32,6 @@ SYSTEM_ACTION_ALIASES = {
     "停止当前任务": "sys_cancel",
     "急停": "sys_estop",
 }
-
-WAKE_WORDS = ("小正", "小郑", "校正")
-
 
 @dataclass(frozen=True)
 class VoiceNlpAction:
@@ -395,11 +393,10 @@ class VoiceNlpAdapter:
     @staticmethod
     def _strip_wake_word(text: str) -> str | None:
         compact = text.strip()
-        for wake_word in WAKE_WORDS:
-            if compact.startswith(wake_word):
-                command = compact[len(wake_word):].lstrip(" ，,。:：")
-                return command or ""
-        for wake_word in WAKE_WORDS:
+        command = strip_wake_word(compact)
+        if command is not None:
+            return command or ""
+        for wake_word in configured_wake_words():
             index = compact.find(wake_word)
             if index <= 0:
                 continue
@@ -463,10 +460,7 @@ class VoiceNlpAdapter:
         if not compact:
             return None
         command_like = compact
-        for wake_word in WAKE_WORDS:
-            if command_like.startswith(wake_word):
-                command_like = command_like[len(wake_word):].lstrip("，,。:：")
-                break
+        command_like = strip_wake_word(command_like) or command_like
         if re.fullmatch(r"(速度|速)?-?\d+(?:\.\d+)?%", command_like):
             return None
         if re.fullmatch(r"步长-?\d+(?:\.\d+)?(毫米|mm|度|°)", command_like, flags=re.IGNORECASE):
@@ -726,7 +720,10 @@ class VoiceNlpAdapter:
         has_sequence = any(word in compact for word in ("先", "再", "然后", "接着", "之后"))
         has_repeat = bool(re.search(r"(?:循环|重复|反复)?\d+(?:次|遍|回)", compact))
         has_pose = "xyzrxryrz" in compact.lower() or "坐标" in compact or bool(re.search(r"-?\d+(?:\.\d+)?[，,]\s*-?\d+", text or ""))
-        return has_flow and (has_sequence or has_repeat or has_pose)
+        has_home_sequence = bool(re.search(r"home(?:位)?", compact, flags=re.IGNORECASE)) and has_sequence and has_repeat
+        has_gesture = "点头" in compact
+        has_virtual_repeat = bool(re.search(r"(上移|上升|下移|下降|前进|后退|左移|右移)\d+(?:\.\d+)?(?:mm|毫米)", compact, re.IGNORECASE))
+        return (has_flow and (has_sequence or has_repeat or has_pose)) or (has_home_sequence and (has_gesture or has_virtual_repeat))
 
     def _complex_flow_payload_from_deepseek(self, text: str) -> dict[str, Any] | None:
         try:
@@ -773,7 +770,9 @@ class VoiceNlpAdapter:
         if match:
             flow_name = match.group(1).strip("，,。")
         pose = self._extract_pose6(compact)
-        positions = [{"name": "home", "pose": pose}] if pose else []
+        has_home_step = bool(re.search(r"home(?:位)?", compact, flags=re.IGNORECASE))
+        home_pose = pose or (self._lookup_flow_position_pose("home") if has_home_step else None)
+        positions = [{"name": "home", "pose": home_pose}] if home_pose else []
         gesture = self._match_configured_flow_gesture(compact)
         if not gesture:
             gesture_match = re.search(r"(小臂[^，,。]*?点头|[^，,。]*?点头)", compact)
@@ -786,7 +785,7 @@ class VoiceNlpAdapter:
         if not positions and not gesture and virtual_motion is None:
             return None
         steps: list[dict[str, Any]] = []
-        if positions:
+        if has_home_step:
             steps.append({"type": "move_position", "position": "home"})
         if gesture:
             steps.append({"type": "gesture_repeat", "gesture": gesture, "angleDeg": angle, "repeat": repeat})
@@ -794,6 +793,27 @@ class VoiceNlpAdapter:
             virtual_motion["repeat"] = repeat
             steps.append(virtual_motion)
         return {"intent": "create_flow", "flowName": flow_name, "positions": positions, "steps": steps, "reason": "本地规则生成流程草案"}
+
+    def _lookup_flow_position_pose(self, name: str) -> list[float] | None:
+        registry = getattr(self.atomic_memory, "position_registry", None)
+        if registry is not None:
+            try:
+                entry = registry.get(name)
+            except Exception:
+                entry = None
+            pose = getattr(entry, "pose", None) if entry is not None else None
+            if pose is not None:
+                return [self._float_value(value, 0.0) for value in pose]
+        pose = self.atomic_memory.get_position(name)
+        if pose is not None:
+            return [self._float_value(value, 0.0) for value in pose]
+        record = self.table.get(name)
+        params = getattr(record, "params", None)
+        if isinstance(params, dict):
+            keys = ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")
+            if all(key in params for key in keys):
+                return [self._float_value(params.get(key), 0.0) for key in keys]
+        return None
 
     def _match_configured_flow_gesture(self, text: str) -> str:
         compact = re.sub(r"\s+", "", text or "")

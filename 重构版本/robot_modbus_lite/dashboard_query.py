@@ -9,6 +9,7 @@ from typing import Any
 from .alarm_advice import AlarmAdviceBook
 
 from .dashboard_query_specs import match_dashboard_query_spec
+from .voice_wake_words import strip_wake_word, strip_wake_word_from_compact
 
 
 @dataclass(frozen=True)
@@ -86,11 +87,7 @@ class DashboardQueryService:
 
     @staticmethod
     def _strip_wake_word(text: str) -> str:
-        compact = re.sub(r"\s+", "", text or "")
-        for wake_word in ("小正", "小郑", "校正"):
-            if compact.startswith(wake_word):
-                return compact[len(wake_word):].lstrip("，,。:：")
-        return compact
+        return strip_wake_word_from_compact(text)
 
     @staticmethod
     def _as_sequence(value: object) -> tuple[object, ...]:
@@ -127,10 +124,9 @@ class DashboardQueryService:
     @staticmethod
     def _parse_target_xyz(text: str) -> tuple[float, float, float] | None:
         cleaned = (text or "").strip()
-        for wake_word in ("小正", "小郑", "校正"):
-            if cleaned.startswith(wake_word):
-                cleaned = cleaned[len(wake_word):].lstrip("，,。:： ")
-                break
+        stripped = strip_wake_word(cleaned)
+        if stripped is not None:
+            cleaned = stripped
         match = re.search(
             r"(?:能不能到|能到|到达|移动到)\s*"
             r"(-?\d+(?:\.\d+)?)\s*[,， ]+\s*"

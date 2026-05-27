@@ -1,4 +1,5 @@
 from robot_modbus_lite.models import QueryRecord
+from robot_modbus_lite.atomic_memory import AtomicMemory
 from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAdapter
 
 
@@ -92,6 +93,55 @@ def test_complex_flow_default_alias_expands_nod_gesture_without_deepseek():
     ]
 
 
+def test_sequence_home_then_nod_repeat_uses_saved_home_pose_without_flow_word():
+    memory = AtomicMemory()
+    memory.save_position("home", (1475, 0, 1545, 0, 0, 0))
+    adapter = VoiceNlpAdapter(table={"home": home_record()}, flow_names=(), atomic_memory=memory)
+
+    plan = adapter.parse("小正，让机械手先回到home位再小臂上下点头15度，3次。", use_deepseek=False)
+
+    assert plan.actions[0].action_type == "flow_draft"
+    draft = plan.flow_draft
+    assert len(draft["expanded_steps"]) == 7
+    assert draft["expanded_steps"][0]["func_id"] == 108
+    assert draft["expanded_steps"][0]["position_name"] == "home"
+    assert draft["expanded_steps"][0]["params"]["target_x"] == 1475.0
+    assert draft["expanded_steps"][0]["params"]["target_z"] == 1545.0
+    assert [step["func_id"] for step in draft["expanded_steps"][1:]] == [107, 107, 107, 107, 107, 107]
+    assert [step["params"]["axis_no"] for step in draft["expanded_steps"][1:]] == [10, 10, 10, 10, 10, 10]
+    assert [step["params"]["pos_val"] for step in draft["expanded_steps"][1:]] == [15.0, -15.0, 15.0, -15.0, 15.0, -15.0]
+
+
+def test_sequence_relaxed_wake_word_home_then_nod_repeat_uses_flow_draft():
+    memory = AtomicMemory()
+    memory.save_position("home", (1475, 0, 1545, 0, 0, 0))
+    adapter = VoiceNlpAdapter(table={"home": home_record()}, flow_names=(), atomic_memory=memory)
+
+    plan = adapter.parse("小镇，让机械手先回到home位再小臂上下点头15度，3次。", use_deepseek=False)
+
+    assert plan.actions[0].action_type == "flow_draft"
+    draft = plan.flow_draft
+    assert len(draft["expanded_steps"]) == 7
+    assert draft["expanded_steps"][0]["params"]["target_x"] == 1475.0
+    assert draft["expanded_steps"][0]["params"]["target_z"] == 1545.0
+    assert [step["params"]["pos_val"] for step in draft["expanded_steps"][1:]] == [15.0, -15.0, 15.0, -15.0, 15.0, -15.0]
+
+
+def test_named_greeting_flow_home_then_nod_repeat_preserves_flow_name():
+    memory = AtomicMemory()
+    memory.save_position("home", (1475, 0, 1545, 0, 0, 0))
+    adapter = VoiceNlpAdapter(table={"home": home_record()}, flow_names=(), atomic_memory=memory)
+
+    plan = adapter.parse("小正，打个招呼的小流程，让机械手先回到home位再小臂上下点头15度，3次。", use_deepseek=False)
+
+    assert plan.actions[0].action_type == "flow_draft"
+    draft = plan.flow_draft
+    assert draft["flow_name"] == "打个招呼的小"
+    assert len(draft["expanded_steps"]) == 7
+    assert draft["expanded_steps"][0]["position_name"] == "home"
+    assert [step["func_id"] for step in draft["expanded_steps"]] == [108, 107, 107, 107, 107, 107, 107]
+
+
 def test_complex_flow_default_alias_matches_short_nod_phrase_without_prefix_capture():
     adapter = VoiceNlpAdapter(table={"home": home_record()}, flow_names=())
 
@@ -154,6 +204,21 @@ def test_complex_flow_local_rules_expand_relative_virtual_repeat_after_home():
     draft = plan.flow_draft
     assert draft["flow_name"] == "打个招呼的小"
     assert [step["func_id"] for step in draft["expanded_steps"]] == [108, 107, 107, 107]
+    assert [step["params"]["axis_no"] for step in draft["expanded_steps"][1:]] == [8, 8, 8]
+    assert [step["params"]["pos_val"] for step in draft["expanded_steps"][1:]] == [50.0, 50.0, 50.0]
+
+
+def test_sequence_home_then_virtual_repeat_without_flow_word_uses_flow_draft():
+    memory = AtomicMemory()
+    memory.save_position("home", (1475, 0, 1545, 0, 0, 0))
+    adapter = VoiceNlpAdapter(table={"home": home_record()}, flow_names=(), atomic_memory=memory)
+
+    plan = adapter.parse("小正，先回home再上升50mm，3次。", use_deepseek=False)
+
+    assert plan.actions[0].action_type == "flow_draft"
+    draft = plan.flow_draft
+    assert [step["func_id"] for step in draft["expanded_steps"]] == [108, 107, 107, 107]
+    assert draft["expanded_steps"][0]["params"]["target_x"] == 1475.0
     assert [step["params"]["axis_no"] for step in draft["expanded_steps"][1:]] == [8, 8, 8]
     assert [step["params"]["pos_val"] for step in draft["expanded_steps"][1:]] == [50.0, 50.0, 50.0]
 

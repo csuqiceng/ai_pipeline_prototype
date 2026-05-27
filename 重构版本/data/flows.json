@@ -9,6 +9,19 @@
       "step_delay_ms": 1000
     },
     {
+      "name": "home点头流程",
+      "steps": [
+        "flowdraft:home点头流程:01",
+        "flowdraft:home点头流程:02",
+        "flowdraft:home点头流程:03",
+        "flowdraft:home点头流程:04",
+        "flowdraft:home点头流程:05",
+        "flowdraft:home点头流程:06",
+        "flowdraft:home点头流程:07"
+      ],
+      "step_delay_ms": 300
+    },
+    {
       "name": "打个招呼的小",
       "steps": [
         "flowdraft:打个招呼的小:01"

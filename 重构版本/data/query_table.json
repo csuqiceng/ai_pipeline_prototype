@@ -124,6 +124,144 @@
       }
     },
     {
+      "query_key": "flowdraft:home点头流程:01",
+      "func_num": 108,
+      "keywords": "home点头流程 流程草案 第1步",
+      "description": "移动到home",
+      "safety_level": 5,
+      "params": {
+        "target_x": 1475.0,
+        "target_y": 0.0,
+        "target_z": 1545.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:02",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第2步",
+      "description": "小臂上下点头:Ry正转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": 15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:03",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第3步",
+      "description": "小臂上下点头:Ry反转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": -15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:04",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第4步",
+      "description": "小臂上下点头:Ry正转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": 15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:05",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第5步",
+      "description": "小臂上下点头:Ry反转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": -15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:06",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第6步",
+      "description": "小臂上下点头:Ry正转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": 15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
+      "query_key": "flowdraft:home点头流程:07",
+      "func_num": 107,
+      "keywords": "home点头流程 流程草案 第7步",
+      "description": "小臂上下点头:Ry反转",
+      "safety_level": 5,
+      "params": {
+        "axis_no": 10,
+        "pos_val": -15.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 1,
+        "fuzzy_acc": 1,
+        "fuzzy_dec": 1,
+        "stop_cmd": 0
+      }
+    },
+    {
       "query_key": "flowdraft:打个招呼的小:01",
       "func_num": 108,
       "keywords": "打个招呼的小 流程草案 第1步",
@@ -148,30 +286,6 @@
       }
     },
     {
-      "query_key": "休息姿态",
-      "func_num": 108,
-      "keywords": "休息 休息了 休息姿态 回休息姿态 0位 零位",
-      "description": "移动到默认休息姿态",
-      "safety_level": 5,
-      "params": {
-        "target_x": 900.0,
-        "target_y": 0.0,
-        "target_z": 1000.0,
-        "target_rx": 0.0,
-        "target_ry": 0.0,
-        "target_rz": 0.0,
-        "spd_pct": 50.0,
-        "acc_pct": 50.0,
-        "dec_pct": 50.0,
-        "stop_cmd": 0,
-        "fuzzy_pos": 0,
-        "fuzzy_spd": 0,
-        "fuzzy_acc": 0,
-        "fuzzy_dec": 0,
-        "move_type": 0
-      }
-    },
-    {
       "query_key": "home",
       "func_num": 108,
       "keywords": "home 回零 原点",
@@ -187,6 +301,30 @@
         "spd_pct": 50.0,
         "acc_pct": 60.0,
         "dec_pct": 60.0,
+        "stop_cmd": 0,
+        "fuzzy_pos": 0,
+        "fuzzy_spd": 0,
+        "fuzzy_acc": 0,
+        "fuzzy_dec": 0,
+        "move_type": 0
+      }
+    },
+    {
+      "query_key": "休息姿态",
+      "func_num": 108,
+      "keywords": "休息 休息了 休息姿态 回休息姿态 0位 零位",
+      "description": "移动到默认休息姿态",
+      "safety_level": 5,
+      "params": {
+        "target_x": 900.0,
+        "target_y": 0.0,
+        "target_z": 1000.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "acc_pct": 50.0,
+        "dec_pct": 50.0,
         "stop_cmd": 0,
         "fuzzy_pos": 0,
         "fuzzy_spd": 0,

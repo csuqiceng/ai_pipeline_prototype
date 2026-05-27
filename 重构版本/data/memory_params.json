@@ -1,13 +1,13 @@
 {
   "version": "1.1",
-  "updated_at": "2026-05-26T20:48:36.111695",
+  "updated_at": "2026-05-27T10:41:42.346761",
   "memory": {
     "last_motion_speed_pct": 50,
-    "last_jog_speed_pct": 30,
+    "last_jog_speed_pct": 50,
     "last_home_speed_pct": 30,
     "last_calib_speed_pct": 20,
     "preferred_rehearsal_spd": 20,
-    "total_commands": 9,
-    "last_command_time": "2026-05-26T20:48:36.111695"
+    "total_commands": 24,
+    "last_command_time": "2026-05-27T10:41:42.345757"
   }
 }
