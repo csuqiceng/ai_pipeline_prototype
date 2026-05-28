@@ -24,10 +24,6 @@ class VoiceSessionSegmenter:
     _segment_ms: int = 0
     _active: bool = False
 
-    @property
-    def is_active(self) -> bool:
-        return self._active
-
     def reset(self) -> None:
         self._prestart_frames.clear()
         self._segment_frames.clear()

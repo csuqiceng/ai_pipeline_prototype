@@ -462,7 +462,6 @@ class VoiceMixin:
                 self._session_enabled = False
                 self._session_paused = False
                 self._segment_queue = queue.Queue()
-                self._voice_start_queue = queue.Queue()
                 self._capture_queue = queue.Queue()
                 self._segmenter = VoiceSessionSegmenter(
                     silence_threshold=parent_win._VOICE_SILENCE_THRESHOLD,
@@ -493,10 +492,6 @@ class VoiceMixin:
                 self._session_enabled = False
                 self._segmenter.reset()
 
-            def reset_session_segmenter(self):
-                """重置当前会话分段，丢弃触发打断的播报残音。"""
-                self._segmenter.reset()
-
             def set_session_paused(self, paused: bool):
                 """设置会话监听暂停状态。"""
                 self._session_paused = bool(paused)
@@ -507,14 +502,6 @@ class VoiceMixin:
                     return self._segment_queue.get_nowait()
                 except queue.Empty:
                     return None
-
-            def pop_voice_start(self) -> bool:
-                """取出会话模式下的起声事件。"""
-                try:
-                    self._voice_start_queue.get_nowait()
-                    return True
-                except queue.Empty:
-                    return False
 
             def pop_audio_capture(self) -> bytes | None:
                 """取出手动录音模式下的一段语音。"""
@@ -541,11 +528,7 @@ class VoiceMixin:
                         if self._capturing:
                             self._frames.append(indata.copy())
                         if self._session_enabled:
-                            was_active = bool(getattr(self._segmenter, "is_active", False))
                             segment = self._segmenter.feed(indata.tobytes(), paused=self._session_paused)
-                            is_active = bool(getattr(self._segmenter, "is_active", False))
-                            if is_active and not was_active:
-                                self._voice_start_queue.put(True)
                             if segment:
                                 self._segment_queue.put(segment)
                         if self._shutdown:
@@ -665,13 +648,6 @@ class VoiceMixin:
                     if not thread.pop_audio_segment():
                         break
                 return
-            if hasattr(thread, "pop_voice_start") and thread.pop_voice_start():
-                interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
-                if callable(interrupter):
-                    interrupter()
-                reset_segmenter = getattr(thread, "reset_session_segmenter", None)
-                if callable(reset_segmenter):
-                    reset_segmenter()
             for _ in range(3):
                 segment = thread.pop_audio_segment()
                 if not segment:

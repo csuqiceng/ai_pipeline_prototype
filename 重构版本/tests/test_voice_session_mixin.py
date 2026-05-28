@@ -44,44 +44,6 @@ def test_voice_session_segment_stops_current_speech_before_asr():
     assert stops == ["stop"]
 
 
-def test_voice_session_voice_start_interrupts_speech_before_segment_done():
-    dummy = DummyVoiceSession()
-    stops = []
-    dummy._voice_session_active = True
-    dummy._operator_interrupt_current_speech_for_user_input = lambda: stops.append("stop")
-
-    class Thread:
-        def __init__(self):
-            self.paused = []
-            self.voice_start_count = 1
-            self.reset_count = 0
-
-        def pop_audio_capture(self):
-            return None
-
-        def set_session_paused(self, value):
-            self.paused.append(value)
-
-        def pop_voice_start(self):
-            if self.voice_start_count:
-                self.voice_start_count -= 1
-                return True
-            return False
-
-        def reset_session_segmenter(self):
-            self.reset_count += 1
-
-        def pop_audio_segment(self):
-            return None
-
-    dummy._mic_recorder_thread = Thread()
-
-    dummy._poll_voice_session_segments()
-
-    assert stops == ["stop"]
-    assert dummy._mic_recorder_thread.reset_count == 1
-
-
 def test_voice_session_drops_segment_while_ai_is_answering():
     dummy = DummyVoiceSession()
     dummy._voice_session_active = True
