@@ -153,8 +153,8 @@ class SixAxisCommandMixin:
         if slot in ("system", "unknown"):
             return
         status_read = self.service.build_six_status_read()
-        poll_interval_sec = 0.05
-        max_wait_sec = max(SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC, poll_interval_sec)
+        poll_interval_sec = self._six_status_poll_interval()
+        max_wait_sec = max(self._six_busy_timeout(), poll_interval_sec)
         deadline = time.monotonic() + max_wait_sec
         while time.monotonic() < deadline:
             vals = client.read_modbus_long(status_read)
@@ -167,8 +167,9 @@ class SixAxisCommandMixin:
     def _wait_six_ready_after_reset(self, client: ControllerClient, label: str) -> None:
         """等待六轴就绪复位。"""
         status_read = self.service.build_six_status_read()
-        poll_interval_sec = 0.05
-        deadline = time.monotonic() + SIX_READY_RECOVERY_TIMEOUT_SEC
+        poll_interval_sec = self._six_status_poll_interval()
+        max_wait_sec = max(self._six_ready_recovery_timeout(), poll_interval_sec)
+        deadline = time.monotonic() + max_wait_sec
         last_status = 0
         while time.monotonic() < deadline:
             vals = client.read_modbus_long(status_read)
@@ -179,14 +180,14 @@ class SixAxisCommandMixin:
                 return
             time.sleep(poll_interval_sec)
         raise RuntimeError(
-            f"指令忙恢复失败: 等待就绪超时 | {label} | timeout={self._fmt(SIX_READY_RECOVERY_TIMEOUT_SEC)}s | LONG(34)={last_status}"
+            f"指令忙恢复失败: 等待就绪超时 | {label} | timeout={self._fmt(max_wait_sec)}s | LONG(34)={last_status}"
         )
 
     def _wait_six_precheck_ready(self, client: ControllerClient, six_cmd: SixAxisCommand, label: str) -> None:
         """第一道门：等待暂停解除和目标通道空闲。"""
         status_read = self.service.build_six_status_read()
-        poll_interval_sec = 0.05
-        max_wait_sec = max(SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC, poll_interval_sec)
+        poll_interval_sec = self._six_status_poll_interval()
+        max_wait_sec = max(self._six_busy_timeout(), poll_interval_sec)
         deadline = time.monotonic() + max_wait_sec
         last_status = SixAxisStatus(raw=0, func_num=six_cmd.func_num)
         wait_logged = False
@@ -257,6 +258,18 @@ class SixAxisCommandMixin:
         write_rounds = max(1, int(getattr(self.axis_ranges, "echo_write_rounds", SIX_ECHO_WRITE_ROUNDS)))
         compare_epsilon = max(float(getattr(self.axis_ranges, "echo_compare_epsilon", SIX_ECHO_COMPARE_EPSILON)), 0.0)
         return retry_interval_sec, retry_count, write_rounds, compare_epsilon
+
+    def _six_status_poll_interval(self) -> float:
+        return max(float(getattr(self.axis_ranges, "six_status_poll_interval_sec", 0.05)), 0.001)
+
+    def _six_busy_timeout(self) -> float:
+        return max(float(getattr(self.axis_ranges, "six_busy_timeout_sec", SIX_CMD_BUSY_SLOT_WAIT_TIMEOUT_SEC)), 0.001)
+
+    def _six_ready_recovery_timeout(self) -> float:
+        return max(float(getattr(self.axis_ranges, "six_ready_recovery_timeout_sec", SIX_READY_RECOVERY_TIMEOUT_SEC)), 0.001)
+
+    def _six_post_trigger_settle(self) -> float:
+        return max(float(getattr(self.axis_ranges, "six_post_trigger_settle_sec", SIX_POST_TRIGGER_SETTLE_SEC)), 0.0)
 
     def _collect_six_echo_mismatches(
         self,
@@ -517,16 +530,16 @@ class SixAxisCommandMixin:
         trigger = six_cmd.to_trigger_write()
         client.write_modbus_float(trigger)
         self._append_log("六轴", f"写入触发 {record.query_key}", "成功", "IEEE(32)=1")
-        time.sleep(SIX_POST_TRIGGER_SETTLE_SEC)
+        time.sleep(self._six_post_trigger_settle())
 
     def _wait_six_command_accepted(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
         """等待 IEEE(312)=1 命令接受确认。"""
         accept_read = self.service.build_six_accept_confirm_read()
         status_read = self.service.build_six_status_read()
         system_state_read = self.service.build_six_system_state_read()
-        retry_interval_sec, retry_count, _write_rounds, _compare_epsilon = self._six_echo_settings()
-        poll_interval_sec = max(0.02, min(retry_interval_sec, 0.05))
-        max_wait_sec = max(retry_interval_sec * retry_count, poll_interval_sec)
+        poll_interval_sec = max(float(getattr(self.axis_ranges, "six_accept_poll_interval_sec", 0.02)), 0.001)
+        configured_timeout = float(getattr(self.axis_ranges, "six_accept_timeout_sec", 1.0))
+        max_wait_sec = max(configured_timeout, poll_interval_sec)
         deadline = time.monotonic() + max_wait_sec
         last_ack = 0.0
         last_status = 0
@@ -561,7 +574,7 @@ class SixAxisCommandMixin:
         curr_func_read = self.service.build_six_current_func_read()
         motion_state_read = self.service.build_six_motion_state_read()
         alarm_read = self.service.build_six_alarm_detail_read()
-        poll_interval_sec = 0.05
+        poll_interval_sec = self._six_status_poll_interval()
         max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
         max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
         saw_received = False
@@ -691,7 +704,7 @@ class SixAxisCommandMixin:
         status_read = self.service.build_six_status_read()
         system_state_read = self.service.build_six_system_state_read()
         alarm_read = self.service.build_six_alarm_detail_read()
-        poll_interval_sec = 0.05
+        poll_interval_sec = self._six_status_poll_interval()
         max_wait_sec = max(float(self.axis_ranges.motion_timeout_sec), poll_interval_sec)
         max_attempts = max(1, int(max_wait_sec / poll_interval_sec))
         for _ in range(max_attempts):

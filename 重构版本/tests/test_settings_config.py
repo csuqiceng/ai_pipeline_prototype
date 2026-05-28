@@ -40,6 +40,12 @@ def test_collect_system_config_preserves_non_form_runtime_fields():
         x=(-10, 10),
         y=(-20, 20),
         z=(0, 30),
+        six_accept_timeout_sec=1.75,
+        six_busy_timeout_sec=6.0,
+        six_ready_recovery_timeout_sec=7.0,
+        six_post_trigger_settle_sec=0.12,
+        six_status_poll_interval_sec=0.08,
+        six_accept_poll_interval_sec=0.03,
         echo_retry_interval_sec=0.25,
         echo_retry_count=7,
         echo_write_rounds=4,
@@ -93,6 +99,12 @@ def test_collect_system_config_preserves_non_form_runtime_fields():
     assert config.tts_retry_delay_sec == 2.0
     assert config.tts_max_failures == 3
     assert config.operator_confirm_timeout_sec == 12.0
+    assert config.six_accept_timeout_sec == 1.75
+    assert config.six_busy_timeout_sec == 6.0
+    assert config.six_ready_recovery_timeout_sec == 7.0
+    assert config.six_post_trigger_settle_sec == 0.12
+    assert config.six_status_poll_interval_sec == 0.08
+    assert config.six_accept_poll_interval_sec == 0.03
     assert config.echo_retry_count == 7
     assert config.l3_min_step_delay_ms == 4
     assert config.l3_cumulative_error_limit_mm == 5.0

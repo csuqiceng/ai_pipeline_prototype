@@ -20,6 +20,12 @@ DEFAULT_SYSTEM_CONFIG = {
     "safe_acc_max": 150.0,
     "safe_dec_max": 150.0,
     "motion_timeout_sec": 180.0,
+    "six_accept_timeout_sec": 5.0,
+    "six_busy_timeout_sec": 5.0,
+    "six_ready_recovery_timeout_sec": 5.0,
+    "six_post_trigger_settle_sec": 0.08,
+    "six_status_poll_interval_sec": 0.05,
+    "six_accept_poll_interval_sec": 0.02,
     "echo_retry_interval_sec": 0.005,
     "echo_retry_count": 3,
     "echo_write_rounds": 2,
@@ -56,6 +62,12 @@ class AxisRangeConfig:
     safe_acc_max: float = 150.0
     safe_dec_max: float = 150.0
     motion_timeout_sec: float = 180.0
+    six_accept_timeout_sec: float = 5.0
+    six_busy_timeout_sec: float = 5.0
+    six_ready_recovery_timeout_sec: float = 5.0
+    six_post_trigger_settle_sec: float = 0.08
+    six_status_poll_interval_sec: float = 0.05
+    six_accept_poll_interval_sec: float = 0.02
     echo_retry_interval_sec: float = 0.005
     echo_retry_count: int = 3
     echo_write_rounds: int = 2
@@ -91,6 +103,22 @@ class AxisRangeConfig:
             safe_acc_max=float(data.get("safe_acc_max", DEFAULT_SYSTEM_CONFIG["safe_acc_max"])),
             safe_dec_max=float(data.get("safe_dec_max", DEFAULT_SYSTEM_CONFIG["safe_dec_max"])),
             motion_timeout_sec=float(data.get("motion_timeout_sec", DEFAULT_SYSTEM_CONFIG["motion_timeout_sec"])),
+            six_accept_timeout_sec=float(
+                data.get("six_accept_timeout_sec", DEFAULT_SYSTEM_CONFIG["six_accept_timeout_sec"])
+            ),
+            six_busy_timeout_sec=float(data.get("six_busy_timeout_sec", DEFAULT_SYSTEM_CONFIG["six_busy_timeout_sec"])),
+            six_ready_recovery_timeout_sec=float(
+                data.get("six_ready_recovery_timeout_sec", DEFAULT_SYSTEM_CONFIG["six_ready_recovery_timeout_sec"])
+            ),
+            six_post_trigger_settle_sec=float(
+                data.get("six_post_trigger_settle_sec", DEFAULT_SYSTEM_CONFIG["six_post_trigger_settle_sec"])
+            ),
+            six_status_poll_interval_sec=float(
+                data.get("six_status_poll_interval_sec", DEFAULT_SYSTEM_CONFIG["six_status_poll_interval_sec"])
+            ),
+            six_accept_poll_interval_sec=float(
+                data.get("six_accept_poll_interval_sec", DEFAULT_SYSTEM_CONFIG["six_accept_poll_interval_sec"])
+            ),
             echo_retry_interval_sec=float(data.get("echo_retry_interval_sec", DEFAULT_SYSTEM_CONFIG["echo_retry_interval_sec"])),
             echo_retry_count=int(float(data.get("echo_retry_count", DEFAULT_SYSTEM_CONFIG["echo_retry_count"]))),
             echo_write_rounds=int(float(data.get("echo_write_rounds", DEFAULT_SYSTEM_CONFIG["echo_write_rounds"]))),
@@ -140,6 +168,12 @@ class AxisRangeConfig:
             "safe_acc_max": float(self.safe_acc_max),
             "safe_dec_max": float(self.safe_dec_max),
             "motion_timeout_sec": float(self.motion_timeout_sec),
+            "six_accept_timeout_sec": float(self.six_accept_timeout_sec),
+            "six_busy_timeout_sec": float(self.six_busy_timeout_sec),
+            "six_ready_recovery_timeout_sec": float(self.six_ready_recovery_timeout_sec),
+            "six_post_trigger_settle_sec": float(self.six_post_trigger_settle_sec),
+            "six_status_poll_interval_sec": float(self.six_status_poll_interval_sec),
+            "six_accept_poll_interval_sec": float(self.six_accept_poll_interval_sec),
             "echo_retry_interval_sec": float(self.echo_retry_interval_sec),
             "echo_retry_count": int(self.echo_retry_count),
             "echo_write_rounds": int(self.echo_write_rounds),
@@ -203,6 +237,18 @@ def validate_system_config(config: AxisRangeConfig) -> str | None:
             return f"{label} 不能小于 0。"
     if config.motion_timeout_sec <= 0:
         return "运动超时时间必须大于 0 秒。"
+    if config.six_accept_timeout_sec <= 0:
+        return "六轴接受确认超时时间必须大于 0 秒。"
+    if config.six_busy_timeout_sec <= 0:
+        return "六轴通道空闲等待超时时间必须大于 0 秒。"
+    if config.six_ready_recovery_timeout_sec <= 0:
+        return "六轴就绪恢复超时时间必须大于 0 秒。"
+    if config.six_post_trigger_settle_sec < 0:
+        return "六轴触发后稳定等待时间不能小于 0 秒。"
+    if config.six_status_poll_interval_sec <= 0:
+        return "六轴状态轮询间隔必须大于 0 秒。"
+    if config.six_accept_poll_interval_sec <= 0:
+        return "六轴接受确认轮询间隔必须大于 0 秒。"
     if config.echo_retry_interval_sec < 0:
         return "回显重试间隔不能小于 0 秒。"
     if config.echo_retry_count <= 0:
