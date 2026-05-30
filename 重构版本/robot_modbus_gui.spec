@@ -11,6 +11,7 @@ data_dir = spec_dir / "data"
 sdk_dir = spec_dir / "Windows Python（64位）"
 env_file = spec_dir / ".env"
 web_dist_dir = spec_dir / "web" / "kinetix-os---industrial-controller" / "dist"
+jaraco_lorem_file = spec_dir / "tools" / "pyinstaller_resources" / "Lorem ipsum.txt"
 
 datas = []
 if data_dir.exists():
@@ -22,6 +23,8 @@ if sdk_dir.exists():
 if env_file.exists():
     datas.append((str(env_file), "."))
     datas.append((str(env_file), "robot_modbus_lite"))
+if jaraco_lorem_file.exists():
+    datas.append((str(jaraco_lorem_file), "setuptools/_vendor/jaraco/text"))
 datas += collect_data_files("setuptools._vendor.jaraco.text")
 
 a = Analysis(

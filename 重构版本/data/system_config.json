@@ -19,7 +19,7 @@
   "safe_acc_max": 150.0,
   "safe_dec_max": 150.0,
   "motion_timeout_sec": 180.0,
-  "six_accept_timeout_sec": 1.0,
+  "six_accept_timeout_sec": 5.0,
   "six_busy_timeout_sec": 5.0,
   "six_ready_recovery_timeout_sec": 5.0,
   "six_post_trigger_settle_sec": 0.08,
