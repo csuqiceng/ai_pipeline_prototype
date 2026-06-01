@@ -533,7 +533,7 @@ class SixAxisCommandMixin:
         time.sleep(self._six_post_trigger_settle())
 
     def _wait_six_command_accepted(self, client: ControllerClient, six_cmd: SixAxisCommand, record: QueryRecord) -> None:
-        """等待 IEEE(312)=1 命令接受确认。"""
+        """等待 IEEE(312)=0 命令接受确认。"""
         accept_read = self.service.build_six_accept_confirm_read()
         status_read = self.service.build_six_status_read()
         system_state_read = self.service.build_six_system_state_read()
@@ -552,12 +552,12 @@ class SixAxisCommandMixin:
             last_status = int(status_vals[0]) if status_vals else 0
             system_state_vals = client.read_modbus_long(system_state_read)
             last_system_state = self.service.parse_six_system_state(system_state_vals)
-            if int(last_ack) == 1:
+            if int(last_ack) == 0:
                 self._append_log(
                     "六轴",
                     f"接受确认 {record.query_key}",
                     "成功",
-                    f"IEEE(312)=1, LONG(34)={last_status}, LONG(36)={last_system_state}",
+                    f"IEEE(312)=0, LONG(34)={last_status}, LONG(36)={last_system_state}",
                 )
                 return
             time.sleep(poll_interval_sec)
