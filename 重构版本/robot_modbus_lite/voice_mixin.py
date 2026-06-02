@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import difflib
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -168,6 +170,24 @@ class VoiceMixin:
             return {"text": result.text.strip(), "timing": timing}
         finally:
             Path(tmp_name).unlink(missing_ok=True)
+
+    def _voice_asr_provider_name(self) -> str:
+        provider = str(os.environ.get("VOICE_ASR_PROVIDER", "iflytek")).strip().lower()
+        return provider or "iflytek"
+
+    def _get_doubao_voice_client(self):
+        client = getattr(self, "_doubao_voice_client", None)
+        if client is None:
+            from .doubao_voice_client import DoubaoVoiceClient
+
+            client = DoubaoVoiceClient()
+            self._doubao_voice_client = client
+        return client
+
+    def _transcribe_pcm_for_voice_session(self, pcm_data: bytes, *, partial_callback=None) -> dict[str, object]:
+        if self._voice_asr_provider_name() == "doubao":
+            return self._get_doubao_voice_client().transcribe_pcm(pcm_data, partial_callback=partial_callback)
+        return self._transcribe_pcm_via_local_client(pcm_data, partial_callback=partial_callback)
 
     def _run_iflytek_worker(self, args: list[str]) -> str:
         """运行子进程。"""
@@ -461,7 +481,9 @@ class VoiceMixin:
                 self._stop_requested = False
                 self._session_enabled = False
                 self._session_paused = False
+                self._doubao_streaming_mode = False
                 self._segment_queue = queue.Queue()
+                self._chunk_queue = queue.Queue(maxsize=20)
                 self._capture_queue = queue.Queue()
                 self._segmenter = VoiceSessionSegmenter(
                     silence_threshold=parent_win._VOICE_SILENCE_THRESHOLD,
@@ -482,14 +504,16 @@ class VoiceMixin:
                 self._capturing = False
                 self._stop_requested = True
 
-            def enable_session_mode(self):
+            def enable_session_mode(self, *, doubao_streaming: bool = False):
                 """开启连续会话分段。"""
                 self._segmenter.reset()
+                self._doubao_streaming_mode = bool(doubao_streaming)
                 self._session_enabled = True
 
             def disable_session_mode(self):
                 """关闭连续会话分段。"""
                 self._session_enabled = False
+                self._doubao_streaming_mode = False
                 self._segmenter.reset()
 
             def set_session_paused(self, paused: bool):
@@ -500,6 +524,13 @@ class VoiceMixin:
                 """取出会话模式下的一段语音。"""
                 try:
                     return self._segment_queue.get_nowait()
+                except queue.Empty:
+                    return None
+
+            def pop_audio_chunk(self) -> bytes | None:
+                """取出会话模式下的实时音频块。"""
+                try:
+                    return self._chunk_queue.get_nowait()
                 except queue.Empty:
                     return None
 
@@ -528,14 +559,13 @@ class VoiceMixin:
                         if self._capturing:
                             self._frames.append(indata.copy())
                         if self._session_enabled:
-                            segment = self._segmenter.feed(indata.tobytes(), paused=self._session_paused)
-                            if segment:
-                                self._segment_queue.put(segment)
+                            self._parent_win._mic_stream_handle_session_frame(self, indata.tobytes())
                         if self._shutdown:
                             raise sd.CallbackStop()
 
                     with sd.InputStream(
                         samplerate=self._sample_rate,
+                        blocksize=3200,
                         channels=1,
                         dtype='int16',
                         device=self._device,
@@ -564,14 +594,42 @@ class VoiceMixin:
         self._start_voice_session_poll_timer()
         self._append_log("语音", "预热麦克风", "成功", "麦克风流已后台启动")
 
+    def _queue_put_latest(self, q: queue.Queue, item: bytes) -> None:
+        try:
+            q.put_nowait(item)
+            return
+        except queue.Full:
+            pass
+        try:
+            q.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            q.put_nowait(item)
+        except queue.Full:
+            pass
+
+    def _mic_stream_handle_session_frame(self, mic_thread, frame: bytes) -> None:
+        if not getattr(mic_thread, "_session_enabled", False):
+            return
+        if bool(getattr(mic_thread, "_doubao_streaming_mode", False)):
+            if not bool(getattr(mic_thread, "_session_paused", False)):
+                self._queue_put_latest(mic_thread._chunk_queue, bytes(frame))
+            return
+        segment = mic_thread._segmenter.feed(frame, paused=bool(getattr(mic_thread, "_session_paused", False)))
+        if segment:
+            mic_thread._segment_queue.put(segment)
+
     def _start_voice_session(self) -> None:
         """开启连续语音会话。"""
         if getattr(self, "_voice_session_active", False):
             return
         try:
-            self._create_iflytek_client()
-            if getattr(self, "_use_license_voice", False):
-                raise RuntimeError("当前授权代理语音模式暂不支持连续会话，请继续使用手动录音。")
+            use_doubao_streaming = self._voice_session_uses_doubao_streaming_asr()
+            if not use_doubao_streaming:
+                self._create_iflytek_client()
+                if getattr(self, "_use_license_voice", False):
+                    raise RuntimeError("当前授权代理语音模式暂不支持连续会话，请继续使用手动录音。")
             self._ensure_mic_stream()
             thread = getattr(self, "_mic_recorder_thread", None)
             if thread is None:
@@ -582,14 +640,17 @@ class VoiceMixin:
                 self._voice_session_clear_queue()
             self._voice_session_asr_busy = False
             self._voice_session_active = True
-            thread.enable_session_mode()
+            if use_doubao_streaming:
+                self._start_doubao_streaming_asr_session()
+            thread.enable_session_mode(doubao_streaming=use_doubao_streaming)
             self._start_voice_session_poll_timer()
             if hasattr(self, "mic_toggle_btn"):
                 self.mic_toggle_btn.setText("结束会话")
                 self.mic_toggle_btn.setEnabled(True)
             if hasattr(self, "status_label"):
                 self.status_label.setText("语音会话已开启，等待说话。")
-            self._append_log("语音会话", "开启会话", "成功", "静音分段模式")
+            mode_detail = "豆包实时流式模式" if use_doubao_streaming else "静音分段模式"
+            self._append_log("语音会话", "开启会话", "成功", mode_detail)
         except Exception as exc:
             self._voice_session_active = False
             if hasattr(self, "status_label"):
@@ -601,6 +662,7 @@ class VoiceMixin:
     def _stop_voice_session(self) -> None:
         """关闭连续语音会话。"""
         self._stop_voice_session_poll_timer()
+        self._stop_doubao_streaming_asr_session()
         thread = getattr(self, "_mic_recorder_thread", None)
         if thread is not None and hasattr(thread, "disable_session_mode"):
             thread.disable_session_mode()
@@ -613,6 +675,148 @@ class VoiceMixin:
         if hasattr(self, "status_label"):
             self.status_label.setText("语音会话已关闭。")
         self._append_log("语音会话", "关闭会话", "成功", "已停止连续监听")
+
+    def _start_doubao_streaming_asr_session(self) -> None:
+        self._stop_doubao_streaming_asr_session()
+        from .doubao_voice_client import DoubaoStreamingAsrSession
+
+        session = DoubaoStreamingAsrSession(
+            on_final_text=lambda text: self._voice_session_dispatch_to_main(
+                lambda text=text: self._handle_doubao_streaming_final_text(text)
+            ),
+            on_partial_text=lambda text: self._voice_session_schedule_partial_text(text),
+            on_speech_start=lambda: self._voice_session_dispatch_to_main(self._handle_doubao_streaming_speech_start),
+            on_error=lambda exc: self._voice_session_dispatch_to_main(
+                lambda exc=exc: self._handle_doubao_streaming_error(exc)
+            ),
+        )
+        session.start()
+        self._doubao_streaming_asr_session = session
+
+    def _stop_doubao_streaming_asr_session(self) -> None:
+        session = getattr(self, "_doubao_streaming_asr_session", None)
+        if session is not None:
+            close = getattr(session, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+        self._doubao_streaming_asr_session = None
+
+    def _voice_session_dispatch_to_main(self, callback) -> None:
+        run_on_main = getattr(self, "_run_on_main_thread", None)
+        if callable(run_on_main):
+            run_on_main(callback)
+        else:
+            callback()
+
+    def _handle_doubao_streaming_speech_start(self) -> None:
+        if not getattr(self, "_voice_session_active", False):
+            return
+        if not self._voice_session_should_wait_final_text_before_interrupt():
+            interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
+            if callable(interrupter):
+                interrupter()
+        begin_status = getattr(self, "_operator_begin_voice_recognition_status", None)
+        if callable(begin_status):
+            begin_status()
+        if hasattr(self, "status_label"):
+            self.status_label.setText("豆包实时语音正在听...")
+
+    def _handle_doubao_streaming_final_text(self, text: str) -> None:
+        if not getattr(self, "_voice_session_active", False):
+            return
+        final_text = str(text or "").strip()
+        if not final_text:
+            return
+        if self._voice_session_should_drop_echo_text(final_text):
+            clear_status = getattr(self, "_operator_clear_voice_recognition_status", None)
+            if callable(clear_status):
+                clear_status()
+            if hasattr(self, "status_label"):
+                self.status_label.setText("语音会话等待说话。")
+            self._append_log("语音会话", "豆包回声过滤", "提示", final_text)
+            return
+        if self._voice_session_should_wait_final_text_before_interrupt():
+            interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
+            if callable(interrupter):
+                interrupter()
+        finish_status = getattr(self, "_operator_finish_voice_recognition_status", None)
+        if callable(finish_status):
+            finish_status(final_text)
+        if hasattr(self, "status_label"):
+            self.status_label.setText("语音会话识别完成，正在处理。")
+        self._append_log("语音会话", "豆包实时识别", "成功", final_text)
+        handler = getattr(self, "_operator_handle_voice_session_text", None)
+        if callable(handler):
+            handler(final_text)
+        if getattr(self, "_voice_session_active", False) and hasattr(self, "status_label"):
+            self.status_label.setText("语音会话等待说话。")
+
+    def _voice_session_should_drop_echo_text(self, text: str) -> bool:
+        clean = self._voice_session_compact_echo_text(text)
+        if not clean:
+            return False
+        if self._voice_session_is_interrupt_text(clean):
+            return False
+        sink = getattr(self, "operator_speech_sink", None)
+        is_speaking = bool(getattr(sink, "is_speaking", False))
+        spoken_source = getattr(self, "_operator_current_spoken_text", "")
+        if not spoken_source and self._voice_session_recent_spoken_echo_window_active():
+            spoken_source = getattr(self, "_operator_recent_spoken_text", "")
+        if not is_speaking and not spoken_source:
+            return False
+        spoken = self._voice_session_compact_echo_text(spoken_source)
+        if not spoken:
+            return False
+        if clean in spoken or spoken in clean:
+            return True
+        ratio = difflib.SequenceMatcher(None, clean, spoken).ratio()
+        return ratio >= 0.78
+
+    def _voice_session_recent_spoken_echo_window_active(self) -> bool:
+        until = float(getattr(self, "_operator_recent_spoken_until_sec", 0.0) or 0.0)
+        if until <= 0:
+            return False
+        now_fn = getattr(self, "_operator_now_seconds", None)
+        try:
+            now = float(now_fn()) if callable(now_fn) else time.monotonic()
+        except Exception:
+            now = time.monotonic()
+        return now <= until
+
+    def _voice_session_should_wait_final_text_before_interrupt(self) -> bool:
+        sink = getattr(self, "operator_speech_sink", None)
+        if bool(getattr(sink, "is_speaking", False)):
+            return True
+        return bool(getattr(self, "_operator_current_spoken_text", "") or (
+            getattr(self, "_operator_recent_spoken_text", "") and self._voice_session_recent_spoken_echo_window_active()
+        ))
+
+    @staticmethod
+    def _voice_session_compact_echo_text(text: str) -> str:
+        return "".join(ch for ch in str(text or "") if ch.isalnum() or "\u4e00" <= ch <= "\u9fff").lower()
+
+    @staticmethod
+    def _voice_session_is_interrupt_text(compact_text: str) -> bool:
+        interrupt_keywords = (
+            "停",
+            "停止",
+            "停一下",
+            "别说",
+            "闭嘴",
+            "打断",
+            "暂停",
+            "等一下",
+            "小正",
+        )
+        return any(keyword in compact_text for keyword in interrupt_keywords)
+
+    def _handle_doubao_streaming_error(self, exc: BaseException) -> None:
+        if hasattr(self, "status_label"):
+            self.status_label.setText("豆包实时语音识别失败")
+        self._append_log("语音会话", "豆包实时识别", "失败", str(exc))
 
     def _start_voice_session_poll_timer(self) -> None:
         """启动主线程轮询语音分段，避免音频线程直接触碰 Qt。"""
@@ -644,9 +848,38 @@ class VoiceMixin:
                 thread.set_session_paused(ignore_audio)
             if ignore_audio:
                 self._voice_session_clear_queue()
+                self._voice_session_clear_audio_chunks()
                 for _ in range(10):
                     if not thread.pop_audio_segment():
                         break
+                for _ in range(10):
+                    pop_chunk = getattr(thread, "pop_audio_chunk", None)
+                    if not callable(pop_chunk) or not pop_chunk():
+                        break
+                return
+            if self._voice_session_uses_doubao_streaming_asr():
+                pop_chunk = getattr(thread, "pop_audio_chunk", None)
+                if not callable(pop_chunk):
+                    return
+                session = getattr(self, "_doubao_streaming_asr_session", None)
+                is_alive = getattr(session, "is_alive", None)
+                if session is None or (callable(is_alive) and not is_alive()):
+                    try:
+                        self._start_doubao_streaming_asr_session()
+                    except Exception as exc:
+                        if hasattr(self, "status_label"):
+                            self.status_label.setText("豆包实时语音重连失败")
+                        self._append_log("语音会话", "豆包实时重连", "失败", str(exc))
+                        return
+                    session = getattr(self, "_doubao_streaming_asr_session", None)
+                    if session is None:
+                        return
+                    self._append_log("语音会话", "豆包实时重连", "成功", "空闲断开后已重建会话")
+                for _ in range(10):
+                    chunk = pop_chunk()
+                    if not chunk:
+                        break
+                    session.send_audio(chunk)
                 return
             for _ in range(3):
                 segment = thread.pop_audio_segment()
@@ -673,6 +906,18 @@ class VoiceMixin:
                 q.get_nowait()
         except queue.Empty:
             return
+
+    def _voice_session_clear_audio_chunks(self) -> None:
+        thread = getattr(self, "_mic_recorder_thread", None)
+        pop_chunk = getattr(thread, "pop_audio_chunk", None)
+        if not callable(pop_chunk):
+            return
+        for _ in range(100):
+            if not pop_chunk():
+                return
+
+    def _voice_session_uses_doubao_streaming_asr(self) -> bool:
+        return self._voice_asr_provider_name() == "doubao"
 
     def _on_mic_audio_segment(self, pcm_data: bytes) -> None:
         """会话模式下收到一句语音段。"""
@@ -716,7 +961,7 @@ class VoiceMixin:
             begin_status()
 
         def work():
-            return self._transcribe_pcm_via_local_client(
+            return self._transcribe_pcm_for_voice_session(
                 segment,
                 partial_callback=self._voice_session_schedule_partial_text,
             )

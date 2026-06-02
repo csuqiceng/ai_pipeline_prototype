@@ -50,6 +50,7 @@ from .safety_precheck import SafetyPrecheckService
 from .safety_suggestion import SafetySuggestionService
 from .semantic_response_policy import policy_for_plan
 from .speech_broadcast import (
+    DoubaoSpeechSink,
     Pyttsx3SpeechSink,
     SpeechBroadcastDeliveryService,
     SpeechDeliveryResult,
@@ -756,6 +757,7 @@ class OperatorUiMixin:
                 self._operator_finish_streaming_chat_response(text)
             elif hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", text)
+            self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "未识别动作", "失败", text)
             if hasattr(self, "_operator_archive_execution_result"):
                 self._operator_archive_execution_result(result="unknown", final_text=text)
@@ -788,6 +790,7 @@ class OperatorUiMixin:
                 self._operator_finish_streaming_chat_response(text)
             elif hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", text)
+            self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "未识别动作", "失败", text)
             if hasattr(self, "_operator_archive_execution_result"):
                 self._operator_archive_execution_result(result="unknown", final_text=text)
@@ -4155,6 +4158,9 @@ class OperatorUiMixin:
             return None
         self._operator_replace_pending_speech()
         self._operator_stop_current_speech_best_effort()
+        self._operator_current_spoken_text = spoken_text
+        self._operator_recent_spoken_text = spoken_text
+        self._operator_recent_spoken_until_sec = self._operator_now_seconds() + 12.0
         queue = getattr(self, "operator_broadcast_queue", None)
         if queue is None:
             queue = BroadcastQueue()
@@ -4174,6 +4180,7 @@ class OperatorUiMixin:
     def _operator_replace_pending_speech(self) -> int:
         generation = int(getattr(self, "_operator_speech_generation", 0) or 0) + 1
         self._operator_speech_generation = generation
+        self._operator_current_spoken_text = ""
         queue = getattr(self, "operator_broadcast_queue", None)
         if queue is not None:
             messages = queue.messages_since(0)
@@ -4328,7 +4335,7 @@ class OperatorUiMixin:
 
     @staticmethod
     def _operator_should_deliver_speech_async(sink: object) -> bool:
-        return isinstance(sink, (Pyttsx3SpeechSink, WindowsSapiSpeechSink))
+        return isinstance(sink, (Pyttsx3SpeechSink, WindowsSapiSpeechSink, DoubaoSpeechSink))
 
     def _operator_enable_local_tts(self, *, engine: object | None = None):
         if engine is None and WindowsSapiSpeechSink.available():
@@ -4339,10 +4346,16 @@ class OperatorUiMixin:
         return sink
 
     def _operator_configure_tts_from_settings(self):
-        if bool(getattr(getattr(self, "axis_ranges", None), "operator_tts_enabled", False)):
-            return self._operator_enable_local_tts()
-        self.operator_speech_sink = None
-        return None
+        if not bool(getattr(getattr(self, "axis_ranges", None), "operator_tts_enabled", False)):
+            self.operator_speech_sink = None
+            return None
+        import os
+
+        provider = os.environ.get("VOICE_TTS_PROVIDER", "local").strip().lower()
+        if provider == "doubao":
+            self.operator_speech_sink = DoubaoSpeechSink()
+            return self.operator_speech_sink
+        return self._operator_enable_local_tts()
 
     def _operator_auto_deliver_broadcasts(self) -> SpeechDeliveryResult | None:
         if not bool(getattr(getattr(self, "axis_ranges", None), "operator_tts_enabled", False)):
@@ -5324,7 +5337,7 @@ class OperatorUiMixin:
 
     @staticmethod
     def _operator_streaming_chat_typewriter_interval_seconds() -> float:
-        return 0.04
+        return 0.01
 
     @staticmethod
     def _operator_footer_status_text(text: str, max_len: int = 88) -> str:

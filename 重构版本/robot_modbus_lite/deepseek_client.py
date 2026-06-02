@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -20,20 +19,9 @@ DEPRECATED_MODEL_ALIASES: dict[str, tuple[str, bool]] = {
 
 def _load_local_env_file() -> None:
     """加载本地环境变量文件。"""
-    package_root = Path(__file__).resolve().parent
-    project_root = package_root.parent
-    for env_path in (package_root / ".env", project_root / ".env"):
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            normalized = line.strip()
-            if not normalized or normalized.startswith("#") or "=" not in normalized:
-                continue
-            key, value = normalized.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if key and key not in os.environ:
-                os.environ[key] = value
+    from .env_loader import load_local_env_file
+
+    load_local_env_file()
 
 
 _env_loaded = False

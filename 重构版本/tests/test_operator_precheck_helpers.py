@@ -1934,7 +1934,7 @@ def test_operator_streaming_chat_delta_render_is_throttled():
 def test_operator_streaming_chat_typewriter_interval_is_responsive_but_visible():
     interval = DummyOperator._operator_streaming_chat_typewriter_interval_seconds()
 
-    assert 0.02 <= interval <= 0.06
+    assert 0.008 <= interval <= 0.015
 
 
 def test_operator_streaming_chat_render_interval_is_responsive():
@@ -2032,10 +2032,12 @@ def test_operator_late_streaming_delta_reuses_final_answer_bubble():
 def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():
     dummy = DummyOperator()
     chats = []
+    spoken = []
     warnings = []
     logs = []
     dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
     dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_publish_ai_answer_for_speech = lambda text: spoken.append(text)
     dummy._show_warning = lambda *args, **kwargs: warnings.append(args)
     dummy._append_log = lambda *args, **kwargs: logs.append(args)
     dummy._refresh_operator_view = lambda: None
@@ -2054,6 +2056,7 @@ def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():
 
     assert warnings == []
     assert chats == [("assistant", "生产指令缺少“小正”唤醒词，未执行。没有触发机械手动作。")]
+    assert spoken == ["生产指令缺少“小正”唤醒词，未执行。没有触发机械手动作。"]
     assert dummy.busy is False
 
 

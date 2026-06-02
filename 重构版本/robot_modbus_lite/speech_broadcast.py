@@ -136,6 +136,129 @@ class WindowsSapiSpeechSink:
                 speak("")
 
 
+class DoubaoSpeechSink:
+    """Doubao TTS sink backed by realtime dialogue TTS audio."""
+
+    def __init__(
+        self,
+        client: object | None = None,
+        player: Callable[[bytes, int], None] | None = None,
+        sample_rate: int = 24000,
+        stop_player: Callable[[], None] | None = None,
+        stream_player_factory: Callable[[int], object] | None = None,
+    ) -> None:
+        self._client = client
+        self._player = player or self._default_player
+        self._stop_player = stop_player or self._default_stop_player
+        self._stream_player_factory = stream_player_factory or self._default_stream_player_factory
+        self._sample_rate = int(sample_rate)
+        self._is_speaking = False
+        self._cancel_requested = False
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._is_speaking
+
+    def speak(self, text: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        self._cancel_requested = False
+        self._is_speaking = True
+        try:
+            client = self._client
+            if client is None:
+                from .doubao_voice_client import DoubaoVoiceClient
+
+                client = DoubaoVoiceClient()
+                self._client = client
+            stream_synthesize = getattr(client, "stream_synthesize_text", None)
+            if callable(stream_synthesize):
+                self._stream_play_text(client, clean)
+                return
+            pcm = client.synthesize_text(clean)
+            if pcm and not self._cancel_requested:
+                self._player(pcm, self._sample_rate)
+        finally:
+            self._is_speaking = False
+
+    def stop(self) -> None:
+        self._cancel_requested = True
+        self._is_speaking = False
+        try:
+            self._stop_player()
+        except Exception:
+            pass
+
+    def _stream_play_text(self, client: object, text: str) -> None:
+        stream_synthesize = getattr(client, "stream_synthesize_text")
+        with self._stream_player_factory(self._sample_rate) as stream_player:
+            write = getattr(stream_player, "write", None)
+            if not callable(write):
+                raise RuntimeError("豆包流式播放器缺少 write(pcm) 方法。")
+
+            def play_chunk(pcm: bytes) -> None:
+                if pcm and not self._cancel_requested:
+                    write(pcm)
+
+            stream_synthesize(text, play_chunk)
+
+    @staticmethod
+    def _default_player(pcm: bytes, sample_rate: int) -> None:
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError("未安装 numpy，无法播放豆包 TTS 音频。") from exc
+        try:
+            import sounddevice as sd
+        except ImportError as exc:
+            raise RuntimeError("未安装 sounddevice，无法播放豆包 TTS 音频。") from exc
+        audio = np.frombuffer(pcm, dtype=np.float32)
+        sd.play(audio, samplerate=sample_rate, blocking=True)
+
+    @staticmethod
+    def _default_stream_player_factory(sample_rate: int):
+        return _SoundDeviceRawOutput(sample_rate)
+
+    @staticmethod
+    def _default_stop_player() -> None:
+        try:
+            import sounddevice as sd
+        except ImportError:
+            return
+        sd.stop()
+
+
+class _SoundDeviceRawOutput:
+    def __init__(self, sample_rate: int) -> None:
+        self._sample_rate = int(sample_rate)
+        self._stream = None
+
+    def __enter__(self):
+        try:
+            import sounddevice as sd
+        except ImportError as exc:
+            raise RuntimeError("未安装 sounddevice，无法流式播放豆包 TTS 音频。") from exc
+        self._stream = sd.RawOutputStream(samplerate=self._sample_rate, channels=1, dtype="float32")
+        self._stream.start()
+        return self
+
+    def write(self, pcm: bytes) -> None:
+        if self._stream is None:
+            return
+        self._stream.write(pcm)
+
+    def __exit__(self, *_args) -> None:
+        stream = self._stream
+        self._stream = None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        finally:
+            stream.close()
+
+
 class SpeechBroadcastDeliveryService:
     """Delivers queued broadcast messages to a configured speech sink."""
 

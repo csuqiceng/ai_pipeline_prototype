@@ -1,12 +1,19 @@
 import pytest
+from types import SimpleNamespace
 
 from robot_modbus_lite.broadcast_queue import BroadcastMessage
+from robot_modbus_lite.operator_ui_mixin import OperatorUiMixin
 from robot_modbus_lite.speech_broadcast import (
     CallableSpeechSink,
+    DoubaoSpeechSink,
     Pyttsx3SpeechSink,
     SpeechBroadcastDeliveryService,
     WindowsSapiSpeechSink,
 )
+
+
+class DummyOperator(OperatorUiMixin):
+    pass
 
 
 def test_speech_delivery_speaks_messages_in_given_order():
@@ -98,3 +105,79 @@ def test_windows_sapi_speech_sink_uses_dispatch_factory_each_call():
         ("Dispatch", "SAPI.SpVoice"),
         ("Speak", "第二条"),
     ]
+
+
+def test_doubao_speech_sink_synthesizes_and_plays_text():
+    played = []
+
+    class FakeClient:
+        def synthesize_text(self, text):
+            assert text == "执行完成"
+            return b"pcm-data"
+
+    sink = DoubaoSpeechSink(client=FakeClient(), player=lambda pcm, sample_rate: played.append((pcm, sample_rate)), sample_rate=24000)
+
+    sink.speak("执行完成")
+
+    assert played == [(b"pcm-data", 24000)]
+    assert sink.is_speaking is False
+
+
+def test_doubao_speech_sink_streams_audio_chunks_when_available():
+    played = []
+    events = []
+
+    class FakeClient:
+        def stream_synthesize_text(self, text, chunk_callback):
+            assert text == "执行完成"
+            chunk_callback(b"chunk-1")
+            chunk_callback(b"chunk-2")
+
+    class FakeStreamPlayer:
+        def __init__(self, sample_rate):
+            assert sample_rate == 24000
+
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, *_args):
+            events.append("exit")
+
+        def write(self, pcm):
+            played.append(pcm)
+
+    sink = DoubaoSpeechSink(client=FakeClient(), stream_player_factory=FakeStreamPlayer, sample_rate=24000)
+
+    sink.speak("执行完成")
+
+    assert events == ["enter", "exit"]
+    assert played == [b"chunk-1", b"chunk-2"]
+    assert sink.is_speaking is False
+
+
+def test_doubao_speech_sink_stop_marks_cancel_requested():
+    stopped = []
+    sink = DoubaoSpeechSink(client=object(), player=lambda _pcm, _sample_rate: None, stop_player=lambda: stopped.append("stop"))
+
+    sink.stop()
+
+    assert sink.is_speaking is False
+    assert stopped == ["stop"]
+
+
+def test_operator_configures_doubao_tts_from_env(monkeypatch):
+    dummy = DummyOperator.__new__(DummyOperator)
+    dummy.axis_ranges = SimpleNamespace(operator_tts_enabled=True)
+    dummy.operator_speech_sink = None
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "doubao")
+
+    sink = dummy._operator_configure_tts_from_settings()
+
+    assert isinstance(sink, DoubaoSpeechSink)
+
+
+def test_operator_delivers_doubao_tts_async():
+    sink = DoubaoSpeechSink(client=object(), player=lambda _pcm, _sample_rate: None)
+
+    assert OperatorUiMixin._operator_should_deliver_speech_async(sink) is True

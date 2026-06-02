@@ -20,9 +20,9 @@ class IFlytekRTASRError(RuntimeError):
 
 def expected_env_locations() -> list[Path]:
     """处理期望环境变量。"""
-    package_root = Path(__file__).resolve().parent
-    project_root = package_root.parent
-    return [package_root / ".env", project_root / ".env"]
+    from .env_loader import expected_env_locations as shared_expected_env_locations
+
+    return shared_expected_env_locations()
 
 
 @dataclass
@@ -293,18 +293,9 @@ class IFlytekIATClient:
 
 def _load_local_env_file() -> None:
     """加载本地环境变量文件。"""
-    for env_path in expected_env_locations():
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            normalized = line.strip()
-            if not normalized or normalized.startswith("#") or "=" not in normalized:
-                continue
-            key, value = normalized.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if key and key not in os.environ:
-                os.environ[key] = value
+    from .env_loader import load_local_env_file
+
+    load_local_env_file()
 
 
 class _SoundDeviceMicStream:

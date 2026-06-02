@@ -10,6 +10,7 @@ pypinyin
 # Voice features
 sounddevice
 numpy
+websockets>=11,<16
 
 # Packaging
 pyinstaller
