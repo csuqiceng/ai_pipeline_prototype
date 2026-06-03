@@ -177,6 +177,20 @@ def test_operator_configures_doubao_tts_from_env(monkeypatch):
     assert isinstance(sink, DoubaoSpeechSink)
 
 
+def test_operator_configures_doubao_tts_from_local_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("VOICE_TTS_PROVIDER=doubao\n", encoding="utf-8")
+    monkeypatch.delenv("VOICE_TTS_PROVIDER", raising=False)
+    monkeypatch.setattr("robot_modbus_lite.env_loader.expected_env_locations", lambda: [env_file])
+    dummy = DummyOperator.__new__(DummyOperator)
+    dummy.axis_ranges = SimpleNamespace(operator_tts_enabled=True)
+    dummy.operator_speech_sink = None
+
+    sink = dummy._operator_configure_tts_from_settings()
+
+    assert isinstance(sink, DoubaoSpeechSink)
+
+
 def test_operator_delivers_doubao_tts_async():
     sink = DoubaoSpeechSink(client=object(), player=lambda _pcm, _sample_rate: None)
 

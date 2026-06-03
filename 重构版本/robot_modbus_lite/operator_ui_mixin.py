@@ -934,11 +934,11 @@ class OperatorUiMixin:
         self._parse_nlp_text()
 
     def _operator_execute_text(self) -> None:
-        if not self._operator_push_text_to_nlp():
+        text = self.operator_command_edit.text().strip() if hasattr(self, "operator_command_edit") else ""
+        if not text and hasattr(self, "nlp_input_edit"):
+            text = self.nlp_input_edit.toPlainText().strip()
+        if not self._operator_submit_nlp_text(text, input_mode="text", add_user_message=True):
             return
-        self._operator_interrupt_current_speech_for_user_input()
-        self._operator_scene_override = None
-        self._execute_nlp_text()
         if hasattr(self, "operator_command_edit"):
             self.operator_command_edit.clear()
         if hasattr(self, "nlp_input_edit"):
@@ -970,25 +970,33 @@ class OperatorUiMixin:
         command = str(text or "").strip()
         if not command:
             return
+        self._operator_submit_nlp_text(command, input_mode="voice", add_user_message=False)
+
+    def _operator_submit_nlp_text(self, text: str, *, input_mode: str, add_user_message: bool) -> bool:
+        command = str(text or "").strip()
+        if not command:
+            self._show_warning("输入为空", "请输入自然语言文本。")
+            return False
         interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
         if callable(interrupter):
             interrupter()
         self._operator_scene_override = None
         if hasattr(self, "operator_voice_label"):
-            self.operator_voice_label.setText(f"语音输入: {command}")
+            label = "语音输入" if input_mode == "voice" else "文本输入"
+            self.operator_voice_label.setText(f"{label}: {command}")
+        if add_user_message and hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("user", command)
+            self._operator_last_user_text = command
         archive = getattr(self, "_operator_archive_text_input", None)
         if callable(archive):
             archive(command)
-        if hasattr(self, "nlp_input_edit"):
-            self.nlp_input_edit.setPlainText(command)
-            self._execute_nlp_text()
-            self.nlp_input_edit.clear()
-            return
-        if hasattr(self, "operator_command_edit"):
-            self.operator_command_edit.setText(command)
-            self._operator_execute_text()
-            return
-        self._show_warning("输入为空", "请输入自然语言文本。")
+        if not hasattr(self, "nlp_input_edit"):
+            self._show_warning("输入为空", "自然语言输入控件未初始化。")
+            return False
+        self.nlp_input_edit.setPlainText(command)
+        self._execute_nlp_text()
+        self.nlp_input_edit.clear()
+        return True
 
     def _operator_begin_voice_recognition_status(self) -> None:
         self._operator_voice_recognition_status_index = None
@@ -4737,6 +4745,9 @@ class OperatorUiMixin:
             return None
         import os
 
+        from .env_loader import load_local_env_file
+
+        load_local_env_file()
         provider = os.environ.get("VOICE_TTS_PROVIDER", "local").strip().lower()
         if provider == "doubao":
             self.operator_speech_sink = DoubaoSpeechSink()
@@ -4939,9 +4950,13 @@ class OperatorUiMixin:
         self._refresh_operator_axis_labels()
         self._refresh_operator_scene_content(detail)
         self._refresh_operator_pending_flow_status()
-        self._refresh_operator_recent_events()
+        refresh_heavy_panels = self._operator_heavy_panels_refresh_due()
+        if refresh_heavy_panels:
+            self._refresh_operator_recent_events()
         self._refresh_operator_dialog_labels()
-        self._refresh_operator_full_status()
+        if refresh_heavy_panels:
+            self._refresh_operator_full_status()
+            self._operator_last_heavy_panel_refresh_sec = self._operator_now_seconds()
         self._sync_operator_mic_button()
         self._operator_publish_periodic_reassurance_if_needed()
 
@@ -4967,12 +4982,25 @@ class OperatorUiMixin:
             return
         if bool(getattr(self, "_operator_refresh_pending", False)):
             return
+        if self._operator_execution_scene_active():
+            max_rate_hz = min(float(max_rate_hz), 4.0)
         now = self._operator_now_seconds()
         last = float(getattr(self, "_operator_last_refresh_sec", 0.0) or 0.0)
         min_interval = 1.0 / max(1.0, float(max_rate_hz))
         delay_ms = max(0, int((min_interval - max(0.0, now - last)) * 1000))
         self._operator_refresh_pending = True
         QTimer.singleShot(delay_ms, self._refresh_operator_view)
+
+    def _operator_heavy_panels_refresh_due(self) -> bool:
+        if not self._operator_execution_scene_active():
+            return True
+        interval = self._operator_heavy_panel_refresh_interval_seconds()
+        last = float(getattr(self, "_operator_last_heavy_panel_refresh_sec", 0.0) or 0.0)
+        return self._operator_now_seconds() - last >= interval
+
+    @staticmethod
+    def _operator_heavy_panel_refresh_interval_seconds() -> float:
+        return 1.0
 
     def _operator_request_scene(self, scene: str, reason: str = "operator_request_scene") -> None:
         try:

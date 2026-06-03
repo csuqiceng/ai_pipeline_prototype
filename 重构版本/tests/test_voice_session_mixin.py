@@ -1,11 +1,18 @@
 from types import SimpleNamespace
 import queue
 
+import pytest
+
 from robot_modbus_lite.voice_mixin import VoiceMixin
 
 
 class DummyVoiceSession(VoiceMixin):
     pass
+
+
+@pytest.fixture(autouse=True)
+def default_voice_asr_provider(monkeypatch):
+    monkeypatch.setenv("VOICE_ASR_PROVIDER", "iflytek")
 
 
 def test_voice_session_does_not_ignore_audio_while_tts_busy():
@@ -64,6 +71,16 @@ def test_voice_session_keeps_short_confirm_command_inside_long_tts_prompt():
     )
 
     assert dummy._voice_session_should_drop_echo_text("确认执行") is False
+
+
+def test_voice_session_asr_provider_loads_from_local_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("VOICE_ASR_PROVIDER=doubao\n", encoding="utf-8")
+    monkeypatch.delenv("VOICE_ASR_PROVIDER", raising=False)
+    monkeypatch.setattr("robot_modbus_lite.env_loader.expected_env_locations", lambda: [env_file])
+    dummy = DummyVoiceSession()
+
+    assert dummy._voice_asr_provider_name() == "doubao"
 
 
 def test_voice_session_segment_stops_current_speech_before_asr():

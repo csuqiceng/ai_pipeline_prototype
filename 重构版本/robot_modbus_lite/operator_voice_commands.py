@@ -119,6 +119,27 @@ def missing_required_button_labels() -> list[str]:
     return sorted(label for label in OPERATOR_REQUIRED_BUTTON_LABELS if label not in covered)
 
 
+def _matches_execution_page_command(compact: str) -> bool:
+    explicit_phrases = (
+        "打开流程执行页面",
+        "显示流程执行页面",
+        "切到流程执行页面",
+        "切换到流程执行页面",
+        "进入流程执行页面",
+        "查看流程执行页面",
+        "打开执行页面",
+        "显示执行页面",
+        "切到执行页面",
+        "切换到执行页面",
+        "进入执行页面",
+        "打开运行面板",
+        "显示运行面板",
+        "打开执行面板",
+        "显示执行面板",
+    )
+    return any(phrase in compact for phrase in explicit_phrases)
+
+
 def duplicate_voice_aliases() -> dict[str, tuple[str, ...]]:
     owners: dict[str, list[str]] = {}
     for spec in OPERATOR_BUTTON_VOICE_COMMANDS:
@@ -138,6 +159,10 @@ def match_operator_voice_command(text: str) -> OperatorVoiceCommandSpec | None:
             return spec
     for spec in OPERATOR_BUTTON_VOICE_COMMANDS:
         if spec.requires_emergency_code:
+            continue
+        if spec.action == "show_execution":
+            if _matches_execution_page_command(compact):
+                return spec
             continue
         if any(re.sub(r"\s+", "", alias) in compact for alias in spec.aliases if len(re.sub(r"\s+", "", alias)) >= 3):
             return spec

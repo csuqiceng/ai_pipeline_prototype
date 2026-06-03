@@ -203,8 +203,7 @@ def test_operator_save_flow_draft_allows_operator_to_create_flow_draft(tmp_path)
 def test_operator_execute_text_clears_input_after_send():
     dummy = DummyOperator()
     events = []
-    dummy._operator_push_text_to_nlp = lambda: True
-    dummy._execute_nlp_text = lambda: events.append("execute")
+    dummy._operator_submit_nlp_text = lambda text, **kwargs: events.append((text, kwargs)) or True
     dummy._operator_scene_override = "execute"
     dummy.nlp_input_edit = SimpleNamespace(
         value="小正，查询状态",
@@ -219,9 +218,34 @@ def test_operator_execute_text_clears_input_after_send():
 
     dummy._operator_execute_text()
 
-    assert events == ["execute"]
+    assert events == [("小正，查询状态", {"input_mode": "text", "add_user_message": True})]
     assert dummy.operator_command_edit.value == ""
     assert dummy.nlp_input_edit.value == ""
+
+
+def test_operator_submit_nlp_text_runs_same_execute_path_for_text_input():
+    dummy = DummyOperator()
+    calls = []
+    dummy.nlp_input_edit = SimpleNamespace(
+        value="",
+        setPlainText=lambda text: setattr(dummy.nlp_input_edit, "value", text),
+        clear=lambda: setattr(dummy.nlp_input_edit, "value", ""),
+        toPlainText=lambda: dummy.nlp_input_edit.value,
+    )
+    dummy.operator_voice_label = SimpleNamespace(setText=lambda text: calls.append(("label", text)))
+    dummy._operator_interrupt_current_speech_for_user_input = lambda: calls.append(("interrupt", ""))
+    dummy._operator_add_chat_message = lambda role, text: calls.append(("chat", role, text))
+    dummy._operator_archive_text_input = lambda text: calls.append(("archive", text))
+    dummy._execute_nlp_text = lambda: calls.append(("execute", dummy.nlp_input_edit.toPlainText()))
+
+    ok = dummy._operator_submit_nlp_text("你好", input_mode="text", add_user_message=True)
+
+    assert ok is True
+    assert ("interrupt", "") in calls
+    assert ("chat", "user", "你好") in calls
+    assert ("archive", "你好") in calls
+    assert ("execute", "你好") in calls
+    assert dummy.nlp_input_edit.toPlainText() == ""
 
 
 def test_operator_refresh_dialog_labels_does_not_repopulate_cleared_input_after_send():
@@ -2351,6 +2375,16 @@ def test_operator_voice_session_text_routes_without_writing_manual_input():
     assert dummy.nlp_input_edit.toPlainText() == ""
 
 
+def test_operator_voice_session_text_uses_same_submit_path_as_text_input():
+    dummy = DummyOperator()
+    calls = []
+    dummy._operator_submit_nlp_text = lambda text, **kwargs: calls.append((text, kwargs)) or True
+
+    dummy._operator_handle_voice_session_text("你好")
+
+    assert calls == [("你好", {"input_mode": "voice", "add_user_message": False})]
+
+
 def test_operator_voice_recognition_status_only_adds_final_user_text():
     dummy = DummyOperator()
     rendered = []
@@ -2645,6 +2679,14 @@ def test_operator_ui_command_returns_chat_receipt_for_execution_page_command():
     assert dummy.status_text == "已显示流程执行页面。"
     assert chats[-1] == ("assistant", "已显示流程执行页面。")
     assert log_args(logs[-1])[0:3] == ("用户页面", "按钮语音指令", "成功")
+
+
+def test_operator_ui_command_does_not_treat_flow_status_question_as_execution_page_command():
+    dummy = DummyOperator()
+
+    handled = dummy._handle_operator_ui_command("现在流程执行的怎么样")
+
+    assert handled is False
 
 
 def test_operator_confirm_execute_without_pending_plan_reports_alarm_reason():
@@ -4859,6 +4901,25 @@ def test_operator_schedule_refresh_skips_when_refresh_already_pending(monkeypatc
     assert calls == []
 
 
+def test_operator_schedule_refresh_caps_rate_while_flow_is_running(monkeypatch):
+    dummy = DummyOperator()
+    calls = []
+    dummy._operator_refresh_pending = False
+    dummy.operator_scene_stack = object()
+    dummy.flow_running = True
+    dummy.nlp_sequence_running = False
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy._operator_last_refresh_sec = 10.0
+    dummy._operator_now_seconds = lambda: 10.05
+    monkeypatch.setattr("robot_modbus_lite.operator_ui_mixin.QTimer.singleShot", lambda *args: calls.append(args))
+
+    dummy._operator_schedule_refresh()
+
+    assert calls
+    assert calls[0][0] >= 190
+
+
 def test_operator_refresh_view_skips_heavy_panels_while_user_is_typing():
     dummy = DummyOperator()
     calls = []
@@ -4899,6 +4960,91 @@ def test_operator_refresh_view_skips_heavy_panels_while_user_is_typing():
     assert "full" not in names
     assert "reassurance" not in names
     assert "request_scene" in names
+
+
+def test_operator_refresh_view_throttles_heavy_panels_while_flow_running():
+    dummy = DummyOperator()
+    calls = []
+    dummy.operator_scene_stack = object()
+    dummy._operator_refresh_pending = True
+    dummy._operator_now_seconds = lambda: 10.2
+    dummy._operator_last_heavy_panel_refresh_sec = 10.0
+    dummy._operator_clear_expired_pending_confirm_for_refresh = lambda: None
+    dummy._compute_overall_state = lambda: ("运行中", "#2563eb", "运行中")
+    dummy.operator_state_label = SimpleNamespace(setText=lambda text: calls.append(("state", text)), setStyleSheet=lambda text: None)
+    dummy.operator_estop_badge = SimpleNamespace()
+    dummy.operator_pause_badge = SimpleNamespace()
+    dummy.operator_alarm_badge = SimpleNamespace()
+    dummy._set_operator_badge = lambda *args: None
+    dummy._operator_alarm_active = lambda: False
+    dummy.busy = "运行中"
+    dummy.run_state = "运行中"
+    dummy.flow_running = True
+    dummy.nlp_sequence_running = False
+    dummy.alarm_text = ""
+    dummy.monitor_label = SimpleNamespace(text=lambda: "实时监控运行中")
+    dummy.operator_current_label = SimpleNamespace(setText=lambda text: calls.append(("current", text)))
+    dummy._operator_current_task_text = lambda: "流程 demo / step"
+    dummy.operator_command_edit = SimpleNamespace(hasFocus=lambda: False, text=lambda: "")
+    dummy._refresh_operator_axis_labels = lambda: calls.append(("axis", ""))
+    dummy._refresh_operator_scene_content = lambda detail: calls.append(("scene", detail))
+    dummy._refresh_operator_pending_flow_status = lambda: calls.append(("pending_flow", ""))
+    dummy._refresh_operator_recent_events = lambda: calls.append(("recent", ""))
+    dummy._refresh_operator_dialog_labels = lambda: calls.append(("dialog", ""))
+    dummy._refresh_operator_full_status = lambda: calls.append(("full", ""))
+    dummy._sync_operator_mic_button = lambda: calls.append(("mic", ""))
+    dummy._operator_publish_periodic_reassurance_if_needed = lambda: calls.append(("reassurance", ""))
+    dummy._operator_desired_scene = lambda: "execute"
+    dummy._operator_request_scene = lambda scene, reason="": calls.append(("request_scene", scene))
+
+    dummy._refresh_operator_view()
+
+    names = [name for name, _value in calls]
+    assert "scene" in names
+    assert "recent" not in names
+    assert "full" not in names
+    assert "dialog" in names
+
+
+def test_operator_refresh_view_refreshes_heavy_panels_after_flow_throttle_window():
+    dummy = DummyOperator()
+    calls = []
+    dummy.operator_scene_stack = object()
+    dummy._operator_refresh_pending = True
+    dummy._operator_now_seconds = lambda: 11.2
+    dummy._operator_last_heavy_panel_refresh_sec = 10.0
+    dummy._operator_clear_expired_pending_confirm_for_refresh = lambda: None
+    dummy._compute_overall_state = lambda: ("运行中", "#2563eb", "运行中")
+    dummy.operator_state_label = SimpleNamespace(setText=lambda text: None, setStyleSheet=lambda text: None)
+    dummy.operator_estop_badge = SimpleNamespace()
+    dummy.operator_pause_badge = SimpleNamespace()
+    dummy.operator_alarm_badge = SimpleNamespace()
+    dummy._set_operator_badge = lambda *args: None
+    dummy._operator_alarm_active = lambda: False
+    dummy.busy = "运行中"
+    dummy.run_state = "运行中"
+    dummy.flow_running = True
+    dummy.nlp_sequence_running = False
+    dummy.alarm_text = ""
+    dummy.monitor_label = SimpleNamespace(text=lambda: "实时监控运行中")
+    dummy.operator_current_label = SimpleNamespace(setText=lambda text: None)
+    dummy._operator_current_task_text = lambda: "流程 demo / step"
+    dummy.operator_command_edit = SimpleNamespace(hasFocus=lambda: False, text=lambda: "")
+    dummy._refresh_operator_axis_labels = lambda: None
+    dummy._refresh_operator_scene_content = lambda detail: None
+    dummy._refresh_operator_pending_flow_status = lambda: None
+    dummy._refresh_operator_recent_events = lambda: calls.append("recent")
+    dummy._refresh_operator_dialog_labels = lambda: None
+    dummy._refresh_operator_full_status = lambda: calls.append("full")
+    dummy._sync_operator_mic_button = lambda: None
+    dummy._operator_publish_periodic_reassurance_if_needed = lambda: None
+    dummy._operator_desired_scene = lambda: "execute"
+    dummy._operator_request_scene = lambda scene, reason="": None
+
+    dummy._refresh_operator_view()
+
+    assert calls == ["recent", "full"]
+    assert dummy._operator_last_heavy_panel_refresh_sec == 11.2
 
 
 def test_operator_dashboard_cache_refresh_is_throttled_while_user_is_typing():
@@ -5409,7 +5555,8 @@ def test_operator_enable_local_tts_sets_pyttsx3_sink():
     assert dummy.operator_speech_sink is sink
 
 
-def test_operator_configure_tts_from_settings_enables_sink_when_configured():
+def test_operator_configure_tts_from_settings_enables_sink_when_configured(monkeypatch):
+    monkeypatch.setenv("VOICE_TTS_PROVIDER", "local")
     dummy = DummyOperator()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), operator_tts_enabled=True)
 

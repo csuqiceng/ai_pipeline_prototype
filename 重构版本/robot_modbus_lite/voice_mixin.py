@@ -172,6 +172,9 @@ class VoiceMixin:
             Path(tmp_name).unlink(missing_ok=True)
 
     def _voice_asr_provider_name(self) -> str:
+        from .env_loader import load_local_env_file
+
+        load_local_env_file()
         provider = str(os.environ.get("VOICE_ASR_PROVIDER", "iflytek")).strip().lower()
         return provider or "iflytek"
 

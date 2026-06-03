@@ -36,6 +36,7 @@ def test_operator_voice_command_table_has_no_duplicate_aliases():
 def test_operator_voice_command_matcher_resolves_common_ui_commands():
     assert match_operator_voice_command("请显示完整状态").action == "show_full_status"
     assert match_operator_voice_command("流程执行").action == "show_execution"
+    assert match_operator_voice_command("打开流程执行页面").action == "show_execution"
     assert match_operator_voice_command("回到主界面").action == "go_home"
     assert match_operator_voice_command("进入全屏").action == "enter_fullscreen"
     assert match_operator_voice_command("退出全屏").action == "exit_fullscreen"
@@ -49,6 +50,12 @@ def test_operator_voice_command_matcher_resolves_common_ui_commands():
 
 def test_operator_voice_command_matcher_does_not_treat_emergency_template_as_direct_estop():
     assert match_operator_voice_command("急停 A1B2 急停") is None
+
+
+def test_operator_voice_command_matcher_does_not_treat_flow_status_question_as_page_switch():
+    assert match_operator_voice_command("现在流程执行的怎么样") is None
+    assert match_operator_voice_command("现在流程执行的怎么样了") is None
+    assert match_operator_voice_command("我不是要看流程执行页面") is None
 
 
 def test_operator_voice_command_export_rows_are_reviewable():
