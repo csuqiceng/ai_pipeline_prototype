@@ -1721,9 +1721,9 @@ class GuiUiMixin:
                 padding: 3px 2px;
             }
             QLabel#operatorMetricLarge {
-                font-size: 15px;
+                font-size: 12px;
                 font-weight: 700;
-                color: #111827;
+                color: #475569;
             }
             QLabel#operatorSidebarTitle {
                 font-size: 14px;
@@ -1731,7 +1731,7 @@ class GuiUiMixin:
                 color: #111827;
             }
             QLabel#operatorSceneTitle {
-                font-size: 20px;
+                font-size: 19px;
                 font-weight: 800;
                 color: #111827;
             }
@@ -1739,7 +1739,7 @@ class GuiUiMixin:
             QLabel#operatorChecklistItem,
             QLabel#operatorDialogText,
             QLabel#operatorAlarmText {
-                font-size: 16px;
+                font-size: 14px;
                 font-weight: 600;
                 color: #374151;
             }
@@ -1831,15 +1831,82 @@ class GuiUiMixin:
                 color: #111827;
             }
             QProgressBar#operatorProgress {
-                min-height: 28px;
+                min-height: 22px;
+                max-height: 22px;
                 border: 1px solid #64748b;
                 border-radius: 5px;
                 text-align: center;
                 background: #e2e8f0;
-                font-size: 14px;
+                font-size: 12px;
                 font-weight: 700;
             }
             QProgressBar#operatorProgress::chunk {
+                background: #2563eb;
+                border-radius: 4px;
+            }
+            QScrollArea#operatorFlowTimelineScroll {
+                background: #f8fafc;
+                border: 0;
+            }
+            QFrame#operatorFlowTimelineContent {
+                background: #f8fafc;
+            }
+            QFrame#operatorFlowStepCard {
+                background: #ffffff;
+                border: 1px solid #dbe4ee;
+                border-radius: 7px;
+            }
+            QFrame#operatorFlowStepCard[status="current"] {
+                border: 2px solid #2563eb;
+                background: #ffffff;
+            }
+            QFrame#operatorFlowStepCard[status="done"] {
+                border-color: #bbf7d0;
+                background: #f7fef9;
+            }
+            QFrame#operatorFlowStepCard[status="pending"] {
+                border-style: dashed;
+                background: #f8fafc;
+            }
+            QLabel#operatorFlowStepDot {
+                border: 2px solid #cbd5e1;
+                border-radius: 15px;
+                color: #64748b;
+                font-size: 13px;
+                font-weight: 900;
+                background: #ffffff;
+            }
+            QLabel#operatorFlowStepDot[status="done"] {
+                border-color: #10b981;
+                color: #10b981;
+                background: #ecfdf5;
+            }
+            QLabel#operatorFlowStepDot[status="current"] {
+                border-color: #2563eb;
+                color: #ffffff;
+                background: #2563eb;
+            }
+            QLabel#operatorFlowStepTitle {
+                color: #111827;
+                font-size: 13px;
+                font-weight: 900;
+            }
+            QLabel#operatorFlowStepTitle[status="current"] {
+                color: #0b3aa5;
+            }
+            QLabel#operatorFlowStepBody {
+                color: #334155;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QProgressBar#operatorFlowStepProgress {
+                min-height: 7px;
+                max-height: 7px;
+                border: 0;
+                border-radius: 4px;
+                background: #e5e7eb;
+            }
+            QProgressBar#operatorFlowStepProgress::chunk {
                 background: #2563eb;
                 border-radius: 4px;
             }
@@ -1876,6 +1943,8 @@ class GuiUiMixin:
                 border: 1px solid #d1d5db;
                 border-radius: 18px;
                 background: #ffffff;
+                color: #111827;
+                placeholder-text-color: #9ca3af;
                 padding: 4px 14px;
                 font-size: 14px;
             }

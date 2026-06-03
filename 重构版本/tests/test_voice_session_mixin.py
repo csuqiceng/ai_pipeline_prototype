@@ -15,13 +15,20 @@ def test_voice_session_does_not_ignore_audio_while_tts_busy():
     assert dummy._voice_session_should_ignore_audio() is False
 
 
-def test_voice_session_ignores_audio_while_ai_is_answering():
+def test_voice_session_does_not_ignore_audio_while_action_sequence_is_running():
     dummy = DummyVoiceSession()
 
     dummy.nlp_sequence_running = True
+    assert dummy._voice_session_should_ignore_audio() is False
+
+
+def test_voice_session_ignores_audio_while_ai_is_answering():
+    dummy = DummyVoiceSession()
+
+    dummy.nlp_parse_running = True
     assert dummy._voice_session_should_ignore_audio() is True
 
-    dummy.nlp_sequence_running = False
+    dummy.nlp_parse_running = False
     dummy._operator_streaming_chat_active = True
     assert dummy._voice_session_should_ignore_audio() is True
 
@@ -394,6 +401,44 @@ def test_start_voice_session_uses_doubao_streaming_session(monkeypatch):
     assert any("豆包" in entry[3] for entry in logs)
 
 
+def test_start_voice_session_resets_ui_when_doubao_streaming_start_fails(monkeypatch):
+    dummy = DummyVoiceSession()
+    monkeypatch.setenv("VOICE_ASR_PROVIDER", "doubao")
+    logs = []
+    events = []
+
+    class FakeThread:
+        def enable_session_mode(self, *, doubao_streaming=False):
+            events.append(("enable", doubao_streaming))
+
+    class FailingSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("豆包流式语音会话启动超时。")
+
+    dummy._ensure_mic_stream = lambda: setattr(dummy, "_mic_recorder_thread", FakeThread())
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy.status_label = SimpleNamespace(setText=lambda text: events.append(("status", text)))
+    dummy.mic_toggle_btn = SimpleNamespace(
+        setText=lambda text: events.append(("button", text)),
+        setEnabled=lambda enabled: events.append(("enabled", enabled)),
+    )
+    dummy._sync_operator_mic_button = lambda: events.append("sync")
+    dummy._show_critical = lambda *_args: None
+    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.DoubaoStreamingAsrSession", FailingSession)
+
+    dummy._start_voice_session()
+
+    assert dummy._voice_session_active is False
+    assert ("enable", True) not in events
+    assert ("button", "开始录音") in events
+    assert ("enabled", True) in events
+    assert "sync" in events
+    assert any(entry[0:3] == ("语音会话", "开启会话", "失败") for entry in logs)
+
+
 def test_voice_session_partial_callback_is_scheduled_on_main_thread():
     dummy = DummyVoiceSession()
     scheduled = []
@@ -409,18 +454,21 @@ def test_voice_session_partial_callback_is_scheduled_on_main_thread():
     assert updated == ["你好"]
 
 
-def test_voice_session_partial_text_updates_input_before_final_result():
+def test_voice_session_partial_text_does_not_update_manual_input_before_final_result():
     dummy = DummyVoiceSession()
     partials = []
+    statuses = []
     dummy.operator_command_edit = SimpleNamespace(setText=partials.append, hasFocus=lambda: False)
+    dummy._operator_update_voice_recognition_status = statuses.append
 
     dummy._voice_session_update_partial_text("你好")
     dummy._voice_session_update_partial_text("你好小正")
 
-    assert partials == ["你好", "你好小正"]
+    assert partials == []
+    assert statuses == ["你好", "你好小正"]
 
 
-def test_voice_session_partial_text_does_not_overwrite_focused_manual_input():
+def test_voice_session_partial_text_updates_chat_even_when_manual_input_is_focused():
     dummy = DummyVoiceSession()
     partials = []
     statuses = []

@@ -1,99 +1,7 @@
 {
   "version": "1.1",
-  "updated_at": "2026-05-27T20:36:02.010232",
+  "updated_at": "2026-06-03T23:25:39.837896",
   "flows": [
-    {
-      "name": "home点头流程",
-      "description": "",
-      "steps": [
-        {
-          "step_id": 1,
-          "action": "flowdraft:home点头流程:01",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:01"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:01"
-        },
-        {
-          "step_id": 2,
-          "action": "flowdraft:home点头流程:02",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:02"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:02"
-        },
-        {
-          "step_id": 3,
-          "action": "flowdraft:home点头流程:03",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:03"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:03"
-        },
-        {
-          "step_id": 4,
-          "action": "flowdraft:home点头流程:04",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:04"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:04"
-        },
-        {
-          "step_id": 5,
-          "action": "flowdraft:home点头流程:05",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:05"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:05"
-        },
-        {
-          "step_id": 6,
-          "action": "flowdraft:home点头流程:06",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:06"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:06"
-        },
-        {
-          "step_id": 7,
-          "action": "flowdraft:home点头流程:07",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:home点头流程:07"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:home点头流程:07"
-        }
-      ],
-      "step_delay_ms": 300,
-      "rehearsal_spd": 20,
-      "confirmed": false,
-      "created_by": "operator",
-      "version": 1,
-      "state": "idle",
-      "current_step": 0,
-      "created_at": "2026-05-27T10:36:12.055075",
-      "updated_at": "2026-05-27T10:36:12.055075"
-    },
     {
       "name": "打个招呼的小",
       "description": "",
@@ -121,11 +29,88 @@
       "updated_at": "2026-05-25T21:57:42.937655"
     },
     {
-      "name": "未命名流程",
+      "name": "点头",
       "description": "",
       "steps": [
         {
           "step_id": 1,
+          "action": "位置A",
+          "func_id": 0,
+          "params": {
+            "query_key": "位置A"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "位置A"
+        },
+        {
+          "step_id": 2,
+          "action": "位置B",
+          "func_id": 0,
+          "params": {
+            "query_key": "位置B"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "位置B"
+        },
+        {
+          "step_id": 3,
+          "action": "flowdraft:home点头流程:01",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:01"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:01"
+        },
+        {
+          "step_id": 4,
+          "action": "flowdraft:home点头流程:02",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:02"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:02"
+        },
+        {
+          "step_id": 5,
+          "action": "flowdraft:home点头流程:04",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:home点头流程:04"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:home点头流程:04"
+        },
+        {
+          "step_id": 6,
+          "action": "休息姿态",
+          "func_id": 0,
+          "params": {
+            "query_key": "休息姿态"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "休息姿态"
+        },
+        {
+          "step_id": 7,
+          "action": "flowdraft:打个招呼的小:01",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:打个招呼的小:01"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:打个招呼的小:01"
+        },
+        {
+          "step_id": 8,
           "action": "flowdraft:未命名流程:01",
           "func_id": 0,
           "params": {
@@ -136,7 +121,7 @@
           "description": "flowdraft:未命名流程:01"
         },
         {
-          "step_id": 2,
+          "step_id": 9,
           "action": "flowdraft:未命名流程:02",
           "func_id": 0,
           "params": {
@@ -147,70 +132,26 @@
           "description": "flowdraft:未命名流程:02"
         },
         {
-          "step_id": 3,
-          "action": "flowdraft:未命名流程:03",
+          "step_id": 10,
+          "action": "休息姿态",
           "func_id": 0,
           "params": {
-            "query_key": "flowdraft:未命名流程:03"
+            "query_key": "休息姿态"
           },
           "position_name": null,
           "spd_pct": 50,
-          "description": "flowdraft:未命名流程:03"
-        },
-        {
-          "step_id": 4,
-          "action": "flowdraft:未命名流程:04",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:未命名流程:04"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:未命名流程:04"
-        },
-        {
-          "step_id": 5,
-          "action": "flowdraft:未命名流程:05",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:未命名流程:05"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:未命名流程:05"
-        },
-        {
-          "step_id": 6,
-          "action": "flowdraft:未命名流程:06",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:未命名流程:06"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:未命名流程:06"
-        },
-        {
-          "step_id": 7,
-          "action": "flowdraft:未命名流程:07",
-          "func_id": 0,
-          "params": {
-            "query_key": "flowdraft:未命名流程:07"
-          },
-          "position_name": null,
-          "spd_pct": 50,
-          "description": "flowdraft:未命名流程:07"
+          "description": "休息姿态"
         }
       ],
-      "step_delay_ms": 300,
+      "step_delay_ms": 1000,
       "rehearsal_spd": 20,
       "confirmed": false,
       "created_by": "operator",
       "version": 1,
       "state": "idle",
       "current_step": 0,
-      "created_at": "2026-05-27T20:36:02.010232",
-      "updated_at": "2026-05-27T20:36:02.010232"
+      "created_at": "2026-06-03T23:14:16.854970",
+      "updated_at": "2026-06-03T23:25:39.837896"
     }
   ]
 }

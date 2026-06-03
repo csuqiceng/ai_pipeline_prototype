@@ -39,6 +39,52 @@ def test_flow_auto_continue_is_not_deferred_when_not_paused():
     assert dummy._defer_flow_auto_continue_if_paused(flow=flow, run_id=7, completed_step_index=1, next_step="move_b") is False
 
 
+def test_flow_step_failure_while_paused_waits_for_resume_instead_of_failing():
+    dummy = DummyFlow()
+    logs = []
+    summaries = []
+    refreshed = []
+    flow = FlowDefinition(name="demo", steps=("move_a", "move_b"))
+    dummy.table = {"move_a": object()}
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": flow},
+            "get_flow": lambda self, name: self.flows[name],
+        },
+    )()
+    dummy.current_flow_name = "demo"
+    dummy.flow_run_id = 11
+    dummy._flow_run_started_id = 11
+    dummy.flow_running = True
+    dummy.flow_paused = True
+    dummy.flow_step_index = 0
+    dummy.flow_status = "运行中"
+    dummy.flow_current_step = "-"
+    dummy._flow_done_callback = lambda ok: logs.append(("callback", ok))
+    dummy._refresh_flow_steps = lambda: refreshed.append("steps")
+    dummy._refresh_flow_status_panel = lambda: refreshed.append("status")
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._append_flow_summary = lambda *args, **kwargs: summaries.append((args, kwargs))
+    dummy._flow_log_extra = lambda *_args, **_kwargs: {}
+    dummy._build_parallel_flow_group = lambda *_args, **_kwargs: None
+    dummy._flow_step_record = lambda *_args, **_kwargs: object()
+    dummy._execute_query_key = lambda _key, on_done=None, **_kwargs: on_done(False)
+    dummy._finish_flow_run = lambda status: logs.append(("finish", status))
+
+    dummy._run_current_flow_step(auto_continue=True, run_id=11)
+
+    assert dummy.flow_running is True
+    assert dummy.flow_paused is True
+    assert dummy.flow_status == "已暂停"
+    assert dummy.flow_step_index == 0
+    assert summaries == []
+    assert ("callback", False) not in logs
+    assert ("finish", "失败") not in logs
+    assert any(entry[1] == "流程暂停 demo" for entry in logs if isinstance(entry, tuple) and len(entry) >= 2)
+
+
 def test_mark_flow_run_started_clears_previous_pause_state():
     dummy = DummyFlow()
     dummy.flow_paused = True
@@ -109,6 +155,51 @@ def test_current_flow_definition_prefers_structured_flow_entry_from_service():
 
     assert flow is entry
     assert flow.steps[0].func_id == 108
+
+
+def test_start_flow_resets_completed_step_index_when_flow_was_extended(monkeypatch):
+    dummy = DummyFlow()
+    logs = []
+    refreshed = []
+    callbacks = []
+    flow = FlowDefinition(name="demo", steps=tuple(f"move_{index}" for index in range(8)))
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": flow},
+            "get_flow": lambda self, name: self.flows[name],
+        },
+    )()
+    dummy.current_flow_name = "demo"
+    dummy.flow_running = False
+    dummy.flow_paused = False
+    dummy.flow_step_index = 5
+    dummy.flow_current_step = "-"
+    dummy.flow_status = "完成"
+    dummy.flow_run_id = 0
+    dummy.host_edit = type("Host", (), {"text": lambda self: "127.0.0.1"})()
+    dummy._show_info = lambda *args: None
+    dummy._show_warning = lambda *args: None
+    dummy._refresh_flow_steps = lambda: refreshed.append("steps")
+    dummy._refresh_flow_status_panel = lambda: refreshed.append("status")
+    dummy._append_log = lambda *args, **kwargs: logs.append((args, kwargs))
+    dummy._flow_step_record = lambda step, **kwargs: object()
+    dummy._pause_polling = lambda: None
+    dummy._resume_polling = lambda: None
+    dummy._wait_controller_ready_for_flow = lambda host: (True, "ready")
+    dummy._run_in_background = lambda work, done: done(work())
+    dummy._run_next_flow_step = lambda *, run_id=None: callbacks.append(("next", run_id, dummy.flow_step_index))
+    monkeypatch.setattr("robot_modbus_lite.flow_execution_mixin.QTimer.singleShot", lambda _ms, callback: callback())
+
+    dummy._start_flow()
+
+    assert dummy.flow_step_index == 0
+    assert callbacks == [("next", 1, 0)]
+    assert any(
+        kwargs.get("extra", {}).get("start_step_index") == 1
+        for _args, kwargs in logs
+    )
 
 
 def test_reset_flow_clears_flow_pause_state():

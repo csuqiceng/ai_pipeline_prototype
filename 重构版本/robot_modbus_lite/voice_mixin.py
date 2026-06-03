@@ -652,7 +652,23 @@ class VoiceMixin:
             mode_detail = "豆包实时流式模式" if use_doubao_streaming else "静音分段模式"
             self._append_log("语音会话", "开启会话", "成功", mode_detail)
         except Exception as exc:
+            self._stop_voice_session_poll_timer()
+            self._stop_doubao_streaming_asr_session()
+            thread = getattr(self, "_mic_recorder_thread", None)
+            if thread is not None and hasattr(thread, "disable_session_mode"):
+                try:
+                    thread.disable_session_mode()
+                except Exception:
+                    pass
             self._voice_session_active = False
+            self._voice_session_asr_busy = False
+            self._voice_session_clear_queue()
+            if hasattr(self, "mic_toggle_btn"):
+                self.mic_toggle_btn.setText("开始录音")
+                self.mic_toggle_btn.setEnabled(True)
+            sync_mic_button = getattr(self, "_sync_operator_mic_button", None)
+            if callable(sync_mic_button):
+                sync_mic_button()
             if hasattr(self, "status_label"):
                 self.status_label.setText("语音会话启动失败")
             if hasattr(self, "_show_critical"):
@@ -921,8 +937,6 @@ class VoiceMixin:
         """AI 正在生成文本时忽略麦克风帧；TTS 播报不阻塞下一轮输入。"""
         if bool(getattr(self, "nlp_parse_running", False)):
             return True
-        if bool(getattr(self, "nlp_sequence_running", False)):
-            return True
         if bool(getattr(self, "_operator_streaming_chat_active", False)):
             return True
         return False
@@ -1051,16 +1065,6 @@ class VoiceMixin:
         update_status = getattr(self, "_operator_update_voice_recognition_status", None)
         if callable(update_status):
             update_status(partial)
-        if hasattr(self, "operator_command_edit"):
-            has_focus = False
-            try:
-                has_focus = bool(self.operator_command_edit.hasFocus())
-            except Exception:
-                has_focus = False
-            if not has_focus:
-                self.operator_command_edit.setText(partial)
-        elif hasattr(self, "nlp_input_edit"):
-            self.nlp_input_edit.setPlainText(partial)
         if hasattr(self, "status_label"):
             self.status_label.setText("语音会话正在识别文本...")
 

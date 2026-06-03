@@ -174,8 +174,7 @@ class FlowExecutionMixin:
             if on_done:
                 on_done(False)
             return
-        if self.flow_step_index >= len(flow.steps):
-            self.flow_step_index = 0
+        self.flow_step_index = 0
         host = self.host_edit.text().strip()
         if not host:
             self._show_warning("地址为空", "请输入控制器地址。")
@@ -458,6 +457,24 @@ class FlowExecutionMixin:
             if not self._is_flow_run_current(active_run_id):
                 return
             if not ok:
+                if getattr(self, "flow_paused", False):
+                    self.flow_status = "已暂停"
+                    self._refresh_flow_steps()
+                    self._refresh_flow_status_panel()
+                    self._append_log(
+                        "流程",
+                        f"流程暂停 {flow.name}",
+                        "提示",
+                        f"第{current_step_index + 1}步已暂停，等待继续执行 {step_name}",
+                        extra=self._flow_log_extra(
+                            flow,
+                            active_run_id,
+                            flow_status="已暂停",
+                            current_step=step_name,
+                            paused_step_index=current_step_index + 1,
+                        ),
+                    )
+                    return
                 self._finish_flow_run("失败")
                 fail_extra = self._flow_log_extra(
                     flow,

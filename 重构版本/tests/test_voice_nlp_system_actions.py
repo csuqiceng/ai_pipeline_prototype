@@ -63,6 +63,15 @@ def test_voice_nlp_adapter_rejects_wake_word_only_before_deepseek():
     assert client.prompts == []
 
 
+def test_voice_nlp_adapter_parses_wake_execute_named_flow_with_flow_suffix():
+    adapter = VoiceNlpAdapter(table={}, flow_names=("点头",))
+
+    plan = adapter.parse("小正，执行点头流程")
+
+    assert plan.actions[0].action_type == "flow"
+    assert plan.actions[0].target == "点头"
+
+
 def test_voice_nlp_adapter_marks_template_command_as_l3_production_execution():
     adapter = VoiceNlpAdapter(
         table={

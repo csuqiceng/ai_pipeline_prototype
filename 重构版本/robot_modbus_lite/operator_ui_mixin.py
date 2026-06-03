@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -86,6 +87,8 @@ class OperatorUiMixin:
         self._operator_scene_state = OperatorSceneState()
         self._operator_scene_before_alarm = None
         self._operator_pending_confirm_plan = None
+        self._operator_pending_interruption_text = ""
+        self._operator_executing_interruption_text = False
         self._operator_pending_flow_draft = None
         self._operator_pending_engineer_voice_spec: EngineerVoiceCommandSpec | None = None
         self._operator_pending_engineer_voice_created_at_sec: float | None = None
@@ -116,6 +119,8 @@ class OperatorUiMixin:
         self._operator_l3_progress_text = ""
         self._operator_dashboard_broadcast_state = None
         self._operator_last_periodic_reassurance_sec = 0.0
+        self._operator_refresh_pending = False
+        self._operator_last_refresh_sec = 0.0
 
         page = QFrame()
         page.setObjectName("operatorPage")
@@ -392,26 +397,47 @@ class OperatorUiMixin:
         scene = QFrame()
         scene.setObjectName("operatorScene")
         layout = QVBoxLayout(scene)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         self.operator_execute_title = QLabel("设备执行中")
         self.operator_execute_title.setObjectName("operatorSceneTitle")
         self.operator_execute_detail = QLabel("-")
         self.operator_execute_detail.setObjectName("operatorSceneSubtitle")
         self.operator_execute_detail.setWordWrap(True)
+        self.operator_execute_detail.setMaximumHeight(58)
+        self.operator_execute_detail.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.operator_execute_progress = QProgressBar()
         self.operator_execute_progress.setObjectName("operatorProgress")
         self.operator_execute_progress.setRange(0, 100)
         self.operator_execute_progress.setFormat("估算 %p%")
+        self.operator_execute_timeline_scroll = QScrollArea()
+        self.operator_execute_timeline_scroll.setObjectName("operatorFlowTimelineScroll")
+        self.operator_execute_timeline_scroll.setWidgetResizable(True)
+        self.operator_execute_timeline_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.operator_execute_timeline_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.operator_execute_timeline_scroll.setMinimumHeight(180)
+        self.operator_execute_timeline_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.operator_execute_timeline_content = QFrame()
+        self.operator_execute_timeline_content.setObjectName("operatorFlowTimelineContent")
+        self.operator_execute_timeline_layout = QVBoxLayout(self.operator_execute_timeline_content)
+        self.operator_execute_timeline_layout.setContentsMargins(2, 2, 2, 2)
+        self.operator_execute_timeline_layout.setSpacing(8)
+        self.operator_execute_timeline_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.operator_execute_timeline_scroll.setWidget(self.operator_execute_timeline_content)
+        self.operator_execute_step_widgets = {}
+        self.operator_execute_step_progress_bars = {}
+        self._operator_execute_timeline_signature = None
         self.operator_execute_position = QLabel("-")
         self.operator_execute_position.setObjectName("operatorMetricLarge")
         self.operator_execute_position.setWordWrap(True)
+        self.operator_execute_position.setMaximumHeight(34)
+        self.operator_execute_position.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.operator_execute_title)
         layout.addWidget(self.operator_execute_detail)
         layout.addWidget(self.operator_execute_progress)
+        layout.addWidget(self.operator_execute_timeline_scroll, 1)
         layout.addWidget(self.operator_execute_position)
-        layout.addStretch(1)
         return scene
 
     def _build_operator_confirm_scene(self) -> QWidget:
@@ -610,12 +636,12 @@ class OperatorUiMixin:
 
     def _refresh_status_labels(self) -> None:
         super()._refresh_status_labels()
-        self._refresh_operator_view()
+        self._operator_schedule_refresh()
 
     def _append_log_entry(self, entry: dict[str, Any]) -> None:
         super()._append_log_entry(entry)
         self._operator_add_chat_from_log(entry)
-        self._refresh_operator_view()
+        self._operator_schedule_refresh()
 
     def _set_nlp_result_plan(self, plan) -> None:
         super()._set_nlp_result_plan(plan)
@@ -898,6 +924,7 @@ class OperatorUiMixin:
             self.operator_command_edit.clear()
         self._operator_scene_override = None
         self._operator_set_pending_confirm_plan(None)
+        self._operator_pending_interruption_text = ""
         self._refresh_operator_view()
 
     def _operator_parse_text(self) -> None:
@@ -937,18 +964,71 @@ class OperatorUiMixin:
         command = str(text or "").strip()
         if not command:
             return
+        self._operator_execute_voice_session_text(command)
+
+    def _operator_execute_voice_session_text(self, text: str) -> None:
+        command = str(text or "").strip()
+        if not command:
+            return
+        interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
+        if callable(interrupter):
+            interrupter()
+        self._operator_scene_override = None
+        if hasattr(self, "operator_voice_label"):
+            self.operator_voice_label.setText(f"语音输入: {command}")
+        archive = getattr(self, "_operator_archive_text_input", None)
+        if callable(archive):
+            archive(command)
+        if hasattr(self, "nlp_input_edit"):
+            self.nlp_input_edit.setPlainText(command)
+            self._execute_nlp_text()
+            self.nlp_input_edit.clear()
+            return
         if hasattr(self, "operator_command_edit"):
             self.operator_command_edit.setText(command)
-        elif hasattr(self, "nlp_input_edit"):
-            self.nlp_input_edit.setPlainText(command)
-        self._operator_execute_text()
+            self._operator_execute_text()
+            return
+        self._show_warning("输入为空", "请输入自然语言文本。")
 
     def _operator_begin_voice_recognition_status(self) -> None:
         self._operator_voice_recognition_status_index = None
         self._operator_voice_recognition_status_label = None
 
     def _operator_update_voice_recognition_status(self, text: str) -> None:
-        return
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        if not hasattr(self, "_operator_chat_messages"):
+            self._operator_chat_messages = []
+        if not hasattr(self, "_operator_chat_thinking_steps"):
+            self._operator_chat_thinking_steps = [[] for _ in self._operator_chat_messages]
+        if not hasattr(self, "_operator_chat_thinking_meta"):
+            self._operator_chat_thinking_meta = [{} for _ in self._operator_chat_messages]
+        index = getattr(self, "_operator_voice_recognition_status_index", None)
+        if not isinstance(index, int) or index < 0 or index >= len(self._operator_chat_messages):
+            self._operator_chat_messages.append(("user", clean))
+            self._operator_chat_thinking_steps.append([])
+            self._operator_chat_thinking_meta.append({"voice_recognition_status": True})
+            self._operator_voice_recognition_status_index = len(self._operator_chat_messages) - 1
+        else:
+            self._operator_chat_messages[index] = ("user", clean)
+            if index < len(self._operator_chat_thinking_steps):
+                self._operator_chat_thinking_steps[index] = []
+            if index < len(self._operator_chat_thinking_meta):
+                self._operator_chat_thinking_meta[index] = {"voice_recognition_status": True}
+            label = getattr(self, "_operator_voice_recognition_status_label", None)
+            if label is not None and hasattr(label, "setText"):
+                try:
+                    label.setText(clean)
+                    self._operator_last_user_text = clean
+                    self._operator_chat_autoscroll_pending = True
+                    self._operator_scroll_chat_to_bottom()
+                    return
+                except Exception:
+                    self._operator_voice_recognition_status_label = None
+        self._operator_last_user_text = clean
+        self._operator_chat_autoscroll_pending = True
+        self._render_operator_chat()
 
     def _operator_finish_voice_recognition_status(self, text: str) -> None:
         clean = str(text or "").strip()
@@ -1033,8 +1113,14 @@ class OperatorUiMixin:
         return True
 
     def _operator_reject_new_action_while_busy(self, text: str) -> bool:
+        if getattr(self, "_operator_executing_interruption_text", False):
+            return False
         if not self._operator_execution_or_pause_active():
             return False
+        if self._operator_is_wake_command(text):
+            return self._operator_begin_busy_interruption(text)
+        if getattr(self, "flow_running", False) and self._operator_handle_busy_chat_text(text):
+            return True
         message = ResponseMessage(
             kind="alert",
             text="当前任务未完成，已拒绝新的动作指令。可查询进度、暂停、继续、停止流程或使用应急编码。",
@@ -1052,6 +1138,276 @@ class OperatorUiMixin:
             self._refresh_operator_view()
         return True
 
+    def _operator_is_wake_command(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        return any(wake_word and wake_word in compact for wake_word in configured_wake_words())
+
+    def _operator_handle_busy_chat_text(self, text: str) -> bool:
+        command = str(text or "").strip()
+        if not command:
+            return False
+        if self._operator_is_wake_command(command):
+            return False
+        use_deepseek = False
+        if hasattr(self, "nlp_use_deepseek_check"):
+            try:
+                use_deepseek = bool(self.nlp_use_deepseek_check.isChecked())
+            except Exception:
+                use_deepseek = False
+        chat_delta_callback = (
+            self._operator_streaming_chat_delta_callback()
+            if use_deepseek and hasattr(self, "_operator_streaming_chat_delta_callback")
+            else None
+        )
+        if hasattr(self, "_operator_maybe_begin_streaming_chat_for_text"):
+            if self._operator_maybe_begin_streaming_chat_for_text(command, use_deepseek=use_deepseek):
+                messages = getattr(self, "_operator_chat_messages", [])
+                metas = getattr(self, "_operator_chat_thinking_meta", [])
+                if messages and messages[-1][0] == "assistant":
+                    self._operator_busy_chat_stream_index = len(messages) - 1
+                    if metas:
+                        metas[-1]["busy_flow_chat"] = True
+        if hasattr(self, "status_label"):
+            self.status_label.setText("当前流程继续执行，正在处理闲聊。")
+
+        def work():
+            return self._build_voice_nlp_adapter().parse(
+                command,
+                use_deepseek=use_deepseek,
+                chat_delta_callback=chat_delta_callback,
+            )
+
+        def on_result(result):
+            if isinstance(result, Exception):
+                text_out = f"闲聊处理失败：{result}"
+                if hasattr(self, "status_label"):
+                    self.status_label.setText(text_out)
+                if hasattr(self, "_operator_add_chat_message"):
+                    self._operator_add_chat_message("assistant", text_out)
+                if hasattr(self, "_append_log"):
+                    self._append_log("自然语言", "忙碌闲聊", "失败", str(result))
+                return
+            self._operator_reply_busy_chat_plan(result)
+
+        runner = getattr(self, "_run_in_background", None)
+        if callable(runner):
+            runner(work, on_result)
+        else:
+            on_result(work())
+        return True
+
+    def _operator_reply_busy_chat_plan(self, plan) -> None:
+        actions = tuple(getattr(plan, "actions", ()) or ())
+        first_type = str(getattr(actions[0], "action_type", "") or "") if actions else ""
+        reason = str(getattr(plan, "reason", "") or "").strip()
+        if first_type == "chat":
+            text = reason or "我在，当前流程会继续执行。"
+            result = "chat"
+        elif first_type == "query":
+            if self._operator_answer_query_plan(plan):
+                return
+            text = reason or "当前流程继续执行，查询结果暂不可用。"
+            result = "answered"
+        else:
+            text = reason or "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请先说“小正”加具体指令。"
+            if "生产指令缺少" in text:
+                text = "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请说“小正”加具体指令。"
+            result = "chat"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(text))
+        if first_type == "chat" and self._operator_replace_busy_streaming_chat_response(text):
+            pass
+        elif hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", text)
+        self._operator_publish_ai_answer_for_speech(text)
+        if hasattr(self, "_operator_archive_execution_result"):
+            self._operator_archive_execution_result(result=result, final_text=text)
+        if hasattr(self, "_append_log"):
+            self._append_log("自然语言", "忙碌闲聊", "成功", text)
+        if hasattr(self, "_operator_schedule_refresh"):
+            self._operator_schedule_refresh()
+
+    def _operator_replace_busy_streaming_chat_response(self, text: str) -> bool:
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            return False
+        if getattr(self, "_operator_streaming_chat_active", False):
+            self._operator_finish_streaming_chat_response(clean_text)
+            return True
+        index = getattr(self, "_operator_busy_chat_stream_index", None)
+        messages = getattr(self, "_operator_chat_messages", None)
+        if not isinstance(index, int) or not isinstance(messages, list):
+            return False
+        if index < 0 or index >= len(messages):
+            self._operator_busy_chat_stream_index = None
+            return False
+        role, _old_text = messages[index]
+        if role != "assistant":
+            self._operator_busy_chat_stream_index = None
+            return False
+        messages[index] = ("assistant", clean_text)
+        steps = getattr(self, "_operator_chat_thinking_steps", None)
+        if isinstance(steps, list):
+            while len(steps) <= index:
+                steps.append([])
+            steps[index] = self._operator_streaming_chat_final_steps()
+        metas = getattr(self, "_operator_chat_thinking_meta", [])
+        if isinstance(metas, list):
+            while len(metas) <= index:
+                metas.append({})
+            started = float(metas[index].get("started_sec", getattr(self, "_operator_streaming_chat_started_sec", self._operator_now_seconds())) or self._operator_now_seconds())
+            elapsed_sec = max(0, int(self._operator_now_seconds() - started))
+            metas[index] = {"active": False, "elapsed_sec": elapsed_sec}
+        self._operator_busy_chat_stream_index = None
+        self._operator_pending_streaming_chat_final_text = ""
+        self._operator_streaming_chat_text = clean_text
+        self._operator_streaming_chat_render_pending = False
+        self._operator_chat_autoscroll_pending = True
+        if hasattr(self, "_render_operator_chat"):
+            self._render_operator_chat()
+        return True
+
+    def _operator_begin_busy_interruption(self, text: str) -> bool:
+        command = str(text or "").strip()
+        if not command:
+            return False
+        self._operator_pending_interruption_text = command
+        self._operator_set_pending_confirm_plan(None)
+        self._operator_scene_override = "execute"
+        handler = getattr(self, "_handle_system_action", None)
+        if callable(handler):
+            handler("sys_pause")
+        prompt = (
+            "当前流程已暂停。检测到新的指令。"
+            "如果要继续原来的流程，请说“继续当前流程”；"
+            "如果要放弃原来的流程并处理新指令，请说“清除上一次流程并执行新的流程”。"
+        )
+        message = ResponseMessage(
+            kind="warn",
+            text=prompt,
+            priority="high",
+            context_id="operator:busy_interruption_choice",
+        )
+        if hasattr(self, "_operator_publish_response"):
+            self._operator_publish_response(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText("当前流程已暂停，等待用户选择。")
+        if hasattr(self, "_operator_archive_execution_result"):
+            self._operator_archive_execution_result(result="paused_for_new_command", final_text=prompt)
+        if hasattr(self, "_append_log"):
+            self._append_log("用户页面", "新指令打断流程", "等待选择", command)
+        if hasattr(self, "_refresh_operator_view"):
+            self._refresh_operator_view()
+        return True
+
+    def _operator_handle_pending_interruption_command(self, text: str) -> bool:
+        pending = str(getattr(self, "_operator_pending_interruption_text", "") or "").strip()
+        if not pending:
+            return False
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact:
+            return False
+
+        continue_phrases = {
+            "继续当前流程",
+            "继续原流程",
+            "继续上一次流程",
+            "恢复当前流程",
+            "恢复原流程",
+            "恢复上一次流程",
+        }
+        execute_new_phrases = {
+            "清除上一次流程并执行新的流程",
+            "清除上一次流程执行新的流程",
+            "清除上一次的流程并执行新的流程",
+            "清除上一次的流程执行新的流程",
+            "放弃当前流程并执行新的流程",
+            "停止当前流程并执行新的流程",
+            "执行新的流程",
+            "执行新流程",
+            "执行新命令",
+            "确认执行新的流程",
+            "确认执行新流程",
+        }
+        cancel_phrases = {
+            "取消新指令",
+            "取消新的指令",
+            "取消切换",
+            "不执行新指令",
+        }
+
+        if any(phrase in compact for phrase in continue_phrases):
+            self._operator_pending_interruption_text = ""
+            handler = getattr(self, "_handle_system_action", None)
+            if callable(handler):
+                handler("sys_resume")
+            text_out = "已取消新指令，继续当前流程。"
+            self._operator_publish_interruption_choice_response(text_out, result="resumed_current_flow", log_action="继续当前流程")
+            return True
+
+        if any(phrase in compact for phrase in execute_new_phrases):
+            self._operator_pending_interruption_text = ""
+            self._operator_stop_interrupted_current_execution()
+            text_out = "已停止上一次流程，开始处理新的指令。"
+            self._operator_publish_interruption_choice_response(text_out, result="accepted_new_command", log_action="执行新指令")
+            self._operator_execute_interruption_text(pending)
+            return True
+
+        if any(phrase in compact for phrase in cancel_phrases):
+            self._operator_pending_interruption_text = ""
+            text_out = "已取消新指令。当前流程仍处于暂停状态，请说“继续当前流程”恢复。"
+            self._operator_publish_interruption_choice_response(text_out, result="cancelled_new_command", log_action="取消新指令")
+            return True
+
+        return False
+
+    def _operator_publish_interruption_choice_response(self, text: str, *, result: str, log_action: str) -> None:
+        message = ResponseMessage(
+            kind="result",
+            text=text,
+            priority="normal",
+            context_id=f"operator:busy_interruption:{result}",
+        )
+        if hasattr(self, "_operator_publish_response"):
+            self._operator_publish_response(message)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        if hasattr(self, "_operator_archive_execution_result"):
+            self._operator_archive_execution_result(result=result, final_text=text)
+        if hasattr(self, "_append_log"):
+            self._append_log("用户页面", log_action, "成功", text)
+        if hasattr(self, "_refresh_operator_view"):
+            self._refresh_operator_view()
+
+    def _operator_stop_interrupted_current_execution(self) -> None:
+        if bool(getattr(self, "flow_running", False)):
+            stopper = getattr(self, "_stop_flow", None)
+            if callable(stopper):
+                stopper()
+                return
+        stopper = getattr(self, "_operator_stop_current", None)
+        if callable(stopper):
+            stopper()
+            return
+        handler = getattr(self, "_handle_system_action", None)
+        if callable(handler):
+            handler("sys_cancel")
+
+    def _operator_execute_interruption_text(self, text: str) -> None:
+        command = str(text or "").strip()
+        if not command:
+            return
+        if hasattr(self, "nlp_input_edit"):
+            self.nlp_input_edit.setPlainText(command)
+        previous = bool(getattr(self, "_operator_executing_interruption_text", False))
+        self._operator_executing_interruption_text = True
+        try:
+            self._execute_nlp_text()
+        finally:
+            self._operator_executing_interruption_text = previous
+
     def _operator_execution_or_pause_active(self) -> bool:
         return bool(
             getattr(self, "nlp_sequence_running", False)
@@ -1066,7 +1422,7 @@ class OperatorUiMixin:
             record = writer.append_input_record(
                 source="text",
                 raw_text=text,
-                device_snapshot=self._operator_device_snapshot_for_archive(),
+                device_snapshot=self._operator_device_snapshot_for_archive(refresh_dashboard=False),
                 scene_state=self._operator_scene_state_payload(),
             )
             self._operator_last_interaction_record_id = record.msg_id
@@ -1134,8 +1490,11 @@ class OperatorUiMixin:
             dialog_logger=self._operator_dialog_logger(),
         )
 
-    def _operator_device_snapshot_for_archive(self) -> dict[str, Any]:
-        snapshot_dict = self._operator_dashboard_snapshot_dict()
+    def _operator_device_snapshot_for_archive(self, *, refresh_dashboard: bool = True) -> dict[str, Any]:
+        try:
+            snapshot_dict = self._operator_dashboard_snapshot_dict(refresh=refresh_dashboard)
+        except TypeError:
+            snapshot_dict = self._operator_dashboard_snapshot_dict()
         try:
             dashboard_snapshot = DashboardCache().snapshot
             dashboard_snapshot = replace(
@@ -1648,6 +2007,8 @@ class OperatorUiMixin:
         if not compact:
             return False
 
+        if self._operator_handle_pending_interruption_command(text):
+            return True
         if self._operator_handle_emergency_text(text):
             return True
         if self._operator_handle_progress_query(text):
@@ -2094,6 +2455,8 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return ""
+        if self._operator_text_looks_like_existing_flow_execution_request(compact):
+            return ""
         if self._operator_text_looks_like_flow_creation_request(compact):
             return ""
         status_answer = self._operator_device_status_context_answer(compact)
@@ -2118,12 +2481,25 @@ class OperatorUiMixin:
         return ""
 
     def _operator_registered_flow_context_answer(self, compact_text: str) -> str:
+        if self._operator_text_looks_like_existing_flow_execution_request(compact_text):
+            return ""
         if not any(keyword in compact_text for keyword in ("流程", "信息", "详情", "步骤", "看看", "看下", "查询")):
             return ""
         flow = self._operator_find_registered_flow_for_text(compact_text)
         if flow is None:
             return ""
         return self._operator_flow_entry_preview_text(flow, include_params=True)
+
+    def _operator_text_looks_like_existing_flow_execution_request(self, compact_text: str) -> bool:
+        compact = re.sub(r"\s+", "", compact_text or "")
+        if not compact:
+            return False
+        stripped = strip_wake_word_from_compact(compact)
+        if stripped == compact:
+            return False
+        if not any(verb in stripped for verb in ("执行", "开始", "运行")):
+            return False
+        return self._operator_find_registered_flow_for_text(stripped) is not None
 
     def _operator_find_registered_flow_for_text(self, compact_text: str):
         service = getattr(self, "service", None)
@@ -3592,9 +3968,10 @@ class OperatorUiMixin:
             )
         )
 
-    def _operator_dashboard_snapshot_dict(self) -> dict[str, Any]:
+    def _operator_dashboard_snapshot_dict(self, *, refresh: bool = True) -> dict[str, Any]:
         if hasattr(self, "operator_dashboard_cache"):
-            self._operator_refresh_dashboard_cache()
+            if refresh:
+                self._operator_refresh_dashboard_cache()
             snapshot = self.operator_dashboard_cache.to_dict()
         else:
             snapshot = {}
@@ -3606,6 +3983,12 @@ class OperatorUiMixin:
     def _operator_refresh_dashboard_cache(self):
         if not hasattr(self, "operator_dashboard_cache"):
             self.operator_dashboard_cache = DashboardCache()
+        now = self._operator_now_seconds()
+        if self._operator_user_is_typing_command():
+            last = float(getattr(self, "_operator_last_dashboard_cache_refresh_sec", 0.0) or 0.0)
+            if now - last < 0.2:
+                return getattr(self.operator_dashboard_cache, "snapshot", None)
+        self._operator_last_dashboard_cache_refresh_sec = now
         snapshot = self.operator_dashboard_cache.update_from_source(self)
         self._operator_publish_dashboard_change_broadcasts(snapshot)
         return snapshot
@@ -4528,7 +4911,8 @@ class OperatorUiMixin:
     def _refresh_operator_view(self) -> None:
         if not hasattr(self, "operator_scene_stack"):
             return
-        self._operator_refresh_dashboard_cache()
+        self._operator_refresh_pending = False
+        self._operator_last_refresh_sec = self._operator_now_seconds()
         self._operator_clear_expired_pending_confirm_for_refresh()
 
         state_text, color, detail = self._compute_overall_state()
@@ -4547,6 +4931,11 @@ class OperatorUiMixin:
             self.operator_host_edit.setText(self.host_edit.text().strip())
 
         self.operator_current_label.setText(f"当前: {self._operator_current_task_text()}")
+        user_typing = self._operator_user_is_typing_command()
+        if user_typing:
+            self._operator_request_scene(self._operator_desired_scene(), reason="operator_refresh_typing")
+            self._sync_operator_mic_button()
+            return
         self._refresh_operator_axis_labels()
         self._refresh_operator_scene_content(detail)
         self._refresh_operator_pending_flow_status()
@@ -4558,6 +4947,32 @@ class OperatorUiMixin:
 
         scene = self._operator_desired_scene()
         self._operator_request_scene(scene, reason="operator_refresh")
+
+    def _operator_user_is_typing_command(self) -> bool:
+        edit = getattr(self, "operator_command_edit", None)
+        if edit is None:
+            return False
+        try:
+            if not edit.hasFocus():
+                return False
+        except Exception:
+            return False
+        try:
+            return bool(str(edit.text() or "").strip())
+        except Exception:
+            return False
+
+    def _operator_schedule_refresh(self, *, max_rate_hz: float = 10.0) -> None:
+        if not hasattr(self, "operator_scene_stack"):
+            return
+        if bool(getattr(self, "_operator_refresh_pending", False)):
+            return
+        now = self._operator_now_seconds()
+        last = float(getattr(self, "_operator_last_refresh_sec", 0.0) or 0.0)
+        min_interval = 1.0 / max(1.0, float(max_rate_hz))
+        delay_ms = max(0, int((min_interval - max(0.0, now - last)) * 1000))
+        self._operator_refresh_pending = True
+        QTimer.singleShot(delay_ms, self._refresh_operator_view)
 
     def _operator_request_scene(self, scene: str, reason: str = "operator_request_scene") -> None:
         try:
@@ -4652,6 +5067,10 @@ class OperatorUiMixin:
         return "空闲"
 
     def _set_operator_badge(self, label: QLabel, title: str, value: str, active: bool) -> None:
+        state = (title, value, bool(active))
+        if getattr(label, "_operator_badge_state", None) == state:
+            return
+        setattr(label, "_operator_badge_state", state)
         label.setText(f"{title}\n{value}")
         label.setProperty("active", "true" if active else "false")
         label.style().unpolish(label)
@@ -4711,8 +5130,9 @@ class OperatorUiMixin:
             self.operator_execute_progress.setRange(0, 100)
             self.operator_execute_progress.setValue(progress)
             self.operator_execute_progress.setFormat(f"估算 {progress}%")
+        self._refresh_operator_execute_timeline(state_detail, progress=progress)
         self.operator_execute_position.setText(
-            f"当前位置 X:{self.robot_x}  Y:{self.robot_y}  Z:{self.robot_z}  RX/RY/RZ:{self.robot_r}"
+            f"位置 X:{self.robot_x} Y:{self.robot_y} Z:{self.robot_z} R:{self.robot_r}"
         )
 
         self.operator_confirm_title.setText("等待安全确认")
@@ -4737,12 +5157,227 @@ class OperatorUiMixin:
 
     def _operator_execute_detail_text(self, state_detail: str) -> str:
         if getattr(self, "flow_running", False):
-            return f"{self.current_flow_name or '-'} / {self.flow_current_step or '-'}"
+            items = self._operator_flow_execution_timeline_items()
+            if items:
+                current = next((item for item in items if item["status"] == "current"), items[-1])
+                return f"流程：{self._operator_flow_execution_name()}\n步骤：{current['index']} / {len(items)}\n当前：{current['label']}"
+            return f"流程：{self.current_flow_name or '-'}"
         if getattr(self, "nlp_sequence_running", False):
             total = len(getattr(self, "_nlp_pending_actions", []))
             current = min(getattr(self, "_nlp_pending_index", 0) + 1, total) if total else 0
             return f"自然语言动作 {current} / {total}"
         return state_detail
+
+    def _operator_flow_execution_name(self) -> str:
+        flow_name = str(getattr(self, "current_flow_name", "") or "").strip()
+        if not flow_name and hasattr(self, "flow_combo"):
+            try:
+                flow_name = str(self.flow_combo.currentText() or "").strip()
+            except Exception:
+                flow_name = ""
+        return flow_name
+
+    def _operator_flow_execution_steps(self) -> list[Any]:
+        flow_name = self._operator_flow_execution_name()
+        if not flow_name:
+            return []
+        try:
+            flow = self.service.get_flow(flow_name)
+            return list(getattr(flow, "steps", ()) or ())
+        except Exception:
+            return []
+
+    def _operator_flow_execution_timeline_items(self) -> list[dict[str, object]]:
+        steps = self._operator_flow_execution_steps()
+        if not steps:
+            return []
+        current_index = min(max(int(getattr(self, "flow_step_index", 0) or 0), 0), max(len(steps) - 1, 0))
+        items = []
+        for index, step in enumerate(steps, start=1):
+            zero_index = index - 1
+            status = "current" if zero_index == current_index else "done" if zero_index < current_index else "pending"
+            items.append(
+                {
+                    "index": index,
+                    "status": status,
+                    "label": self._operator_flow_step_display_label(step),
+                    "key": str(step or ""),
+                }
+            )
+        return items
+
+    def _operator_flow_step_display_label(self, step: Any) -> str:
+        record = self._operator_flow_step_record(step)
+        source = record if record is not None else step
+        label = str(getattr(source, "description", "") or getattr(source, "action", "") or "").strip()
+        if label:
+            return label
+        if isinstance(step, str):
+            return step
+        query_key = str(getattr(source, "query_key", "") or "").strip()
+        return query_key or "执行动作"
+
+    @staticmethod
+    def _operator_compact_flow_step_label(text: str, *, limit: int = 44) -> str:
+        clean = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(clean) <= limit:
+            return clean or "执行动作"
+        return clean[: max(1, limit - 1)].rstrip() + "…"
+
+    def _refresh_operator_execute_timeline(self, state_detail: str, *, progress: int | None) -> None:
+        if not hasattr(self, "operator_execute_timeline_layout"):
+            return
+        if getattr(self, "flow_running", False):
+            items = self._operator_flow_execution_timeline_items()
+            signature = (
+                "flow",
+                self._operator_flow_execution_name(),
+                tuple((int(item["index"]), str(item["status"]), str(item["label"])) for item in items),
+            )
+            if signature == getattr(self, "_operator_execute_timeline_signature", None):
+                self._operator_update_current_flow_progress(progress)
+                current_index = int(getattr(self, "flow_step_index", 0) or 0) + 1
+                self._operator_schedule_current_flow_step_scroll_if_needed(current_index)
+                return
+            self._operator_execute_timeline_signature = signature
+            self._operator_clear_layout(self.operator_execute_timeline_layout)
+            self.operator_execute_step_widgets = {}
+            self.operator_execute_step_progress_bars = {}
+            for item in items:
+                widget = self._build_operator_flow_step_card(item, progress=progress)
+                step_index = int(item["index"])
+                self.operator_execute_step_widgets[step_index] = widget
+                self.operator_execute_timeline_layout.addWidget(widget)
+            current_index = int(getattr(self, "flow_step_index", 0) or 0) + 1
+            self._operator_schedule_current_flow_step_scroll_if_needed(current_index)
+            return
+        self._operator_last_visible_flow_step_index = None
+        detail = str(state_detail or "-").strip() or "-"
+        signature = ("status", detail)
+        if signature == getattr(self, "_operator_execute_timeline_signature", None):
+            return
+        self._operator_execute_timeline_signature = signature
+        self._operator_clear_layout(self.operator_execute_timeline_layout)
+        self.operator_execute_step_widgets = {}
+        self.operator_execute_step_progress_bars = {}
+        self.operator_execute_timeline_layout.addWidget(self._build_operator_execute_info_card(detail))
+
+    @staticmethod
+    def _operator_clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _operator_update_current_flow_progress(self, progress: int | None) -> None:
+        bars = getattr(self, "operator_execute_step_progress_bars", {}) or {}
+        current_index = int(getattr(self, "flow_step_index", 0) or 0) + 1
+        bar = bars.get(current_index)
+        if bar is None:
+            return
+        bar.setValue(max(0, min(100, int(progress or 0))))
+
+    def _operator_schedule_current_flow_step_scroll_if_needed(self, step_index: int) -> None:
+        try:
+            current_index = int(step_index)
+        except (TypeError, ValueError):
+            return
+        if current_index <= 0:
+            return
+        if getattr(self, "_operator_last_visible_flow_step_index", None) == current_index:
+            return
+        self._operator_last_visible_flow_step_index = current_index
+        for delay_ms in (0, 60, 160, 320):
+            QTimer.singleShot(delay_ms, lambda index=current_index: self._operator_scroll_current_flow_step(index))
+
+    def _build_operator_flow_step_card(self, item: dict[str, object], *, progress: int | None) -> QWidget:
+        status = str(item.get("status") or "pending")
+        step_index = int(item.get("index") or 0)
+        label_text = self._operator_compact_flow_step_label(str(item.get("label") or "执行动作"))
+        card = QFrame()
+        card.setObjectName("operatorFlowStepCard")
+        card.setProperty("status", status)
+        height = 82 if status == "current" else 66
+        card.setMinimumHeight(height)
+        card.setMaximumHeight(height)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(7)
+
+        dot = QLabel("✓" if status == "done" else "↻" if status == "current" else "○")
+        dot.setObjectName("operatorFlowStepDot")
+        dot.setProperty("status", status)
+        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot.setFixedSize(30, 30)
+        layout.addWidget(dot, 0, Qt.AlignmentFlag.AlignTop)
+
+        text_box = QVBoxLayout()
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(3)
+        title = QLabel(f"步骤 {step_index}")
+        title.setObjectName("operatorFlowStepTitle")
+        title.setProperty("status", status)
+        title.setMaximumHeight(20)
+        body = QLabel(label_text)
+        body.setObjectName("operatorFlowStepBody")
+        body.setWordWrap(True)
+        body.setMaximumHeight(36)
+        body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        text_box.addWidget(title)
+        text_box.addWidget(body)
+        if status == "current":
+            bar = QProgressBar()
+            bar.setObjectName("operatorFlowStepProgress")
+            bar.setRange(0, 100)
+            bar.setValue(max(0, min(100, int(progress or 0))))
+            bar.setTextVisible(False)
+            self.operator_execute_step_progress_bars[step_index] = bar
+            text_box.addWidget(bar)
+        layout.addLayout(text_box, 1)
+        return card
+
+    def _build_operator_execute_info_card(self, text: str) -> QWidget:
+        card = QFrame()
+        card.setObjectName("operatorFlowStepCard")
+        card.setProperty("status", "current")
+        card.setMaximumHeight(96)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 9, 10, 9)
+        title = QLabel("当前执行")
+        title.setObjectName("operatorFlowStepTitle")
+        body = QLabel(text)
+        body.setObjectName("operatorFlowStepBody")
+        body.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(body)
+        return card
+
+    def _operator_scroll_current_flow_step(self, step_index: int) -> None:
+        widgets = getattr(self, "operator_execute_step_widgets", None)
+        if widgets is None:
+            widgets = getattr(self, "_operator_execute_step_widgets", {})
+        widget = widgets.get(int(step_index))
+        scroll = getattr(self, "operator_execute_timeline_scroll", None)
+        if widget is None or scroll is None:
+            return
+        ensure = getattr(scroll, "ensureWidgetVisible", None)
+        if callable(ensure):
+            ensure(widget, 0, 12)
+        try:
+            bar = scroll.verticalScrollBar()
+            viewport = scroll.viewport()
+            y = int(widget.y())
+            height = int(widget.height())
+            viewport_height = int(viewport.height())
+            target = y + height // 2 - viewport_height // 2
+            target = max(int(bar.minimum()), min(int(bar.maximum()), target))
+            bar.setValue(target)
+        except (AttributeError, TypeError, ValueError, RuntimeError):
+            return
 
     def _operator_confirm_detail_text(self) -> str:
         plan = getattr(self, "_operator_pending_confirm_plan", None)
@@ -5104,6 +5739,8 @@ class OperatorUiMixin:
             self._operator_chat_thinking_steps = [[] for _ in self._operator_chat_messages]
         if not hasattr(self, "_operator_chat_thinking_meta"):
             self._operator_chat_thinking_meta = [{} for _ in self._operator_chat_messages]
+        if role == "assistant" and self._operator_replace_current_streaming_chat_message(clean_text):
+            return
         if self._operator_chat_messages and self._operator_chat_messages[-1] == (role, clean_text):
             if scroll_to_bottom:
                 self._operator_chat_autoscroll_pending = True
@@ -5118,7 +5755,70 @@ class OperatorUiMixin:
         self._operator_chat_thinking_steps = self._operator_chat_thinking_steps[-80:]
         self._operator_chat_thinking_meta = self._operator_chat_thinking_meta[-80:]
         self._operator_chat_autoscroll_pending = scroll_to_bottom
+        message_index = len(self._operator_chat_messages) - 1
+        if self._operator_append_chat_row_if_possible(message_index):
+            if scroll_to_bottom:
+                self._operator_scroll_chat_to_bottom()
+            return
         self._render_operator_chat()
+
+    def _operator_append_chat_row_if_possible(self, message_index: int) -> bool:
+        if not getattr(self, "_operator_chat_rendered", False):
+            return False
+        layout = getattr(self, "operator_chat_layout", None)
+        if layout is None:
+            return False
+        messages = getattr(self, "_operator_chat_messages", [])
+        if message_index < 0 or message_index >= len(messages):
+            return False
+        role, text = messages[message_index]
+        steps = getattr(self, "_operator_chat_thinking_steps", [])
+        metas = getattr(self, "_operator_chat_thinking_meta", [])
+        thinking_steps = steps[message_index] if message_index < len(steps) else []
+        thinking_meta = metas[message_index] if message_index < len(metas) else {}
+        try:
+            row = self._build_operator_chat_row(
+                role,
+                text,
+                thinking_steps=thinking_steps,
+                thinking_meta=thinking_meta,
+                message_index=message_index,
+            )
+            count = layout.count()
+            insert_at = count
+            if count > 0:
+                last_item = layout.itemAt(count - 1)
+                if last_item is not None and last_item.widget() is None:
+                    insert_at = count - 1
+            layout.insertWidget(insert_at, row)
+            return True
+        except Exception:
+            return False
+
+    def _operator_current_streaming_chat_index(self, *, include_inactive: bool = False) -> int | None:
+        messages = getattr(self, "_operator_chat_messages", None)
+        if not isinstance(messages, list) or not messages:
+            return None
+        candidates = (getattr(self, "_operator_streaming_chat_message_index", None),)
+        metas = getattr(self, "_operator_chat_thinking_meta", [])
+        for candidate in candidates:
+            if isinstance(candidate, int) and 0 <= candidate < len(messages) and messages[candidate][0] == "assistant":
+                if include_inactive or getattr(self, "_operator_streaming_chat_active", False):
+                    return candidate
+                if isinstance(metas, list) and candidate < len(metas) and bool(metas[candidate].get("active")):
+                    return candidate
+        if isinstance(metas, list):
+            for index in range(min(len(messages), len(metas)) - 1, -1, -1):
+                if messages[index][0] == "assistant" and bool(metas[index].get("active")):
+                    return index
+        return None
+
+    def _operator_replace_current_streaming_chat_message(self, text: str) -> bool:
+        index = self._operator_current_streaming_chat_index()
+        if index is None:
+            return False
+        self._operator_complete_streaming_chat_response(text, message_index=index)
+        return True
 
     def _operator_streaming_chat_delta_callback(self):
         def callback(delta: str) -> None:
@@ -5215,14 +5915,20 @@ class OperatorUiMixin:
             self._operator_chat_messages[-1] = ("assistant", "")
             self._operator_chat_thinking_steps[-1:] = [self._operator_streaming_chat_initial_steps()]
             self._operator_chat_thinking_meta[-1:] = [initial_meta]
+            self._operator_streaming_chat_message_index = len(self._operator_chat_messages) - 1
         else:
             self._operator_chat_messages.append(("assistant", ""))
             self._operator_chat_thinking_steps.append(self._operator_streaming_chat_initial_steps())
             self._operator_chat_thinking_meta.append(initial_meta)
+            self._operator_streaming_chat_message_index = len(self._operator_chat_messages) - 1
         self._operator_pending_streaming_chat_final_text = ""
         self._operator_chat_messages = self._operator_chat_messages[-80:]
         self._operator_chat_thinking_steps = self._operator_chat_thinking_steps[-80:]
         self._operator_chat_thinking_meta = self._operator_chat_thinking_meta[-80:]
+        self._operator_streaming_chat_message_index = min(
+            len(self._operator_chat_messages) - 1,
+            int(getattr(self, "_operator_streaming_chat_message_index", len(self._operator_chat_messages) - 1) or 0),
+        )
         self._operator_chat_autoscroll_pending = True
         self._render_operator_chat()
         self._operator_streaming_chat_last_render_sec = self._operator_now_seconds()
@@ -5263,15 +5969,21 @@ class OperatorUiMixin:
                     str(getattr(self, "_operator_streaming_chat_final_text", "") or getattr(self, "_operator_streaming_chat_text", ""))
                 )
             return
-        char = str(pending.pop(0))
-        current = str(getattr(self, "_operator_streaming_chat_text", "") or "") + char
+        batch_size = self._operator_streaming_chat_typewriter_batch_size()
+        chars = [str(pending.pop(0)) for _ in range(min(batch_size, len(pending)))]
+        current = str(getattr(self, "_operator_streaming_chat_text", "") or "") + "".join(chars)
         self._operator_streaming_chat_text = current
         if not hasattr(self, "_operator_chat_messages") or not self._operator_chat_messages:
             self._operator_chat_messages = [("assistant", current)]
             self._operator_chat_thinking_steps = [self._operator_streaming_chat_initial_steps()]
             self._operator_chat_thinking_meta = [{"active": True, "started_sec": self._operator_now_seconds()}]
+            self._operator_streaming_chat_message_index = 0
         else:
-            self._operator_chat_messages[-1] = ("assistant", current)
+            index = self._operator_current_streaming_chat_index()
+            if index is None:
+                index = len(self._operator_chat_messages) - 1
+                self._operator_streaming_chat_message_index = index
+            self._operator_chat_messages[index] = ("assistant", current)
         label = getattr(self, "_operator_streaming_chat_content_label", None)
         if label is not None and hasattr(label, "setText"):
             try:
@@ -5279,7 +5991,7 @@ class OperatorUiMixin:
                 if hasattr(label, "setVisible"):
                     label.setVisible(True)
                 self._operator_chat_autoscroll_pending = True
-                self._operator_scroll_chat_to_bottom()
+                self._operator_scroll_chat_to_bottom_throttled()
                 if pending:
                     self._operator_schedule_streaming_chat_char_flush()
                 elif getattr(self, "_operator_streaming_chat_finalizing", False):
@@ -5290,7 +6002,7 @@ class OperatorUiMixin:
             except Exception:
                 self._operator_streaming_chat_content_label = None
         self._operator_chat_autoscroll_pending = True
-        self._operator_scroll_chat_to_bottom()
+        self._operator_scroll_chat_to_bottom_throttled()
         if pending:
             self._operator_schedule_streaming_chat_char_flush()
         elif getattr(self, "_operator_streaming_chat_finalizing", False):
@@ -5340,7 +6052,11 @@ class OperatorUiMixin:
 
     @staticmethod
     def _operator_streaming_chat_typewriter_interval_seconds() -> float:
-        return 0.01
+        return 0.025
+
+    @staticmethod
+    def _operator_streaming_chat_typewriter_batch_size() -> int:
+        return 4
 
     @staticmethod
     def _operator_footer_status_text(text: str, max_len: int = 88) -> str:
@@ -5371,7 +6087,7 @@ class OperatorUiMixin:
             return
         self._operator_complete_streaming_chat_response(clean_text)
 
-    def _operator_complete_streaming_chat_response(self, final_text: str) -> None:
+    def _operator_complete_streaming_chat_response(self, final_text: str, *, message_index: int | None = None) -> None:
         clean_text = str(final_text or "").strip()
         self._operator_streaming_chat_active = False
         self._operator_pending_streaming_chat_final_text = ""
@@ -5384,22 +6100,43 @@ class OperatorUiMixin:
             self._operator_chat_messages = []
             self._operator_chat_thinking_steps = []
             self._operator_chat_thinking_meta = []
+        index = message_index
+        if index is None:
+            index = self._operator_current_streaming_chat_index(include_inactive=True)
+        if index is None and self._operator_chat_messages:
+            index = len(self._operator_chat_messages) - 1
         if clean_text:
-            self._operator_chat_messages[-1:] = [("assistant", clean_text)]
+            if index is None:
+                self._operator_chat_messages.append(("assistant", clean_text))
+                index = len(self._operator_chat_messages) - 1
+            else:
+                self._operator_chat_messages[index] = ("assistant", clean_text)
             if not hasattr(self, "_operator_chat_thinking_steps"):
                 self._operator_chat_thinking_steps = [[] for _ in self._operator_chat_messages]
             if not hasattr(self, "_operator_chat_thinking_meta"):
                 self._operator_chat_thinking_meta = [{} for _ in self._operator_chat_messages]
-            self._operator_chat_thinking_steps[-1:] = [self._operator_streaming_chat_final_steps()]
-            started = float(getattr(self, "_operator_streaming_chat_started_sec", self._operator_now_seconds()) or self._operator_now_seconds())
+            while len(self._operator_chat_thinking_steps) <= index:
+                self._operator_chat_thinking_steps.append([])
+            while len(self._operator_chat_thinking_meta) <= index:
+                self._operator_chat_thinking_meta.append({})
+            self._operator_chat_thinking_steps[index] = self._operator_streaming_chat_final_steps()
+            started = float(
+                self._operator_chat_thinking_meta[index].get(
+                    "started_sec",
+                    getattr(self, "_operator_streaming_chat_started_sec", self._operator_now_seconds()),
+                )
+                or self._operator_now_seconds()
+            )
             elapsed_sec = max(0, int(self._operator_now_seconds() - started))
-            self._operator_chat_thinking_meta[-1:] = [{"active": False, "elapsed_sec": elapsed_sec}]
+            self._operator_chat_thinking_meta[index] = {"active": False, "elapsed_sec": elapsed_sec}
         else:
-            self._operator_chat_messages[-1:] = []
-            if hasattr(self, "_operator_chat_thinking_steps"):
-                self._operator_chat_thinking_steps[-1:] = []
-            if hasattr(self, "_operator_chat_thinking_meta"):
-                self._operator_chat_thinking_meta[-1:] = []
+            if index is not None:
+                self._operator_chat_messages[index:index + 1] = []
+                if hasattr(self, "_operator_chat_thinking_steps"):
+                    self._operator_chat_thinking_steps[index:index + 1] = []
+                if hasattr(self, "_operator_chat_thinking_meta"):
+                    self._operator_chat_thinking_meta[index:index + 1] = []
+        self._operator_streaming_chat_message_index = None
         self._operator_chat_autoscroll_pending = True
         self._operator_streaming_chat_render_pending = False
         self._render_operator_chat()
@@ -5437,9 +6174,12 @@ class OperatorUiMixin:
             if category != "自然语言":
                 return
         else:
+            if self._operator_should_suppress_outer_flow_completion(entry):
+                return
             self._operator_archive_execution_from_log(entry, message.text)
             self._operator_publish_response(message)
             self._operator_route_voice_recognition_from_log(entry)
+            self._operator_note_flow_completion_response(entry)
             return
         if category == "自然语言":
             if action == "动作序列完成" and result == "成功":
@@ -5448,6 +6188,31 @@ class OperatorUiMixin:
             if action == "动作序列终止":
                 self._operator_add_chat_message("assistant", f"执行失败：{detail or '动作序列已终止'}")
                 return
+
+    def _operator_note_flow_completion_response(self, entry: dict[str, Any]) -> None:
+        if str(entry.get("category", "")) != "流程":
+            return
+        action = str(entry.get("action", ""))
+        if not action.startswith("流程完成 "):
+            return
+        if str(entry.get("result", "")) != "成功":
+            return
+        self._operator_last_flow_completion_response_sec = self._operator_now_seconds()
+
+    def _operator_should_suppress_outer_flow_completion(self, entry: dict[str, Any]) -> bool:
+        if str(entry.get("category", "")) != "自然语言":
+            return False
+        if str(entry.get("action", "")) != "动作序列完成":
+            return False
+        if str(entry.get("result", "")) != "成功":
+            return False
+        detail = str(entry.get("detail", "") or "")
+        if "共执行 1 步" not in detail:
+            return False
+        last_flow_sec = float(getattr(self, "_operator_last_flow_completion_response_sec", 0.0) or 0.0)
+        if last_flow_sec <= 0:
+            return False
+        return self._operator_now_seconds() - last_flow_sec <= 3.0
 
     def _operator_route_voice_recognition_from_log(self, entry: dict[str, Any]) -> bool:
         if str(entry.get("category", "")) != "语音":
@@ -5659,6 +6424,14 @@ class OperatorUiMixin:
         QTimer.singleShot(40, lambda: scroll(False))
         QTimer.singleShot(120, lambda: scroll(False))
         QTimer.singleShot(260, lambda: scroll(True))
+
+    def _operator_scroll_chat_to_bottom_throttled(self) -> None:
+        now = self._operator_now_seconds()
+        last = float(getattr(self, "_operator_last_streaming_chat_scroll_sec", 0.0) or 0.0)
+        if now - last < 0.15:
+            return
+        self._operator_last_streaming_chat_scroll_sec = now
+        self._operator_scroll_chat_to_bottom()
 
     def _build_operator_chat_row(
         self,
