@@ -2166,7 +2166,7 @@ def test_operator_voice_session_text_routes_to_operator_execute_text():
     assert calls == [("set", "你好"), ("execute", "")]
 
 
-def test_operator_voice_recognition_status_bubble_is_replaced_by_user_text():
+def test_operator_voice_recognition_status_only_adds_final_user_text():
     dummy = DummyOperator()
     rendered = []
     dummy._operator_chat_messages = []
@@ -2181,18 +2181,20 @@ def test_operator_voice_recognition_status_bubble_is_replaced_by_user_text():
     assert getattr(dummy, "_operator_voice_recognition_status_index", None) is None
 
 
-def test_operator_voice_recognition_status_uses_user_side_bubble():
+def test_operator_voice_recognition_status_does_not_create_interim_bubble():
     dummy = DummyOperator()
     dummy._operator_chat_messages = []
     dummy._render_operator_chat = lambda: None
     dummy._operator_scroll_chat_to_bottom = lambda: None
 
     dummy._operator_begin_voice_recognition_status()
+    dummy._operator_update_voice_recognition_status("小镇移动")
 
-    assert dummy._operator_chat_messages == [("user", "正在识别语音...")]
+    assert dummy._operator_chat_messages == []
+    assert getattr(dummy, "_operator_voice_recognition_status_index", None) is None
 
 
-def test_operator_voice_recognition_partial_updates_existing_label_without_rerender():
+def test_operator_voice_recognition_partial_update_does_not_render_chat():
     dummy = DummyOperator()
     rendered = []
     label = SimpleNamespace(text="", setText=lambda text: setattr(label, "text", text))
@@ -2205,7 +2207,8 @@ def test_operator_voice_recognition_partial_updates_existing_label_without_reren
     dummy._operator_voice_recognition_status_label = label
     dummy._operator_update_voice_recognition_status("小镇移动")
 
-    assert label.text == "正在识别：小镇移动"
+    assert label.text == ""
+    assert dummy._operator_chat_messages == []
     assert rendered == []
 
 
@@ -2406,6 +2409,60 @@ def test_operator_ui_command_returns_chat_receipt_for_main_page_command():
     assert dummy.status_text == "已回到主界面。"
     assert chats[-1] == ("assistant", "已回到主界面。")
     assert log_args(logs[-1])[0:3] == ("用户页面", "按钮语音指令", "成功")
+
+
+def test_operator_ui_command_returns_chat_receipt_for_execution_page_command():
+    dummy = DummyOperator()
+    chats = []
+    logs = []
+    modes = []
+    calls = []
+    dummy._set_workspace_mode = lambda mode: modes.append(mode)
+    dummy._operator_show_execution = lambda: calls.append("execute")
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+
+    handled = dummy._handle_operator_ui_command("流程执行")
+
+    assert handled is True
+    assert modes == ["operator"]
+    assert calls == ["execute"]
+    assert dummy.status_text == "已显示流程执行页面。"
+    assert chats[-1] == ("assistant", "已显示流程执行页面。")
+    assert log_args(logs[-1])[0:3] == ("用户页面", "按钮语音指令", "成功")
+
+
+def test_operator_confirm_execute_without_pending_plan_reports_alarm_reason():
+    dummy = DummyOperator()
+    chats = []
+    logs = []
+    dummy.alarm_code = "ERR_000"
+    dummy.alarm_text = "控制器报警"
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+
+    handled = dummy._handle_operator_ui_command("确认执行这个命令")
+
+    assert handled is True
+    assert "当前没有待确认的执行计划" in chats[-1][1]
+    assert "报警码 ERR_000" in chats[-1][1]
+    assert "请先处理报警" in chats[-1][1]
+    assert dummy.status_text == "当前没有待确认的执行计划，未执行。"
+    assert log_args(logs[-1])[0:3] == ("用户页面", "安全确认", "提示")
+
+
+def test_operator_show_execution_requests_execute_scene():
+    dummy = DummyOperator()
+    calls = []
+    dummy._refresh_operator_view = lambda: calls.append("refresh")
+
+    dummy._operator_show_execution()
+
+    assert dummy._operator_scene_override == "execute"
+    assert calls == ["refresh"]
 
 
 def test_operator_ui_command_handles_tts_button_equivalents():
@@ -4867,6 +4924,23 @@ def test_operator_publish_response_filters_automatic_status_from_chat():
     assert chat_messages == []
 
 
+def test_operator_publish_response_filters_flow_step_completion_from_chat():
+    dummy = DummyOperator()
+    chat_messages = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+
+    published = dummy._operator_publish_response(
+        ResponseMessage(
+            kind="result",
+            text="动作执行完成：flowdraft:home点头流程:01。",
+            context_id="six_axis:flowdraft:home点头流程:01:completed",
+        )
+    )
+
+    assert published is not None
+    assert chat_messages == []
+
+
 def test_operator_initial_chat_messages_are_empty():
     assert DummyOperator._operator_initial_chat_messages() == []
 
@@ -5498,7 +5572,7 @@ def test_operator_voice_receipt_records_200ms_acceptance_delay():
 
     dummy._operator_toggle_microphone_recording()
 
-    assert published[-1].kind == "receipt"
+    assert published == []
     assert dummy._operator_last_voice_receipt_delay_ms == 120
     assert dummy._operator_last_voice_receipt_sla_passed is True
 

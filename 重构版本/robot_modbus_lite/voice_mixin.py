@@ -758,6 +758,8 @@ class VoiceMixin:
         clean = self._voice_session_compact_echo_text(text)
         if not clean:
             return False
+        if self._voice_session_is_explicit_user_command_text(clean):
+            return False
         if self._voice_session_is_interrupt_text(clean):
             return False
         sink = getattr(self, "operator_speech_sink", None)
@@ -812,6 +814,34 @@ class VoiceMixin:
             "小正",
         )
         return any(keyword in compact_text for keyword in interrupt_keywords)
+
+    @staticmethod
+    def _voice_session_is_explicit_user_command_text(compact_text: str) -> bool:
+        command_texts = {
+            "确认",
+            "确认执行",
+            "执行确认",
+            "执行",
+            "开始执行",
+            "采纳建议",
+            "采用建议",
+            "接受建议",
+            "取消",
+            "取消执行",
+            "取消计划",
+            "暂停",
+            "继续",
+            "恢复",
+            "停止",
+            "停止流程",
+            "停止当前",
+            "停止当前任务",
+            "停止当前动作",
+            "报警复位",
+            "复位",
+            "确认报警",
+        }
+        return compact_text in command_texts
 
     def _handle_doubao_streaming_error(self, exc: BaseException) -> None:
         if hasattr(self, "status_label"):

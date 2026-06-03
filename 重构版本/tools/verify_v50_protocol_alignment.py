@@ -195,7 +195,7 @@ def check_mock_runtime() -> CheckResult:
             and long40_during > 0
             and delay_remaining_done == 0
             and long40_done == 0
-            and ack == 1
+            and ack == 0
             and current_func == 110
             and reset_all_done
             and io_done

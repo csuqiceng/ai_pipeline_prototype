@@ -27,6 +27,7 @@ from .protocol import (
     SAFETY_MIN_AUTO,
     SIX_ALARM_BIT,
     SIX_ALARM_DETAIL_ADDR,
+    SIX_ACCEPT_CONFIRM_ADDR,
     SIX_CURR_FUNC_ADDR,
     SIX_P_AXIS_NO,
     SIX_P_SPD,
@@ -782,6 +783,7 @@ class MockController:
                     return
                 self._fail_six_func_locked(func_num, 1 << 2)
                 return
+            self._modbus_ieee[SIX_ACCEPT_CONFIRM_ADDR] = 0.0
             self._set_six_func_state_locked(func_num, self._SIX_STATE_EXEC)
 
         thread = threading.Thread(

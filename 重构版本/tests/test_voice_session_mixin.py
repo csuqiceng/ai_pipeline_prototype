@@ -49,6 +49,16 @@ def test_voice_session_keeps_interrupt_command_while_tts_is_speaking():
     assert dummy._voice_session_should_drop_echo_text("停一下") is False
 
 
+def test_voice_session_keeps_short_confirm_command_inside_long_tts_prompt():
+    dummy = DummyVoiceSession()
+    dummy.operator_speech_sink = SimpleNamespace(is_speaking=True)
+    dummy._operator_current_spoken_text = (
+        "已为您生成A到B流程草案，共2步。请通过本地白名单和安全预检后确认执行。"
+    )
+
+    assert dummy._voice_session_should_drop_echo_text("确认执行") is False
+
+
 def test_voice_session_segment_stops_current_speech_before_asr():
     dummy = DummyVoiceSession()
     stops = []

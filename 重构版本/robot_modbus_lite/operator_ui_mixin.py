@@ -312,6 +312,7 @@ class OperatorUiMixin:
         quick_layout.setHorizontalSpacing(8)
         quick_layout.setVerticalSpacing(8)
         for idx, (text, slot) in enumerate([
+            ("流程执行", self._operator_show_execution),
             ("完整状态", self._operator_show_full_status),
             ("主界面", self._operator_go_home),
             ("全屏", self._operator_show_fullscreen),
@@ -923,9 +924,6 @@ class OperatorUiMixin:
         starting = not bool(getattr(self, "_voice_session_active", False))
         started_at_sec = self._operator_now_seconds()
         if starting:
-            builder = getattr(self, "operator_response_builder", None) or ResponseBuilder()
-            self.operator_response_builder = builder
-            self._operator_publish_response(builder.receipt(input_mode="voice", context_id="voice:session_receipt"))
             self._start_voice_session()
         else:
             self._stop_voice_session()
@@ -946,46 +944,11 @@ class OperatorUiMixin:
         self._operator_execute_text()
 
     def _operator_begin_voice_recognition_status(self) -> None:
-        """Show a temporary chat status while ASR is recognizing speech."""
-        if not hasattr(self, "_operator_chat_messages"):
-            self._operator_chat_messages = []
-        if not hasattr(self, "_operator_chat_thinking_steps"):
-            self._operator_chat_thinking_steps = [[] for _ in self._operator_chat_messages]
-        if not hasattr(self, "_operator_chat_thinking_meta"):
-            self._operator_chat_thinking_meta = [{} for _ in self._operator_chat_messages]
-        index = getattr(self, "_operator_voice_recognition_status_index", None)
-        if isinstance(index, int) and 0 <= index < len(self._operator_chat_messages):
-            self._operator_chat_messages[index] = ("user", "正在识别语音...")
-            self._operator_render_voice_recognition_status()
-            return
-        self._operator_chat_messages.append(("user", "正在识别语音..."))
-        self._operator_chat_thinking_steps.append([])
-        self._operator_chat_thinking_meta.append({"voice_recognition_status": True})
-        self._operator_voice_recognition_status_index = len(self._operator_chat_messages) - 1
-        self._operator_chat_autoscroll_pending = True
-        self._render_operator_chat()
+        self._operator_voice_recognition_status_index = None
+        self._operator_voice_recognition_status_label = None
 
     def _operator_update_voice_recognition_status(self, text: str) -> None:
-        partial = str(text or "").strip()
-        if not partial:
-            return
-        index = getattr(self, "_operator_voice_recognition_status_index", None)
-        if not isinstance(index, int) or index < 0 or index >= len(getattr(self, "_operator_chat_messages", [])):
-            self._operator_begin_voice_recognition_status()
-            index = getattr(self, "_operator_voice_recognition_status_index", None)
-        if isinstance(index, int) and 0 <= index < len(self._operator_chat_messages):
-            text = f"正在识别：{partial}"
-            self._operator_chat_messages[index] = ("user", text)
-            label = getattr(self, "_operator_voice_recognition_status_label", None)
-            if label is not None and hasattr(label, "setText"):
-                try:
-                    label.setText(text)
-                    self._operator_chat_autoscroll_pending = True
-                    self._operator_scroll_chat_to_bottom()
-                    return
-                except Exception:
-                    self._operator_voice_recognition_status_label = None
-            self._operator_render_voice_recognition_status()
+        return
 
     def _operator_finish_voice_recognition_status(self, text: str) -> None:
         clean = str(text or "").strip()
@@ -1502,13 +1465,26 @@ class OperatorUiMixin:
         self._operator_scene_override = "query"
         self._refresh_operator_view()
 
+    def _operator_show_execution(self) -> None:
+        self._operator_scene_override = "execute"
+        self._refresh_operator_view()
+
     def _operator_go_home(self) -> None:
         self._operator_scene_override = None
         self._refresh_operator_view()
 
     def _operator_no_pending_confirm(self) -> None:
-        self.status_label.setText("当前没有待确认的安全风险。")
-        self._append_log("用户页面", "安全确认", "提示", "当前没有待确认的安全风险")
+        reason = self._operator_current_blocking_summary()
+        text = "当前没有待确认的执行计划，未执行。"
+        if reason:
+            text = f"{text}{reason}"
+        if hasattr(self, "status_label"):
+            self.status_label.setText("当前没有待确认的执行计划，未执行。")
+        if hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", text)
+        if hasattr(self, "_operator_archive_execution_result"):
+            self._operator_archive_execution_result(result="blocked", final_text=text)
+        self._append_log("用户页面", "安全确认", "提示", text)
         self._refresh_operator_view()
 
     def _operator_set_pending_confirm_plan(self, plan) -> None:
@@ -1631,6 +1607,27 @@ class OperatorUiMixin:
         process_precheck = getattr(self, "_operator_last_process_precheck_result", None)
         if self._operator_l3_should_block(process_precheck):
             return self._operator_l3_summary(process_precheck)
+        runtime = self._operator_runtime_blocking_summary()
+        if runtime:
+            return runtime
+        return ""
+
+    def _operator_runtime_blocking_summary(self) -> str:
+        alarm_code = str(getattr(self, "alarm_code", "") or "").strip()
+        alarm_text = str(getattr(self, "alarm_text", "") or "").strip()
+        if alarm_code and alarm_code not in {"0", "ERR_000"}:
+            detail = f"，{alarm_text}" if alarm_text and alarm_text not in {"系统正常", "无报警"} else ""
+            return f"当前处于报警状态，报警码 {alarm_code}{detail}，请先处理报警。"
+        if alarm_text and "报警" in alarm_text and alarm_text not in {"无报警", "系统正常", "报警：无", "报警: 无"}:
+            code_text = f"报警码 {alarm_code}，" if alarm_code else ""
+            return f"当前处于报警状态，{code_text}{alarm_text}，请先处理报警。"
+        if bool(getattr(self, "estop_active", False)):
+            return "当前急停已触发，请先确认现场安全并解除急停。"
+        if bool(getattr(self, "pause_active", False)):
+            return "当前系统处于暂停状态，请先恢复后再执行。"
+        ready = getattr(self, "ready", None)
+        if ready is False:
+            return "当前控制器未就绪，请先恢复控制器就绪状态。"
         return ""
 
     def _operator_cancel_confirm(self) -> None:
@@ -3226,6 +3223,7 @@ class OperatorUiMixin:
             self._operator_set_tts_enabled(False)
         elif spec.action == "confirm_execute":
             self._operator_confirm_execute()
+            return True
         elif spec.action == "accept_suggestion":
             self._operator_accept_suggestion()
         elif spec.action == "cancel_confirm":
@@ -3261,6 +3259,10 @@ class OperatorUiMixin:
             self._operator_acknowledge_alarm()
         elif spec.action == "alarm_reset":
             self._handle_system_action("alarm_reset")
+        elif spec.action == "show_execution":
+            self._set_workspace_mode("operator")
+            self._operator_show_execution()
+            self._operator_reply_ui_command_success("已显示流程执行页面。")
         else:
             return False
         if hasattr(self, "_append_log"):
@@ -4214,6 +4216,7 @@ class OperatorUiMixin:
             "system_state:",
             "motion_state:",
             "axis_status:",
+            "six_axis:",
         )
         automatic_contexts = {
             "operator:periodic_reassurance",
