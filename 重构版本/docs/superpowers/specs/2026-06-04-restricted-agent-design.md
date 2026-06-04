@@ -28,6 +28,7 @@
 4. 急停等高优先级安全动作必须规则旁路，不经过大模型。
 5. 报警解释、安全预检、参数继承和确认状态机都应是确定性逻辑，可单元测试。
 6. 协议差异未确认前，不硬编码有争议地址和函数号。
+7. 所有有争议的地址和函数号必须通过可注入的协议解析层读取，例如 `AddressResolver`，业务 Agent 不直接写死 `IEEE(1500)`、`IEEE(1512)` 或 `Func112`。
 
 ## 前置协议确认
 
@@ -35,10 +36,11 @@
 
 | 项目 | 当前项目口径 | 新文档口径 | 决策要求 |
 | --- | --- | --- | --- |
-| 连续路径函数 | Func11 | Func112 | 确认固件最终函数号，未确认前保留 Func11 兼容和保护性拒绝 |
+| 连续路径函数 | 代码实现 Func11；V4.3/V5.0 状态位还包含预留 Func111 | 新文档 Func112 | 确认固件 IEEE(0) 最终函数号，未确认前 Agent 不生成连续路径执行草案 |
 | 笛卡尔继承源 | IEEE(1512~1522) DPOS / IEEE(1612~1622) 反馈 | IEEE(1500~1510) 当前位姿 | 确认继承时使用指令位置、反馈位置还是新地址 |
 | Func110 延时参数 | 当前写 IEEE(2) | 文档写 para(2) | 确认实际控制器参数位 |
 | 姿态四夹角 | 未接入 | IEEE(1732/1734/1736/1738) | 确认控制器已定义并可读 |
+| IEEE(22) 语义 | 当前代码命名为 `fuzzy_pos` | 新文档写位置增量 | 确认控制器实际语义，未确认前不改现有字段名和写入行为 |
 
 协议未确认前，允许先实现不依赖这些差异的 `AlarmExplanationAgent` 和规则意图识别。
 
@@ -49,8 +51,10 @@ Agent 是现有入口和现有执行链路之间的编排层：
 ```text
 用户输入
   -> CommandUnderstandingAgent
+     -> clarification_needed -> 反问操作者 -> 用户补充 -> CommandUnderstandingAgent
   -> ParameterCompletionAgent
   -> SafetyReviewAgent
+     -> precheck_failed -> 展示错误和建议 -> 用户修改 -> ParameterCompletionAgent
   -> ConfirmationAgent
   -> QueryRecord
   -> RobotModbusService.build_six_command_from_record()
@@ -97,6 +101,18 @@ QueryRecord(
 
 草案修改采用创建新对象，不原地修改。这样可以保留审计链路，也避免确认状态被中途污染。
 
+`CommandDraft.params` 的 key 名必须和 `RobotModbusService.build_six_command_from_record()` 中对应 `func_id` 的参数 key 完全一致。转 `QueryRecord` 前必须做完整性校验，缺少必需参数时拒绝转换。
+
+当前已实现函数的必需 key：
+
+| func_id | 必需 key |
+| --- | --- |
+| 104 | `estop_ctrl`, `pause_ctrl`, `cancel_ctrl`, `reset_ctrl` |
+| 108 | `target_x`, `target_y`, `target_z`, `target_rx`, `target_ry`, `target_rz`, `spd_pct`, `acc_pct`, `dec_pct`, `stop_cmd`, `fuzzy_pos`, `fuzzy_spd`, `fuzzy_acc`, `fuzzy_dec`, `move_type` |
+| 109 | `delay_sec` |
+| 110 | `delay_sec` |
+| 120 | `io_no`, `io_action` |
+
 ## 模块设计
 
 ### CommandUnderstandingAgent
@@ -120,6 +136,14 @@ QueryRecord(
     "clarification": {"missing": [...], "question": "..."} | None,
 }
 ```
+
+置信度分级：
+
+| confidence | 行为 |
+| --- | --- |
+| `>= 0.85` | 规则结果直接使用，不调用大模型 |
+| `0.50 ~ 0.85` | 规则结果不足时允许调用大模型兜底 |
+| `< 0.50` | 返回 `clarification_needed`，不让大模型硬猜 |
 
 系统动作分级：
 
@@ -161,10 +185,25 @@ Func108 参数补全目标：
 | fuzzy_pos/fuzzy_spd/fuzzy_acc/fuzzy_dec | 默认 0 或按现有原子规则 |
 | move_type | 默认 0，直线插补 |
 
+非 Func108 参数补全目标：
+
+| func_id | 参数 | 来源 |
+| --- | --- | --- |
+| 104 | `estop_ctrl`, `pause_ctrl`, `cancel_ctrl`, `reset_ctrl` | 系统动作直接构造，未触发的控制字为 0 |
+| 109 | `delay_sec` | 用户指定，无继承源 |
+| 110 | `delay_sec` | 用户指定，无继承源 |
+| 120 | `io_no`, `io_action` | 用户指定，无继承源 |
+
+控制器读取失败策略：
+
+- 运动指令补全时，如果继承源或安全速度参数读取失败，返回错误并拒绝补全。
+- 不静默使用 `system_config.json` 作为运动参数回退值。
+- 查询类操作可以显示本地配置作为参考，但必须标注“非实时控制器值”。
+
 运动中继承策略：
 
 - 如果控制器处于运动中，默认不继承瞬时 DPOS。
-- 返回澄清或等待提示：“当前设备运动中，请等待停止后再继承当前位置。”
+- 直接进入阻断提示：“当前设备运动中，请等待停止后再继承当前位置。”该提示不进入确认状态机。
 - 后续如需要支持运动中修改，必须明确使用反馈位置还是规划位置，并单独设计。
 
 ### SafetyReviewAgent
@@ -173,6 +212,7 @@ Func108 参数补全目标：
 
 - 在确认前和最终执行前对运动草案进行安全评审。
 - 复用 `KinematicsEngine` / `MotionPlanService`，不直接绑定 SDK。
+- L1 状态门复用现有 `SafetyPrecheckService.run_l1()`，或先重构为可注入的 `L1ControllerGate`，避免 Agent 内部另写一套急停、报警、暂停和通道空闲判断。
 - 不做缓存，每次实时计算。
 
 安全评审分层：
@@ -227,6 +267,7 @@ waiting_confirmation
   -> rejected -> discard
   -> timeout -> discard
   -> modify_requested -> ParameterCompletionAgent -> SafetyReviewAgent -> waiting_confirmation
+  -> precheck_failed -> 展示错误和建议 -> modify_requested
 ```
 
 超时使用现有 `operator_confirm_timeout_sec` 配置。
@@ -259,6 +300,7 @@ waiting_confirmation
     "detail": "...",
     "suggestions": ["断电重启3号驱动器", "检查J3轴电机接线"],
     "affected_axes": [2],
+    "func_name_zh": "直线插补",
     "can_move": False,
 }
 ```
@@ -277,7 +319,7 @@ waiting_confirmation
 - 规则无法稳定理解的自然语言。
 - 模糊参数的澄清问题生成。
 - 非控制类问答或说明书问答。
-- 复述文本润色，但必须保留模板字段和数值。
+- 复述文本润色，但只能修改自然语言衔接，禁止修改任何数字、单位、参数名和参数顺序。
 
 禁止调用大模型的场景：
 
@@ -286,6 +328,7 @@ waiting_confirmation
 - 报警 bit 解释。
 - MODBUS 地址选择。
 - 最终执行参数写入。
+- 复述确认中的数字、单位、参数名改写。
 
 大模型输出必须经过白名单校验和结构化解析。校验不通过则返回澄清或拒绝，不进入执行链路。
 
@@ -316,6 +359,7 @@ Web：
 - 确认笛卡尔继承源。
 - 确认 Func110 参数位。
 - 确认 IEEE(1732~1738) 姿态四夹角地址。
+- 确认 IEEE(22) `fuzzy_pos` 与“位置增量”的真实语义。
 
 ### P1 AlarmExplanationAgent
 
@@ -355,6 +399,7 @@ Web：
 - AXISSTATUS 每个关键 bit 的解释文本。
 - `LONG(34)` 急停、暂停、报警、就绪组合。
 - 自然语言显式参数解析。
+- 大模型返回非法 JSON、非法函数号、缺少必需字段或超限参数时被白名单校验拒绝。
 - 半参数和单参数继承补全。
 - 复述确认文本来源标注。
 - draft 转 `QueryRecord` 再转 `SixAxisCommand` 参数一致性。
@@ -386,6 +431,7 @@ Web：
 - 不在协议差异确认前替换现有 Func11/1500/1512/1612 口径。
 - 不把安全预检结果缓存作为默认行为。
 - 不一次性重写现有 `voice_nlp_adapter.py`，先以新模块接入。
+- 不允许大模型修改复述确认文本中的数字、单位、参数名和参数顺序。
 
 ## 成功标准
 
