@@ -733,7 +733,10 @@ class VoiceMixin:
     def _handle_doubao_streaming_speech_start(self) -> None:
         if not getattr(self, "_voice_session_active", False):
             return
-        if not self._voice_session_should_wait_final_text_before_interrupt():
+        stop_speech = getattr(self, "_operator_stop_current_speech_for_user_voice_only", None)
+        if callable(stop_speech):
+            stop_speech()
+        else:
             interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
             if callable(interrupter):
                 interrupter()

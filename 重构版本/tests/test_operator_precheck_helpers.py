@@ -1629,6 +1629,46 @@ def test_operator_flow_draft_initial_response_includes_step_preview():
     assert "pos_val=-15" in response
 
 
+def test_operator_pending_flow_draft_query_ignores_new_draft_detail_answer():
+    dummy = DummyOperator()
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "打个招呼的小",
+        "expanded_steps": [{"step_id": 1, "description": "移动到home", "func_id": 108, "params": {}}],
+    }
+    chats = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+
+    handled = dummy._operator_handle_pending_flow_draft_query(
+        "草案名称为抓取流程，然后步骤为从 a 位置移动到位置 b，再移动位置 c。"
+    )
+
+    assert handled is False
+    assert chats == []
+
+
+def test_operator_flow_creation_followup_adds_wake_word_for_detail_answer():
+    dummy = DummyOperator()
+    dummy._operator_pending_flow_creation_followup = True
+
+    prepared = dummy._operator_prepare_pending_flow_creation_followup_text(
+        "这个流程为，先移动到位置 a，然后移动到位置 b，最后移动到位置 c。"
+    )
+
+    assert prepared.startswith("小正，创建流程，")
+    assert "先移动到位置 a" in prepared
+    assert dummy._operator_pending_flow_creation_followup is False
+
+
+def test_operator_flow_creation_followup_does_not_rewrite_unrelated_chat():
+    dummy = DummyOperator()
+    dummy._operator_pending_flow_creation_followup = True
+
+    prepared = dummy._operator_prepare_pending_flow_creation_followup_text("你好")
+
+    assert prepared == "你好"
+    assert dummy._operator_pending_flow_creation_followup is True
+
+
 def test_operator_flow_draft_with_missing_target_prompts_for_clarification():
     dummy = DummyOperator()
     plan = VoiceNlpPlan(
@@ -1957,6 +1997,40 @@ def test_operator_ai_chat_row_shows_active_thinking_expanded():
     assert detail.isHidden() is False
     assert answer is not None
     assert answer.isHidden() is True
+    row.close()
+    app.processEvents()
+
+
+def test_operator_formats_flow_steps_for_chat_display_only():
+    raw = (
+        "好的，已根据您的描述，添加点头动作。新的流程草案共 **4 步**： "
+        "1. 移动到home（Func108） "
+        "2. 小臂上下点头:Ry正转（Func107） "
+        "3. 小臂上下点头:Ry反转（Func107） "
+        "4. 小臂上下点头:Ry正转（Func107） "
+        "请问是否需要确认执行或继续调整？"
+    )
+
+    formatted = DummyOperator._operator_chat_display_text("assistant", raw)
+
+    assert "新的流程草案共 4 步" in formatted
+    assert "步骤 1\n移动到home（Func108）" in formatted
+    assert "步骤 4\n小臂上下点头:Ry正转（Func107）" in formatted
+    assert "请问是否需要确认执行或继续调整？" in formatted
+    assert "**" not in formatted
+
+
+def test_operator_chat_row_uses_formatted_display_without_mutating_message():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyOperator()
+    raw = "新的流程草案共 **2 步**： 1. 移动到home（Func108） 2. 点头（Func107） 请确认。"
+
+    row = dummy._build_operator_chat_row("assistant", raw)
+
+    answer = row.findChild(QLabel, "operatorChatText")
+    assert answer is not None
+    assert answer.text() != raw
+    assert "步骤 1\n移动到home（Func108）" in answer.text()
     row.close()
     app.processEvents()
 
@@ -2373,6 +2447,27 @@ def test_operator_voice_session_text_routes_without_writing_manual_input():
     assert ("execute", "你好") in calls
     assert ("archive", "你好") in calls
     assert dummy.nlp_input_edit.toPlainText() == ""
+
+
+def test_operator_dialog_refresh_does_not_copy_voice_transfer_text_to_manual_input():
+    dummy = DummyOperator()
+    manual = {"text": ""}
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "语音识别文本")
+    dummy.operator_command_edit = SimpleNamespace(
+        hasFocus=lambda: False,
+        text=lambda: manual["text"],
+        setText=lambda text: manual.update(text=text),
+    )
+    dummy.operator_voice_label = SimpleNamespace(setText=lambda _text: None)
+    dummy.operator_response_label = SimpleNamespace(setText=lambda _text: None)
+    dummy.status_label = SimpleNamespace(text=lambda: "系统在线")
+    dummy.operator_chat_scroll = object()
+    dummy._operator_chat_rendered = True
+    dummy._operator_last_user_text = "语音识别文本"
+
+    dummy._refresh_operator_dialog_labels()
+
+    assert manual["text"] == ""
 
 
 def test_operator_voice_session_text_uses_same_submit_path_as_text_input():
@@ -5495,6 +5590,29 @@ def test_operator_user_input_interrupts_current_speech_and_discards_pending():
 
     assert stops == ["stop"]
     assert pending == []
+
+
+def test_operator_stop_current_speech_for_user_voice_only_stops_audio():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    stops = []
+
+    class StopSink(CallableSpeechSink):
+        def stop(self) -> None:
+            stops.append("stop")
+
+    dummy.operator_speech_sink = StopSink(lambda _text: None)
+    dummy._operator_publish_ai_answer_for_speech("完整回答文本")
+    before_seq = int(getattr(dummy, "_operator_last_delivered_broadcast_seq", 0) or 0)
+    stops.clear()
+
+    dummy._operator_stop_current_speech_for_user_voice_only()
+    pending = dummy._operator_pending_broadcasts_for_delivery(before_seq)
+
+    assert stops == ["stop"]
+    assert dummy._operator_current_spoken_text == "完整回答文本"
+    assert [message.text for message in pending] == ["完整回答文本"]
 
 
 def test_operator_deliver_pending_broadcasts_skips_all_speech_before_login():

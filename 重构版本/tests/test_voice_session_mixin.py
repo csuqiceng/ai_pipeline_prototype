@@ -298,18 +298,20 @@ def test_doubao_streaming_final_text_clears_voice_status_when_echo_is_filtered()
     assert any(entry[0:3] == ("语音会话", "豆包回声过滤", "提示") for entry in logs)
 
 
-def test_doubao_streaming_speech_start_does_not_interrupt_tts_before_final_text():
+def test_doubao_streaming_speech_start_interrupts_tts_immediately():
     dummy = DummyVoiceSession()
     dummy._voice_session_active = True
     dummy.operator_speech_sink = SimpleNamespace(is_speaking=True)
     dummy._operator_current_spoken_text = "系统在线，自然语言理解功能正常。"
     events = []
+    dummy._operator_stop_current_speech_for_user_voice_only = lambda: events.append("stop_audio")
     dummy._operator_interrupt_current_speech_for_user_input = lambda: events.append("interrupt")
     dummy._operator_begin_voice_recognition_status = lambda: events.append("begin")
     dummy.status_label = SimpleNamespace(setText=lambda text: events.append(("status", text)))
 
     dummy._handle_doubao_streaming_speech_start()
 
+    assert "stop_audio" in events
     assert "interrupt" not in events
     assert "begin" in events
 

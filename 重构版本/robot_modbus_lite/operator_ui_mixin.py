@@ -793,6 +793,7 @@ class OperatorUiMixin:
         first_type = str(getattr(actions[0], "action_type", "") or "")
         semantic_level = int(getattr(plan, "semantic_level", 0) or 0)
         if first_type in {"unknown", "chat"} and semantic_level == 1:
+            self._operator_update_flow_creation_followup_state(plan)
             reason = str(getattr(plan, "reason", "") or "闲聊咨询，未触发控制动作。")
             text = reason if first_type == "chat" else f"{reason}。没有触发机械手动作。"
             self._set_nlp_execute_busy(False)
@@ -903,6 +904,10 @@ class OperatorUiMixin:
 
     def _parse_nlp_text(self) -> None:
         text = self.nlp_input_edit.toPlainText().strip() if hasattr(self, "nlp_input_edit") else ""
+        prepared_text = self._operator_prepare_pending_flow_creation_followup_text(text)
+        if prepared_text != text and hasattr(self, "nlp_input_edit") and hasattr(self.nlp_input_edit, "setPlainText"):
+            self.nlp_input_edit.setPlainText(prepared_text)
+        text = prepared_text
         if self._handle_operator_ui_command(text):
             return
         if self._operator_reject_new_action_while_busy(text):
@@ -911,12 +916,60 @@ class OperatorUiMixin:
 
     def _execute_nlp_text(self) -> None:
         text = self.nlp_input_edit.toPlainText().strip() if hasattr(self, "nlp_input_edit") else ""
+        prepared_text = self._operator_prepare_pending_flow_creation_followup_text(text)
+        if prepared_text != text and hasattr(self, "nlp_input_edit") and hasattr(self.nlp_input_edit, "setPlainText"):
+            self.nlp_input_edit.setPlainText(prepared_text)
+        text = prepared_text
         if self._handle_operator_ui_command(text):
             return
         if self._operator_reject_new_action_while_busy(text):
             return
         self._operator_set_pending_confirm_plan(None)
         super()._execute_nlp_text()
+
+    def _operator_update_flow_creation_followup_state(self, plan) -> None:
+        raw_text = str(getattr(plan, "raw_text", "") or "")
+        reason = str(getattr(plan, "reason", "") or "")
+        if self._operator_text_asks_to_create_flow(raw_text) or self._operator_text_requests_flow_details(reason):
+            self._operator_pending_flow_creation_followup = True
+
+    def _operator_prepare_pending_flow_creation_followup_text(self, text: str) -> str:
+        clean = str(text or "").strip()
+        if not clean or not bool(getattr(self, "_operator_pending_flow_creation_followup", False)):
+            return clean
+        compact = re.sub(r"\s+", "", clean)
+        if not self._operator_text_looks_like_flow_detail_answer(compact):
+            return clean
+        self._operator_pending_flow_creation_followup = False
+        if any(wake_word and wake_word in compact for wake_word in configured_wake_words()):
+            return clean
+        return f"小正，创建流程，{clean}"
+
+    @staticmethod
+    def _operator_text_asks_to_create_flow(text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        return any(keyword in compact for keyword in ("创建流程", "新建流程", "创建新草案", "创建草案", "新建草案", "我要创建流程", "我要创建新草案"))
+
+    @staticmethod
+    def _operator_text_requests_flow_details(text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        return any(keyword in compact for keyword in ("请描述流程", "流程内容", "流程步骤", "有哪些步骤", "请提供以下信息", "草案名称", "步骤顺序"))
+
+    @staticmethod
+    def _operator_text_looks_like_flow_detail_answer(compact: str) -> bool:
+        text = str(compact or "")
+        if not text:
+            return False
+        if OperatorUiMixin._operator_text_looks_like_flow_draft_detail_answer(text):
+            return True
+        has_flow = "流程" in text or "草案" in text
+        has_sequence = any(keyword in text for keyword in ("先", "然后", "再", "最后", "接着", "之后"))
+        has_motion = any(keyword in text for keyword in ("移动", "位置", "抓取", "放置", "点头", "打开", "关闭"))
+        return has_flow and has_sequence and has_motion
 
     def _clear_nlp_text(self) -> None:
         super()._clear_nlp_text()
@@ -2409,6 +2462,8 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return False
+        if self._operator_text_looks_like_flow_draft_detail_answer(compact):
+            return False
         query_keywords = (
             "什么样的流程",
             "流程是什么",
@@ -2443,6 +2498,18 @@ class OperatorUiMixin:
         self._append_log("自然语言", "流程草案查询", "成功", answer)
         self._refresh_operator_view()
         return True
+
+    @staticmethod
+    def _operator_text_looks_like_flow_draft_detail_answer(compact: str) -> bool:
+        text = str(compact or "")
+        if not text:
+            return False
+        has_name_assignment = any(keyword in text for keyword in ("草案名称为", "流程名称为", "名字叫", "名称叫"))
+        has_step_assignment = any(keyword in text for keyword in ("步骤为", "步骤是", "步骤包括", "步骤如下", "然后步骤"))
+        has_motion_description = any(keyword in text for keyword in ("从", "移动到", "到位置", "再移动", "抓取", "放置"))
+        return (has_name_assignment and (has_step_assignment or has_motion_description)) or (
+            has_step_assignment and has_motion_description
+        )
 
     def _operator_handle_context_query(self, text: str) -> bool:
         answer = self._operator_context_answer(text)
@@ -4594,6 +4661,9 @@ class OperatorUiMixin:
         self._operator_replace_pending_speech()
         self._operator_stop_current_speech_best_effort()
 
+    def _operator_stop_current_speech_for_user_voice_only(self) -> None:
+        self._operator_stop_current_speech_best_effort()
+
     @staticmethod
     def _operator_should_show_broadcast_in_chat(message: BroadcastMessage) -> bool:
         context = str(getattr(message, "context_id", "") or "")
@@ -5740,9 +5810,6 @@ class OperatorUiMixin:
         if not hasattr(self, "operator_chat_scroll"):
             return
         nlp_text = self.nlp_input_edit.toPlainText().strip() if hasattr(self, "nlp_input_edit") else ""
-        if nlp_text and hasattr(self, "operator_command_edit") and not self.operator_command_edit.hasFocus():
-            if not self.operator_command_edit.text().strip():
-                self.operator_command_edit.setText(nlp_text)
         voice_text = nlp_text or (self.operator_command_edit.text().strip() if hasattr(self, "operator_command_edit") else "")
         if hasattr(self, "operator_voice_label"):
             self.operator_voice_label.setText(f"语音输入: {voice_text or '等待语音输入...'}")
@@ -6015,7 +6082,7 @@ class OperatorUiMixin:
         label = getattr(self, "_operator_streaming_chat_content_label", None)
         if label is not None and hasattr(label, "setText"):
             try:
-                label.setText(current)
+                label.setText(self._operator_chat_display_text("assistant", current))
                 if hasattr(label, "setVisible"):
                     label.setVisible(True)
                 self._operator_chat_autoscroll_pending = True
@@ -6511,7 +6578,8 @@ class OperatorUiMixin:
             bubble_layout.addWidget(process_button)
             bubble_layout.addWidget(process_detail)
 
-        content = QLabel(text)
+        display_text = self._operator_chat_display_text(role, text)
+        content = QLabel(display_text)
         content.setObjectName("operatorChatText")
         content.setWordWrap(True)
         content.setTextFormat(Qt.TextFormat.PlainText)
@@ -6544,6 +6612,67 @@ class OperatorUiMixin:
             row_layout.addWidget(bubble)
             row_layout.addStretch(1)
         return row
+
+    @staticmethod
+    def _operator_chat_display_text(role: str, text: str) -> str:
+        clean = str(text or "")
+        if role != "assistant" or not clean.strip():
+            return clean
+        return OperatorUiMixin._operator_format_flow_steps_for_display(clean)
+
+    @staticmethod
+    def _operator_format_flow_steps_for_display(text: str) -> str:
+        clean = str(text or "").replace("**", "").strip()
+        compact = re.sub(r"\s+", "", clean)
+        if "流程" not in compact and "草案" not in compact:
+            return clean
+        if not re.search(r"\d+[\.、]\s*\S+", clean):
+            return clean
+
+        suffix_patterns = (
+            "请问是否需要",
+            "请确认",
+            "请通过",
+            "当前仅生成",
+            "可说",
+        )
+        suffix_start = len(clean)
+        for marker in suffix_patterns:
+            pos = clean.find(marker)
+            if pos > 0:
+                suffix_start = min(suffix_start, pos)
+        body = clean[:suffix_start].strip()
+        suffix = clean[suffix_start:].strip()
+
+        step_matches = list(re.finditer(r"(?<!\w)(\d+)[\.、]\s*", body))
+        if len(step_matches) < 2:
+            return clean
+
+        intro = body[: step_matches[0].start()].strip()
+        intro = intro.rstrip("：:")
+        steps: list[tuple[str, str]] = []
+        for index, match in enumerate(step_matches):
+            next_start = step_matches[index + 1].start() if index + 1 < len(step_matches) else len(body)
+            step_text = body[match.end() : next_start].strip()
+            step_text = step_text.rstrip("；;，,")
+            if step_text:
+                steps.append((match.group(1), step_text))
+        if len(steps) < 2:
+            return clean
+
+        lines: list[str] = []
+        if intro:
+            lines.append(intro)
+            lines.append("")
+        for number, step_text in steps:
+            lines.append(f"步骤 {number}")
+            lines.append(step_text)
+            lines.append("")
+        if suffix:
+            lines.append(suffix)
+        while lines and lines[-1] == "":
+            lines.pop()
+        return "\n".join(lines)
 
     @staticmethod
     def _operator_chat_bubble_width_bounds(*, is_user: bool) -> tuple[int, int]:

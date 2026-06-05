@@ -36,13 +36,82 @@
 
 | 项目 | 当前项目口径 | 新文档口径 | 决策要求 |
 | --- | --- | --- | --- |
+| Func8 是否需要上位机写入 | 当前 `FUNC_NAME_MAP` 和六轴链路未实现 Func8 | 自然语言文档 1.4 表格出现 `绝对运动 8/102` | 确认 Func8 是控制器内部映射、历史兼容入口，还是上位机必须生成的函数号 |
 | 连续路径函数 | 代码实现 Func11；V4.3/V5.0 状态位还包含预留 Func111 | 新文档 Func112 | 确认固件 IEEE(0) 最终函数号，未确认前 Agent 不生成连续路径执行草案 |
 | 笛卡尔继承源 | IEEE(1512~1522) DPOS / IEEE(1612~1622) 反馈 | IEEE(1500~1510) 当前位姿 | 确认继承时使用指令位置、反馈位置还是新地址 |
+| 运动中判定 | `SixAxisStatus.can_send` / `is_executing` 可判断已知函数槽状态；`build_six_motion_state_read()` 仅返回 int | 新文档写 BIT(252) 任意轴运动中 | 首版先复用 `SixAxisStatus.can_send` 阻断继承；确认是否必须新增 BIT(252) 读取作为底层运动判据 |
 | Func110 延时参数 | 当前写 IEEE(2) | 文档写 para(2) | 确认实际控制器参数位 |
 | 姿态四夹角 | 未接入 | IEEE(1732/1734/1736/1738) | 确认控制器已定义并可读 |
 | IEEE(22) 语义 | 当前代码命名为 `fuzzy_pos` | 新文档写位置增量 | 确认控制器实际语义，未确认前不改现有字段名和写入行为 |
 
 协议未确认前，允许先实现不依赖这些差异的 `AlarmExplanationAgent` 和规则意图识别。
+
+## 两份对接文档需求映射
+
+本节用于把两份 2026-06-04 对接文档中的硬要求映射到 Agent 模块，避免实现时只做自然语言解析而漏掉状态、安全和执行闭环。
+
+### 自然语言参数类指令解析说明书
+
+| 文档要求 | Agent 落点 | 实现约束 |
+| --- | --- | --- |
+| 所有正常运动首选 Func108 | `CommandUnderstandingAgent` | 自然语言运动入口默认生成 `move_linear` / Func108，不生成 106/107 |
+| 需要路径规避时使用连续路径函数 | `CommandUnderstandingAgent` + P0 协议确认 | 文档写 Func112，但当前项目实现 Func11；未确认前 Agent 不生成连续路径执行草案 |
+| 参数继承性 | `ParameterCompletionAgent` | 未指定的 X/Y/Z/RX/RY/RZ/速度/加减速必须从控制器或确认后的协议继承源读取，不依赖 HMI 页面状态 |
+| 复述确认 | `ConfirmationAgent` | 必须展示补全后的完整参数、参数来源、模式和安全预检结果，用户确认后才转换为 `QueryRecord` |
+| 半参数/单参数指令 | `CommandUnderstandingAgent` + `ParameterCompletionAgent` | 规则能明确提取的部分参数不调用大模型；其余参数走继承补全 |
+| 增量运动 | `ParameterCompletionAgent` + P0 协议确认 | 文档将 para(10) 定义为位置增量，当前代码字段为 `fuzzy_pos`；未确认前不改变写入语义 |
+| 复合指令 | 后续 `CompoundCommandCoordinator` 或流程层 | 不在首批 5 个 Agent 范围内；每条子指令独立走补全、预检、确认；不能一次确认后批量绕过单步安全检查 |
+| 执行后监控 | 现有 `six_axis_command_mixin.py` + `AlarmExplanationAgent` | 继续轮询 LONG(34)/LONG(38)/IEEE(324)，将 EXEC/DONE/ERR 转为操作者话术 |
+
+### 机械手基础运行信息交互状态说明书
+
+| 文档要求 | Agent 落点 | 实现约束 |
+| --- | --- | --- |
+| 系统就绪判断 | `L1ControllerGate` / `SafetyPrecheckService` | 运动前检查 LONG(34).bit28、bit24、bit25、bit26 和 LONG(38)，不满足则拒绝运动草案进入确认 |
+| 急停精确响应 | `AlarmExplanationAgent` + 系统动作规则旁路 | 运动指令遇急停必须立即回复解除顺序；`sys_estop` 不走大模型 |
+| 暂停精确响应 | `AlarmExplanationAgent` + `CommandUnderstandingAgent` | 暂停中拒绝新运动；允许继续/取消类系统动作按规则处理 |
+| 当前运行动作显示 | `AlarmExplanationAgent` | 读取 IEEE(324) 和 LONG(34) 函数状态，输出 `func_name_zh`、EXEC/DONE/ERR 文本 |
+| 驱动器报警逐轴诊断 | `AlarmExplanationAgent` | LONG(38).bit7 触发时必须读取 IEEE(200/202/204/206/208/210)，逐轴解释 AXISSTATUS bit |
+| EtherCAT 通讯丢失逐轴诊断 | `AlarmExplanationAgent` | LONG(38).bit6 触发时必须读取 AXISSTATUS bit2，并输出受影响轴和驱动器号 |
+| 半径/高度实时超限方向判断 | `AlarmExplanationAgent` | LONG(38).bit0/bit1 触发时结合 IEEE(1700~1706)、IEEE(1740/1742) 输出“伸太远/收太近/太高/太低” |
+| 速度/加速度/减速度钳制提示 | `AlarmExplanationAgent` | LONG(38).bit3/4/5 触发时读取 IEEE(1708/1710/1712) 生成安全上限提示 |
+| 每次运动前安全预判 | `SafetyReviewAgent` | 所有 Func108 运动草案确认前和执行前都必须检查，不允许跳过 |
+| 空间模型检查 | `SafetyReviewAgent` | 实现外球面、内圆柱+半球、Z 范围、底座角度四类本地检查 |
+| FrameTrans2 逆解 | `SafetyReviewAgent` + `KinematicsEngine` | 复用 `FrameTrans2KinematicsEngine` / `MotionPlanService`，遍历 FSTATUS，结果与控制器逻辑一致 |
+| 关节限位和姿态四夹角 | `SafetyReviewAgent` | 逆解后检查关节软限位；读取 IEEE(1732~1738) 后检查上/下/顺时针/逆时针夹角 |
+
+### 不可跳过的闭环
+
+所有自然语言运动指令必须经过以下闭环：
+
+```text
+自然语言输入
+  -> 意图识别
+  -> 参数提取
+  -> 控制器实时值继承补全
+  -> L1 状态门
+  -> 空间/逆解/限位/姿态安全预检
+  -> 完整参数复述确认
+  -> confirmed draft 转 QueryRecord
+  -> 现有六轴三道门执行链路
+  -> 执行状态和报警解释
+```
+
+任一环节失败时，不生成执行触发：
+
+- 意图不清：返回澄清问题。
+- 继承读取失败：拒绝补全并提示控制器实时值不可用。
+- L1 状态不通过：提示急停、暂停、报警或通道占用原因。
+- 安全预检不通过：展示具体超限方向和修正建议。
+- 用户拒绝或确认超时：丢弃草案。
+
+### 当前阶段明确禁用或阻断
+
+- 自然语言入口不生成 Func106/Func107。
+- 协议未确认前不生成 Func112 或连续路径执行草案。
+- 协议未确认前不把 `fuzzy_pos` 改写为“位置增量”。
+- 大模型不参与 MODBUS 地址选择、安全预检、AXISSTATUS 解释和执行触发。
+- 大模型不得改写复述确认中的数字、单位、参数名和参数顺序。
 
 ## 总体架构
 
@@ -94,7 +163,7 @@ class CommandDraft:
 QueryRecord(
     query_key=f"agent:{draft.draft_id}",
     func_num=draft.func_id,
-    params=draft.params,
+    params=copy.deepcopy(draft.params),
     description=summary_from_draft(draft),
 )
 ```
@@ -102,6 +171,8 @@ QueryRecord(
 草案修改采用创建新对象，不原地修改。这样可以保留审计链路，也避免确认状态被中途污染。
 
 `CommandDraft.params` 的 key 名必须和 `RobotModbusService.build_six_command_from_record()` 中对应 `func_id` 的参数 key 完全一致。转 `QueryRecord` 前必须做完整性校验，缺少必需参数时拒绝转换。
+
+`QueryRecord` 虽然是 `frozen=True`，但内部 `params` 是可变 dict。所有 `CommandDraft.params` 在转 `QueryRecord` 时必须深拷贝；confirmed draft、待确认 draft 和实际执行用 `QueryRecord` 之间不得共享同一个 dict 引用。若后续需要添加 `atomic_risk_level` 等 UI 元数据，也只能写入执行副本，不能污染原始草案。
 
 当前已实现函数的必需 key：
 
@@ -112,6 +183,52 @@ QueryRecord(
 | 109 | `delay_sec` |
 | 110 | `delay_sec` |
 | 120 | `io_no`, `io_action` |
+
+### AddressResolver
+
+职责：封装协议差异和可变地址，业务 Agent 只依赖语义字段，不直接写死有争议的 MODBUS 地址或函数号。
+
+```python
+@dataclass(frozen=True)
+class AddressConfig:
+    cartesian_current: int
+    cartesian_feedback: int
+    safe_speed_max: int
+    safe_acc_max: int
+    safe_dec_max: int
+    pose_upper_angle: int
+    pose_lower_angle: int
+    pose_cw_angle: int
+    pose_ccw_angle: int
+    continuous_path_func: int
+    absolute_motion_func: int
+    any_axis_moving_bit: int | None = None
+```
+
+P0 协议确认前使用与当前项目兼容的默认配置。确认后通过配置注入更新，`ParameterCompletionAgent`、`SafetyReviewAgent` 和 `CommandUnderstandingAgent` 从 `AddressResolver` 读取地址和函数号。
+
+### AgentPlanAdapter
+
+职责：把 Agent 内部结果接入现有 Qt/Web 自然语言入口，避免首版改写 `nlp_mixin.py` 和 `web_nlp_service.py` 的执行模型。
+
+首版允许两种接入方式：
+
+- P2 阶段先实现语义策略映射和空壳接口，不依赖 `CommandDraft`。
+- P3 `CommandDraft` 完成后，再由 `AgentPlanAdapter` 转成现有 `VoiceNlpPlan` / `VoiceNlpAction`，动作类型使用可被旧入口识别的 `atomic_template` 或新增受控类型。
+- Qt/Web 新增并行的 `AgentPlan` parse endpoint，但 confirmed 后仍必须转换为 `QueryRecord` 并走现有执行 API。
+
+无论采用哪种方式，运动类 Agent 输出不得直接进入 `_execute_nlp_plan()` 的即时执行路径。必须先进入 `ConfirmationAgent`，确认后才注册临时 `QueryRecord` 或提交执行。
+
+Agent 的语义策略必须映射到现有 `semantic_response_policy.py`：
+
+| Agent 结果 | semantic level | requires_precheck | requires_confirmation | emergency_fast_path |
+| --- | --- | --- | --- | --- |
+| 查询/报警解释 | 1 或 2 | False | False | False |
+| Func108 运动草案 | 3 | True | True | False |
+| 普通系统动作 | 4 | False | 按现有策略 | False |
+| 急停 | 5 | False | False | True |
+
+若 `VoiceNlpPlan.requires_precheck` / `requires_confirmation` 与 Agent 内部判断冲突，以更保守的一方为准。
 
 ## 模块设计
 
@@ -129,6 +246,7 @@ QueryRecord(
 ```python
 {
     "intent": "move_linear" | "system" | "query" | "io" | "delay" | "clarification_needed" | "unknown",
+    "func_id": 108 | 104 | 109 | 110 | 120 | None,
     "target": "sys_estop" | "alarm_status" | None,
     "extracted_params": {...},
     "confidence": 0.0,
@@ -202,8 +320,10 @@ Func108 参数补全目标：
 
 运动中继承策略：
 
+- 首版运动中判断复用 `SixAxisStatus.can_send` / `is_executing`，避免新增读取通道；P0 确认后如要求“任意轴运动中”，再接入 BIT(252)。
 - 如果控制器处于运动中，默认不继承瞬时 DPOS。
 - 直接进入阻断提示：“当前设备运动中，请等待停止后再继承当前位置。”该提示不进入确认状态机。
+- 如果状态读取失败，按无法安全继承处理，拒绝补全。
 - 后续如需要支持运动中修改，必须明确使用反馈位置还是规划位置，并单独设计。
 
 ### SafetyReviewAgent
@@ -212,7 +332,7 @@ Func108 参数补全目标：
 
 - 在确认前和最终执行前对运动草案进行安全评审。
 - 复用 `KinematicsEngine` / `MotionPlanService`，不直接绑定 SDK。
-- L1 状态门复用现有 `SafetyPrecheckService.run_l1()`，或先重构为可注入的 `L1ControllerGate`，避免 Agent 内部另写一套急停、报警、暂停和通道空闲判断。
+- L1 状态门优先复用 `SixAxisStatus.can_send` / `can_send_for()` 的直接寄存器解析结果；需要 dashboard snapshot 的 UI 场景可复用 `SafetyPrecheckService.run_l1()`，避免 Agent 内部另写一套急停、报警、暂停和通道空闲判断。
 - 不做缓存，每次实时计算。
 
 安全评审分层：
@@ -222,6 +342,19 @@ Func108 参数补全目标：
 3. 逆解可行性：FrameTrans2 mode=2，遍历 FSTATUS。
 4. 关节软限位：逆解结果对比各轴限制。
 5. 姿态四夹角：上、下、顺时针、逆时针夹角。
+
+与现有 `MotionPlanService` 的关系：
+
+- `SafetyReviewAgent` 是统一汇总层，负责 L1 状态门、空间模型、姿态四夹角和最终 `valid` 判断。
+- `MotionPlanService.plan()` 只作为 L2 子模块，负责 FSTATUS 扫描、关节限位和奇异点检查。
+- `SafetyReviewAgent` 调用 `MotionPlanService.plan()` 后，将其 `status`、`selected_fstatus`、`joints`、`items`、`suggestion` 适配为统一输出格式。
+- 姿态四夹角读取依赖 `parse_six_safety_limits()` 后续显式返回 `pose_upper_angle`、`pose_lower_angle`、`pose_cw_angle`、`pose_ccw_angle`，不再从 `reserved` 中按位置读取。
+
+与现有执行三道门的关系：
+
+- `SafetyReviewAgent` 是确认前和执行前的预判层，不替代 `six_axis_command_mixin.py` 中的最终三道门。
+- confirmed draft 执行时仍必须经过 `_precheck_six_command()` / `_wait_six_precheck_ready()` / 触发确认读取等现有链路。
+- 如果 Agent 预检通过但执行时三道门阻断，以执行时三道门为准；阻断原因进入 `AlarmExplanationAgent` 的结构化输出，由 UI 报警页或状态区展示。
 
 输出：
 
@@ -272,6 +405,13 @@ waiting_confirmation
 
 超时使用现有 `operator_confirm_timeout_sec` 配置。
 
+与现有 Qt 确认 UI 的集成：
+
+- `ConfirmationAgent` 生成的复述文本填入 `operator_confirm_detail`。
+- 现有“确认执行”按钮映射为 `confirmed`，现有“取消”按钮映射为 `rejected`。
+- `operator_confirm_timeout_sec` 继续作为确认超时配置。
+- 修改回路需要新增 UI 入口，这是 P4 的 UI 依赖项；操作者输入修改文本后，重新进入 `CommandUnderstandingAgent` / `ParameterCompletionAgent`，不直接修改已确认草案。
+
 ### AlarmExplanationAgent
 
 职责：
@@ -286,7 +426,7 @@ waiting_confirmation
     "long34": int,
     "long36": int,
     "long38": int,
-    "axis_status": [int, int, int, int, int, int],
+    "axis_status": [...],  # RobotModbusService.parse_six_axis_status() 的返回列表
     "safety_values": {...}
 }
 ```
@@ -311,6 +451,12 @@ waiting_confirmation
 - `LONG(38)` bit7 或 bit6 触发时，读取并解释逐轴 `AXISSTATUS`。
 - 详情中保留所有异常轴；摘要显示最高严重度的一条。
 - 正常状态只显示“就绪”或“正在执行 FuncXXX”，避免报警页信息污染正常运行界面。
+
+基础设施：
+
+- 新增 `AxisStatusBitDecomposer` 或 `parse_six_axis_status_detail()`，输入为 `parse_six_axis_status()` 的返回列表，按协议映射到 6 轴。
+- 至少解释 AXISSTATUS bit2、bit3、bit4、bit5、bit8、bit9、bit10、bit14、bit18。
+- Agent 层只消费结构化 bit 解释结果，不在提示词或自然语言模板中直接手写 bit 运算。
 
 ## 大模型边界
 
@@ -338,12 +484,25 @@ Qt 用户页：
 
 - 对话区显示 Agent 复述确认文本。
 - 右侧确认面板显示完整参数、来源、安全预检结果。
+- 复用 `_build_operator_confirm_scene()` 的确认/取消按钮；`operator_confirm_detail` 显示 `ConfirmationAgent` 的复述文本。
+- “修改参数”作为后续 UI 增量入口，必须重新走补全、预检、确认，不允许在 UI 上直接改写 confirmed draft。
+- `AgentPlanAdapter` 接入后，旧 `VoiceNlpPlan` 执行链仍保留；Agent 运动草案在确认前不得调用 `_execute_nlp_plan()` 的 `_execute_query_key()` 路径。
 - 报警页接入 `AlarmExplanationAgent` 的结构化输出。
 
 Web：
 
 - `web_nlp_service.py` 可新增 Agent parse endpoint，但执行仍走现有 confirm API。
 - Web 响应返回 `draft_id`、`confirmation_text`、`precheck_result`。
+- Web draft 生命周期必须显式建模：`draft_id -> waiting_confirmation -> confirmed/rejected/expired -> QueryRecord`。
+- draft 需要携带创建时的状态快照摘要和过期时间；确认时如果已过期或控制器状态关键字段变化，必须重新预检或拒绝确认。
+- confirmed 后只允许一次性转换和执行，不能重复确认同一个 `draft_id`。
+
+draft 失效条件：
+
+- 当前时间超过创建时间 + `operator_confirm_timeout_sec`。
+- 创建时记录的 `SixAxisStatus.raw` 与确认时不一致。
+- 创建时关键安全参数摘要与确认时不一致。
+- `draft_id` 已进入 `confirmed`、`rejected` 或 `expired` 终态。
 
 语音：
 
@@ -357,6 +516,7 @@ Web：
 
 - 确认 Func11/Func112。
 - 确认笛卡尔继承源。
+- 确认运动中判定是否必须接入 BIT(252)，以及 `SixAxisStatus.can_send` 是否足以作为首版阻断条件。
 - 确认 Func110 参数位。
 - 确认 IEEE(1732~1738) 姿态四夹角地址。
 - 确认 IEEE(22) `fuzzy_pos` 与“位置增量”的真实语义。
@@ -365,31 +525,35 @@ Web：
 
 - 新增轴状态 bit 表。
 - 复用现有 `build_six_axis_status_read()`。
+- 新增 `AxisStatusBitDecomposer` 或 `parse_six_axis_status_detail()`。
 - 增加单元测试覆盖 LONG(34)、LONG(38)、AXISSTATUS 组合。
 
 ### P2 CommandUnderstandingAgent 规则版
 
-- 复用 `SYSTEM_ACTION_ALIASES` 和 `atomic_parser.py`。
+- 复用 `SYSTEM_ACTION_ALIASES` 和 `atomic_parser.py` 中确定性的参数提取规则。
 - 增加意图、置信度、澄清输出。
 - 增加大模型调用判定，但先不接大模型也可工作。
+- 增加 `AgentPlanAdapter` 的语义策略映射和空壳接口，先不依赖 `CommandDraft`。
 
 ### P3 ParameterCompletionAgent
 
 - 新增 `CommandDraft`。
 - 实现 Func108 参数继承和来源标注。
 - 支持 Func104/109/110/120 的确定性草案生成。
+- 补齐 `CommandDraft -> VoiceNlpPlan` 或 `CommandDraft -> AgentPlan` 的适配。
 
 ### P4 ConfirmationAgent
 
 - 实现确认文本模板。
 - 接入超时、拒绝、修改回路。
 - 将 confirmed draft 转为 `QueryRecord`。
+- 实现 draft 生命周期和一次性确认约束，Web/Qt 共用同一套状态定义。
 
 ### P5 SafetyReviewAgent
 
 - 接入空间模型。
 - 接入 `MotionPlanService` / `KinematicsEngine`。
-- 补姿态四夹角检查。
+- 扩展 `parse_six_safety_limits()`，显式返回 IEEE(1732~1738) 姿态四夹角字段后，再补姿态四夹角检查。
 - 执行前再次实时计算，不缓存。
 
 ## 测试策略
@@ -397,7 +561,12 @@ Web：
 单元测试：
 
 - AXISSTATUS 每个关键 bit 的解释文本。
+- `AxisStatusBitDecomposer` 对 `parse_six_axis_status()` 返回列表的轴映射。
 - `LONG(34)` 急停、暂停、报警、就绪组合。
+- `parse_six_safety_limits()` 显式解析 IEEE(1732~1738) 姿态四夹角。
+- `SafetyReviewAgent` 对 `MotionPlanService.plan()` 结果的 pass/fail/unavailable 适配。
+- `CommandDraft.params` 转 `QueryRecord.params` 时深拷贝，confirmed draft 不被执行副本污染。
+- `AgentPlanAdapter` 对 `semantic_response_policy.py` 的 level / confirmation / precheck 映射。
 - 自然语言显式参数解析。
 - 大模型返回非法 JSON、非法函数号、缺少必需字段或超限参数时被白名单校验拒绝。
 - 半参数和单参数继承补全。
@@ -410,10 +579,14 @@ Web：
 - 参数继承生成完整 Func108。
 - 安全预检通过。
 - 确认后进入现有六轴执行链路。
+- 控制器运动中收到 “走到 X1000” 时返回阻断提示，不生成 `CommandDraft`，不进入确认状态机。
+- Agent 运动草案解析后未确认时，不会走 `_execute_nlp_plan()` / `_execute_query_key()`。
+- Web `draft_id` 过期或重复确认时拒绝执行。
 
 回归测试：
 
 - 既有模板、流程、原子命令不因 Agent 新入口改变行为。
+- `AtomicParser` / `AtomicResolver` 旧路径保留；Agent 可以复用 `AtomicParser` 中确定性的参数提取规则，但不替换 `AtomicResolver` 的执行决策、确认模式和风险等级逻辑。
 - 急停、暂停、取消仍走低延迟规则路径。
 - 大模型不可用时，规则路径仍可工作。
 
@@ -431,6 +604,8 @@ Web：
 - 不在协议差异确认前替换现有 Func11/1500/1512/1612 口径。
 - 不把安全预检结果缓存作为默认行为。
 - 不一次性重写现有 `voice_nlp_adapter.py`，先以新模块接入。
+- 不替换 `AtomicParser` / `AtomicResolver` 的既有原子命令路径。
+- 不让 Agent 运动草案绕过现有 `VoiceNlpPlan` 确认策略或 Web waiting_confirm 生命周期直接执行。
 - 不允许大模型修改复述确认文本中的数字、单位、参数名和参数顺序。
 
 ## 成功标准
