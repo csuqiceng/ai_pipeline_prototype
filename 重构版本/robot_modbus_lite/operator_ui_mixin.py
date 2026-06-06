@@ -3358,6 +3358,9 @@ class OperatorUiMixin:
             return ""
         if self._operator_text_looks_like_flow_creation_request(compact):
             return ""
+        axis_position_answer = self._operator_axis_position_context_answer(compact)
+        if axis_position_answer:
+            return axis_position_answer
         status_answer = self._operator_device_status_context_answer(compact)
         if status_answer:
             return status_answer
@@ -3511,6 +3514,37 @@ class OperatorUiMixin:
             "查一下",
         )
         return any(marker in compact_text for marker in query_markers)
+
+    def _operator_axis_position_context_answer(self, compact_text: str) -> str:
+        if not compact_text:
+            return ""
+        if not any(marker in compact_text for marker in ("各轴", "关节", "轴位置", "当前位置", "当前坐标")):
+            return ""
+        if not any(marker in compact_text for marker in ("多少", "是多少", "什么", "查询", "看下", "看一下", "位置", "坐标")):
+            return ""
+        snapshot = self._operator_dashboard_snapshot_dict() if hasattr(self, "_operator_dashboard_snapshot_dict") else {}
+        data = snapshot.get("data") if isinstance(snapshot, dict) and isinstance(snapshot.get("data"), dict) else snapshot
+        if not isinstance(data, dict):
+            data = {}
+        joint_values = data.get("dpos_j") or data.get("joints") or data.get("joint_position")
+        cart_values = data.get("dpos_c") or data.get("position") or data.get("cartesian")
+        parts: list[str] = []
+        if isinstance(joint_values, (list, tuple)) and len(joint_values) >= 6:
+            joints = "，".join(
+                f"J{index}={self._operator_compact_number(value)}"
+                for index, value in enumerate(joint_values[:6], start=1)
+            )
+            parts.append(f"关节位置：{joints}。")
+        if isinstance(cart_values, dict):
+            cart_values = [cart_values.get(key) for key in ("x", "y", "z", "rx", "ry", "rz")]
+        if isinstance(cart_values, (list, tuple)) and len(cart_values) >= 3:
+            parts.append(
+                "当前位置："
+                f"X={self._operator_compact_number(cart_values[0])}，"
+                f"Y={self._operator_compact_number(cart_values[1])}，"
+                f"Z={self._operator_compact_number(cart_values[2])}。"
+            )
+        return "".join(parts)
 
     def _operator_device_status_context_answer(self, compact_text: str) -> str:
         if not compact_text:

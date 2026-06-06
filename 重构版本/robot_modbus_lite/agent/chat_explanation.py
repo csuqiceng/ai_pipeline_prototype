@@ -30,6 +30,13 @@ class ChatExplanationAgent:
         if any(keyword in compact for keyword in self._CONTROL_KEYWORDS):
             return None
 
+        if any(word in compact for word in ("天气", "气温", "下雨", "外面")):
+            return {
+                "kind": "chat_answer",
+                "text": "我无法查询外部天气或实时互联网信息，只能基于当前机械手系统资料回答状态、流程、位置、报警和安全确认相关问题。没有触发机械手动作。",
+                "generates_command": False,
+            }
+
         if "L2" in compact or "运动规划" in compact or "规划预演" in compact or "预演" in compact:
             return {
                 "kind": "chat_answer",

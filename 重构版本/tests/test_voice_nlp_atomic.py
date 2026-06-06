@@ -141,6 +141,34 @@ def test_voice_nlp_adapter_prefers_high_confidence_knowledge_before_deepseek_cha
     assert client.prompts == []
 
 
+def test_voice_nlp_adapter_answers_agent_boundary_from_default_knowledge_without_deepseek():
+    adapter = VoiceNlpAdapter(table={}, flow_names=())
+    client = FakeChatDeepSeekClient("DeepSeek回答")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("现在所有都走agent吗", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "knowledge_base"
+    assert "统一 Agent 总入口" in plan.reason
+    assert "DeepSeek 只做受限兜底解释" in plan.reason
+    assert client.prompts == []
+
+
+def test_voice_nlp_adapter_answers_l2_from_default_knowledge_without_deepseek():
+    adapter = VoiceNlpAdapter(table={}, flow_names=())
+    client = FakeChatDeepSeekClient("DeepSeek回答")
+    adapter.set_deepseek_client(client)
+
+    plan = adapter.parse("L2是什么", use_deepseek=True)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "knowledge_base"
+    assert "运动规划预演" in plan.reason
+    assert "人工确认" in plan.reason
+    assert client.prompts == []
+
+
 def test_voice_nlp_adapter_injects_runtime_context_into_deepseek_chat_prompt():
     adapter = make_adapter()
     adapter.set_runtime_context_provider(lambda: "当前待确认流程草案：打招呼，步骤：移动到home。")

@@ -57,3 +57,12 @@ def test_chat_explains_identity_and_usage_without_generating_command():
     assert usage["kind"] == "chat_answer"
     assert "确认" in usage["text"]
     assert usage["generates_command"] is False
+
+
+def test_chat_rejects_external_weather_question_without_model():
+    result = ChatExplanationAgent().answer("现在天气怎么样")
+
+    assert result is not None
+    assert result["kind"] == "chat_answer"
+    assert "无法查询外部天气" in result["text"]
+    assert result["generates_command"] is False

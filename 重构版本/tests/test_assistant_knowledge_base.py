@@ -134,3 +134,20 @@ def test_assistant_knowledge_base_default_entries_include_json_topics():
 
     assert "template_query" in entries
     assert "tts_usage" in entries
+    assert "agent_architecture_boundary" in entries
+    assert "l1_safety_gate" in entries
+    assert "l2_motion_preview" in entries
+    assert "confirmation_gate" in entries
+    assert "execution_result_context" in entries
+
+
+def test_assistant_knowledge_base_answers_agent_boundary_and_l2_locally():
+    base = AssistantKnowledgeBase.load()
+
+    agent_answer = base.best_answer("现在所有都走agent吗", min_score=40)
+    l2_answer = base.best_answer("L2是什么", min_score=40)
+
+    assert "统一 Agent 总入口" in agent_answer
+    assert "DeepSeek 只做受限兜底解释" in agent_answer
+    assert "运动规划预演" in l2_answer
+    assert "人工确认" in l2_answer

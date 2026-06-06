@@ -50,6 +50,82 @@
       "answer_style": "safety"
     },
     {
+      "id": "agent_architecture_boundary",
+      "category": "agent",
+      "keywords": [
+        "所有都走agent吗",
+        "统一Agent",
+        "agent怎么实现",
+        "怎么分流",
+        "路由"
+      ],
+      "content": "所有自然语言先进入统一 Agent 总入口；执行类走本地确定性规则和安全闭环，状态/报警/知识类走本地上下文与知识库，DeepSeek 只做受限兜底解释，不直接生成执行结果。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "architecture"
+    },
+    {
+      "id": "l1_safety_gate",
+      "category": "safety",
+      "keywords": [
+        "L1是什么",
+        "L1安全",
+        "一级安全",
+        "安全门",
+        "状态门"
+      ],
+      "content": "L1 是执行前的基础安全门，用来检查急停、暂停、报警、运动状态、空间和速度等硬约束。L1 不通过时不会进入执行确认。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "safety"
+    },
+    {
+      "id": "l2_motion_preview",
+      "category": "safety",
+      "keywords": [
+        "L2是什么",
+        "L2运动规划",
+        "运动规划预演",
+        "规划预演",
+        "预演"
+      ],
+      "content": "L2 是运动规划预演，用来提前检查目标姿态、路径规划、逆解和关节/姿态限制。L2 通过或暂不可用时只影响确认提示，不会绕过 L1 或人工确认。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "safety"
+    },
+    {
+      "id": "confirmation_gate",
+      "category": "safety",
+      "keywords": [
+        "为什么要确认",
+        "为什么需要确认",
+        "确认有什么用",
+        "等待安全确认",
+        "确认执行"
+      ],
+      "content": "确认用于让操作者核对目标位置、速度、加速度、减速度、参数来源和安全预检结果。未确认前，Agent 只展示草案，不会触发机械手动作。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "safety"
+    },
+    {
+      "id": "execution_result_context",
+      "category": "execution",
+      "keywords": [
+        "执行结果",
+        "执行完成了吗",
+        "失败原因",
+        "报错",
+        "警告",
+        "执行到哪里"
+      ],
+      "content": "Agent 会记录最近一次执行的开始、完成、失败和警告信息；复合指令会按步骤记录状态，失败时停在具体步骤并展示原因。",
+      "priority": "high",
+      "source": "system_default",
+      "answer_style": "execution"
+    },
+    {
       "id": "template_query",
       "category": "template",
       "keywords": [

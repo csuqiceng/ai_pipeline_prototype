@@ -681,6 +681,37 @@ def test_operator_context_query_answers_current_device_status_locally():
     assert "当前位置：X=0，Y=0，Z=0" in answer
 
 
+def test_operator_context_query_answers_axis_position_question_locally():
+    dummy = DummyOperator()
+    chats = []
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "msg_type": "device_snapshot",
+        "data": {
+            "system_state": "空闲",
+            "func_id_current": "Func108",
+            "ready": True,
+            "estop": False,
+            "pause": False,
+            "alarm": False,
+            "alarm_code": "ERR_000",
+            "ecat_ok": True,
+            "dpos_j": [1, 2, 3, 4, 5, 6],
+            "dpos_c": [100, 200, 300, 0, 45, 0],
+        },
+    }
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("各轴位置多少")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "关节位置：J1=1，J2=2，J3=3，J4=4，J5=5，J6=6" in answer
+    assert "当前位置：X=100，Y=200，Z=300" in answer
+
+
 def test_operator_context_query_answers_registered_flow_information():
     dummy = DummyOperator()
     chats = []
@@ -728,6 +759,27 @@ def test_operator_context_query_answers_registered_flow_information():
     assert "axis_no=10" in answer
 
 
+def test_operator_context_query_prefers_pending_flow_draft_for_named_test_flow(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy.current_flow_name = "打个招呼的小"
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "description": "移动到位置A",
+                "func_id": 108,
+                "params": {"target_x": 100.0},
+            },
+        ],
+    }
+
+    answer = dummy._operator_context_answer("上面的那个测试流程怎么样呢")
+
+    assert "当前待确认流程草案：测试" in answer
+    assert "打个招呼的小" not in answer
+
+
 def test_operator_context_query_does_not_intercept_wake_flow_execution_command():
     dummy = DummyOperator()
     chats = []
@@ -751,6 +803,27 @@ def test_operator_context_query_does_not_intercept_wake_flow_execution_command()
 
     assert handled is False
     assert chats == []
+
+
+def test_operator_plain_registered_flow_execution_uses_local_flow_agent(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "A到B", "rule", "运行流程 A 到 B", "命中流程规则"),),
+        source="rule",
+        raw_text="运行流程 A 到 B",
+        reason="命中流程规则",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=True,
+        requires_confirmation=True,
+    )
+    dummy._operator_agent_registered_flow_parse = lambda text: plan
+
+    result = dummy._operator_try_agent_orchestrator_plan("运行流程 A 到 B")
+
+    assert result.actions[0].action_type == "flow"
+    assert result.actions[0].target == "A到B"
+    assert result.requires_confirmation is True
 
 
 def test_operator_context_query_resolves_saved_flow_query_keys_to_records():
@@ -2345,6 +2418,19 @@ def test_operator_try_agent_orchestrator_continues_last_direction_atomic_templat
     assert record.params["pos_val"] == 3.0
 
 
+def test_operator_try_agent_orchestrator_does_not_treat_update_question_as_resume():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy._atomic_memory.record_direction(func_num=107, axis_no=6, direction=1, step=3.0)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("为什么不更新")
+
+    if plan is not None:
+        assert all(getattr(action, "target", "") != "sys_resume" for action in tuple(plan.actions or ()))
+        assert all(getattr(action, "action_type", "") != "atomic_template" for action in tuple(plan.actions or ()))
+
+
 def test_operator_try_agent_orchestrator_returns_back_history_atomic_template():
     dummy = DummyOperator()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
@@ -3766,6 +3852,56 @@ def test_operator_confirm_stage_modify_compound_step_updates_draft_params(tmp_pa
     assert dummy._operator_pending_flow_draft["expanded_steps"][0]["params"]["spd_pct"] == 30.0
     assert dummy._operator_pending_flow_draft["expanded_steps"][0]["params"]["acc_pct"] == 30.0
     assert "速度调整为30%" in chats[-1][1]
+
+
+def test_operator_confirm_stage_modify_single_motion_updates_pending_record(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    logs = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prechecked", True)
+    record = QueryRecord(
+        query_key="agent_single_move",
+        func_num=108,
+        params={
+            "target_x": 1000.0,
+            "target_y": 200.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 45.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+        },
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_single_move", "agent", "", "单条待确认动作"),),
+        source="restricted_agent",
+        raw_text="让机械手走到X1000 Y200 Z800",
+        reason="单条待确认动作",
+        requires_confirmation=True,
+        atomic_records={"agent_single_move": record},
+        flow_draft={
+            "agent_kind": "single_command_confirmation",
+            "func_id": 108,
+            "params": dict(record.params),
+        },
+    )
+
+    handled = dummy._operator_handle_pending_confirm_modify("速度改为30%")
+
+    assert handled is True
+    assert record.params["spd_pct"] == 30.0
+    assert record.params["acc_pct"] == 30.0
+    assert record.params["dec_pct"] == 30.0
+    assert getattr(dummy, "prechecked", False) is True
+    assert getattr(dummy, "refreshed", False) is True
+    assert "速度调整为30%" in chats[-1][1]
+    assert logs[-1][1] == "确认阶段修改参数"
 
 
 def test_operator_compound_step_machine_text_shows_blocked_reason():
