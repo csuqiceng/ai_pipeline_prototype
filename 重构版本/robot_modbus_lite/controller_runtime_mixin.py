@@ -13,6 +13,7 @@ except ModuleNotFoundError:
     from ..mock_controller import MockZMotionVrClient
 
 from .background_tasks import run_background_thread
+from .agent.execution_monitor import ExecutionMonitorAgent
 from .kinematics_engine import FrameTrans2KinematicsEngine
 from .models import VrReadRequest
 
@@ -232,6 +233,38 @@ class ControllerRuntimeMixin:
             "ieee324_raw": current_func,
             "motion_state_56": motion_state,
         }
+        self._update_execution_monitor_from_status_poll(
+            alarm_active=bool(six_status.has_alarm or six_status.has_error),
+            alarm_text=self.alarm_text,
+            channel_idle=bool(six_status.can_send and current_func == 0 and motion_state != 1),
+            current_func=current_func,
+            result_code=str(six_status.raw),
+        )
+
+    def _update_execution_monitor_from_status_poll(
+        self,
+        *,
+        alarm_active: bool,
+        alarm_text: str,
+        channel_idle: bool,
+        current_func: int,
+        result_code: str,
+    ) -> None:
+        snapshot = getattr(self, "_operator_last_execution_monitor_snapshot", None)
+        if not snapshot:
+            return
+        updated = ExecutionMonitorAgent().update_from_runtime_state(
+            snapshot,
+            alarm_active=alarm_active,
+            alarm_text=alarm_text,
+            channel_idle=channel_idle,
+            current_func=f"Func{current_func}" if current_func else "空闲",
+            result_code=result_code,
+            feedback=getattr(self, "robot_dpos_pose", ()) or getattr(self, "robot_mpos_pose", ()),
+            now=time.time(),
+        )
+        if updated.status:
+            self._operator_last_execution_monitor_snapshot = updated.to_dict()
 
     def _read_feedback_once(self) -> tuple[list[float], VrReadRequest]:
         """读取反馈。"""

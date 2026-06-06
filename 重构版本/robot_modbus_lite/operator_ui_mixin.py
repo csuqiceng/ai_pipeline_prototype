@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from .atomic_capabilities import atomic_capability_summary, atomic_capability_rows
+from .agent.context_builder import AgentContextBuilder
 from .alarm_monitor import AlarmMonitor
 from .broadcast_queue import BroadcastMessage, BroadcastQueue
 from .command_intent_adapter import command_intent_from_plan
@@ -694,6 +695,21 @@ class OperatorUiMixin:
         if not actions or getattr(actions[0], "action_type", "") != "query":
             return False
         query_target = str(getattr(actions[0], "target", "") or "")
+        if query_target == "status_query" and self._operator_text_asks_execution_completion(getattr(plan, "raw_text", "")):
+            answer_text = self._operator_execution_monitor_query_text()
+            self._operator_set_pending_confirm_plan(None)
+            self._operator_scene_override = "query"
+            self._operator_publish_response(
+                ResponseMessage(
+                    kind="result",
+                    text=answer_text,
+                    priority="normal" if "失败" not in answer_text else "high",
+                    context_id="agent:execution_monitor",
+                )
+            )
+            self._operator_publish_ai_answer_for_speech(answer_text)
+            self._operator_archive_execution_result(result="answered", final_text=answer_text)
+            return True
         if query_target in {"alarm_query", "status_query"}:
             answer_text = self._operator_agent_alarm_query_text()
             self._operator_set_pending_confirm_plan(None)
@@ -743,6 +759,21 @@ class OperatorUiMixin:
         self._operator_publish_ai_answer_for_speech(answer.text)
         self._operator_archive_execution_result(result="answered", final_text=answer.text)
         return True
+
+    @staticmethod
+    def _operator_text_asks_execution_completion(text: object) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        return any(phrase in compact for phrase in ("执行完成了吗", "运动完成了吗", "完成了吗", "结束了吗", "执行完了吗"))
+
+    def _operator_execution_monitor_query_text(self) -> str:
+        from .agent.execution_monitor import ExecutionMonitorAgent
+
+        snapshot = getattr(self, "_operator_last_execution_monitor_snapshot", None)
+        now_provider = getattr(self, "_operator_now_seconds", None)
+        now = now_provider() if callable(now_provider) else time.time()
+        return ExecutionMonitorAgent().answer_completion_query(snapshot, now=now)
 
     def _operator_agent_alarm_query_text(self) -> str:
         from .agent.alarm_explanation import AlarmExplanationAgent
@@ -2483,6 +2514,8 @@ class OperatorUiMixin:
         if self._operator_reject_expired_pending_confirm():
             return
         plan = getattr(self, "_operator_pending_confirm_plan", None)
+        if plan is None and self._operator_prepare_current_compound_step_confirmation():
+            return
         if not self._operator_plan_is_executable(plan):
             self._operator_no_pending_confirm()
             return
@@ -2519,11 +2552,212 @@ class OperatorUiMixin:
         self._operator_set_pending_confirm_plan(None)
         self._operator_scene_override = None
         self._set_nlp_execute_busy(True)
+        self._operator_mark_compound_step_confirmed(plan)
         self.status_label.setText("确认收到，开始执行。")
         self._operator_add_chat_message("assistant", "确认收到，开始执行。")
         self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
         self._append_log("用户页面", "确认执行", "成功", getattr(plan, "reason", "已确认执行"))
         self._execute_nlp_plan(plan)
+
+    def _operator_prepare_current_compound_step_confirmation(self) -> bool:
+        draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_plan_draft":
+            return False
+        if not bool(draft.get("safe_to_execute")):
+            return False
+        machine = draft.get("step_machine")
+        if not isinstance(machine, dict):
+            return False
+        if str(machine.get("status") or "") != "waiting_step_confirmation":
+            return False
+        steps = draft.get("expanded_steps")
+        if not isinstance(steps, list) or not steps:
+            return False
+        try:
+            index = int(machine.get("current_index") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(steps):
+            return False
+        step = steps[index]
+        if not isinstance(step, dict):
+            return False
+        plan = self._operator_compound_step_confirmation_plan(draft, step, index)
+        if plan is None:
+            return False
+        self._operator_set_pending_confirm_plan(plan)
+        self._operator_scene_override = "confirm"
+        text = f"复合指令第 {index + 1}/{len(steps)} 步等待确认：{step.get('description') or step.get('action') or machine.get('current_step_text') or '-'}"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        self._operator_add_chat_message("assistant", f"{text}\n请确认执行当前步骤，或取消指令。")
+        self._operator_archive_execution_result(result="compound_step_waiting_confirmation", final_text=text)
+        self._append_log("Agent", "复合指令步骤确认", "提示", text)
+        self._refresh_operator_view()
+        return True
+
+    def _operator_compound_step_confirmation_plan(self, draft: dict[str, Any], step: dict[str, Any], index: int):
+        from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpPlan
+
+        try:
+            func_id = int(float(step.get("func_id") or step.get("func_num") or 0))
+        except (TypeError, ValueError):
+            func_id = 0
+        params = step.get("params")
+        if func_id <= 0 or not isinstance(params, dict):
+            return None
+        flow_name = str(draft.get("flow_name") or draft.get("flowName") or "compound").strip() or "compound"
+        safe_name = re.sub(r"[^\w\u4e00-\u9fff]+", "_", flow_name).strip("_") or "compound"
+        target = f"{safe_name}_step_{index + 1}"
+        record = QueryRecord(
+            query_key=target,
+            func_num=func_id,
+            params=dict(params),
+            keywords=f"{flow_name} 复合指令 第{index + 1}步",
+            description=str(step.get("description") or step.get("action") or f"{flow_name} 第{index + 1}步"),
+            safety_level=int(float(step.get("safety_level", 5) or 5)),
+        )
+        return VoiceNlpPlan(
+            actions=(
+                VoiceNlpAction(
+                    "atomic_template",
+                    target,
+                    "compound_step",
+                    str(draft.get("raw_text") or ""),
+                    f"复合指令第 {index + 1} 步等待确认。",
+                ),
+            ),
+            source="compound_step",
+            raw_text=str(draft.get("raw_text") or ""),
+            reason=f"复合指令第 {index + 1} 步等待确认。",
+            semantic_level=3,
+            semantic_label="复合指令步骤执行层",
+            requires_precheck=False,
+            requires_confirmation=True,
+            atomic_records={target: record},
+            flow_draft={
+                "agent_kind": "compound_step_confirmation",
+                "compound_plan_id": draft.get("plan_id"),
+                "compound_step_index": index,
+                "compound_step_total": len(draft.get("expanded_steps") or []),
+                "compound_flow_name": flow_name,
+            },
+        )
+
+    def _operator_update_compound_step_result(self, *, ok: bool, reason: str = "") -> bool:
+        draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_plan_draft":
+            return False
+        machine = draft.get("step_machine")
+        if not isinstance(machine, dict):
+            return False
+        steps = machine.get("steps")
+        if not isinstance(steps, (list, tuple)) or not steps:
+            return False
+        try:
+            index = int(machine.get("current_index") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(steps):
+            return False
+        updated_steps = [dict(step) for step in steps if isinstance(step, dict)]
+        if len(updated_steps) != len(steps):
+            return False
+        detail = str(reason or "").strip()
+        total = len(updated_steps)
+        if not ok:
+            updated_steps[index]["status"] = "failed"
+            updated_steps[index]["reason"] = detail or "当前步骤执行失败。"
+            machine.update(
+                {
+                    "status": "failed",
+                    "current_index": index,
+                    "reason": updated_steps[index]["reason"],
+                    "steps": updated_steps,
+                }
+            )
+            text = f"复合指令停止在第 {index + 1}/{total} 步：{updated_steps[index].get('text') or '-'}。原因：{updated_steps[index]['reason']}"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", text, kind="warn")
+            self._operator_archive_execution_result(result="compound_step_failed", final_text=text)
+            self._append_log("Agent", "复合指令步骤执行", "失败", text)
+            self._refresh_operator_view()
+            return True
+
+        updated_steps[index]["status"] = "completed"
+        updated_steps[index].pop("reason", None)
+        next_index = index + 1
+        if next_index >= total:
+            machine.update(
+                {
+                    "status": "completed",
+                    "current_index": index,
+                    "reason": "",
+                    "steps": updated_steps,
+                }
+            )
+            text = f"复合指令执行完成：共完成 {total} 步。"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", text)
+            self._operator_archive_execution_result(result="compound_completed", final_text=text)
+            self._append_log("Agent", "复合指令完成", "成功", text)
+            self._refresh_operator_view()
+            return True
+
+        updated_steps[next_index]["status"] = "waiting_confirmation"
+        machine.update(
+            {
+                "status": "waiting_step_confirmation",
+                "current_index": next_index,
+                "current_step_text": updated_steps[next_index].get("text") or "",
+                "reason": "",
+                "steps": updated_steps,
+            }
+        )
+        text = f"复合指令第 {index + 1}/{total} 步已完成。当前等待确认第 {next_index + 1}/{total} 步：{updated_steps[next_index].get('text') or '-'}。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        self._operator_add_chat_message("assistant", text)
+        self._operator_archive_execution_result(result="compound_step_completed", final_text=text)
+        self._append_log("Agent", "复合指令步骤执行", "成功", text)
+        self._refresh_operator_view()
+        return True
+
+    def _operator_mark_compound_step_confirmed(self, plan) -> bool:
+        draft = getattr(plan, "flow_draft", None)
+        if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_step_confirmation":
+            return False
+        compound_draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(compound_draft, dict):
+            return False
+        machine = compound_draft.get("step_machine")
+        if not isinstance(machine, dict):
+            return False
+        steps = machine.get("steps")
+        if not isinstance(steps, (list, tuple)) or not steps:
+            return False
+        try:
+            index = int(draft.get("compound_step_index") if draft.get("compound_step_index") is not None else machine.get("current_index") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(steps):
+            return False
+        updated_steps = [dict(step) for step in steps if isinstance(step, dict)]
+        if len(updated_steps) != len(steps):
+            return False
+        updated_steps[index]["status"] = "confirmed"
+        machine.update(
+            {
+                "status": "step_confirmed",
+                "current_index": index,
+                "current_step_text": updated_steps[index].get("text") or machine.get("current_step_text") or "",
+                "steps": updated_steps,
+            }
+        )
+        self._operator_active_compound_step_target = str(getattr(tuple(getattr(plan, "actions", ()) or ())[0], "target", "") or "")
+        return True
 
     def _operator_confirm_agent_draft(self, plan) -> None:
         draft_id = self._operator_agent_draft_id(plan)
@@ -2616,6 +2850,8 @@ class OperatorUiMixin:
 
     def _operator_cancel_confirm(self) -> None:
         if getattr(self, "_operator_pending_confirm_plan", None) is not None:
+            if self._operator_cancel_compound_step_confirmation():
+                return
             self._operator_set_pending_confirm_plan(None)
             self._operator_scene_override = None
             text = "已取消待确认的执行计划。"
@@ -2626,6 +2862,23 @@ class OperatorUiMixin:
             self._refresh_operator_view()
             return
         self._operator_stop_current()
+
+    def _operator_cancel_compound_step_confirmation(self) -> bool:
+        plan = getattr(self, "_operator_pending_confirm_plan", None)
+        draft = getattr(plan, "flow_draft", None)
+        if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_step_confirmation":
+            return False
+        self._operator_set_pending_confirm_plan(None)
+        self._operator_pending_flow_draft = None
+        self._operator_scene_override = None
+        text = "已取消复合指令，后续步骤不会继续执行。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        self._operator_add_chat_message("assistant", text)
+        self._operator_archive_execution_result(result="compound_cancelled", final_text=text)
+        self._append_log("用户页面", "取消复合指令", "成功", text)
+        self._refresh_operator_view()
+        return True
 
     def _handle_operator_ui_command(self, text: str) -> bool:
         compact = re.sub(r"\s+", "", text or "")
@@ -2982,6 +3235,13 @@ class OperatorUiMixin:
         )
         if not save_only:
             return False
+        if (
+            execute_after_save
+            and draft.get("agent_kind") == "compound_plan_draft"
+            and bool(draft.get("safe_to_execute"))
+        ):
+            if self._operator_prepare_current_compound_step_confirmation():
+                return True
         ok, detail, flow_name = self._operator_save_flow_draft(draft)
         if not ok:
             self.status_label.setText(detail)
@@ -3489,29 +3749,18 @@ class OperatorUiMixin:
         return "\n".join(lines)
 
     def _operator_deepseek_runtime_context(self) -> str:
-        parts: list[str] = []
-        draft = getattr(self, "_operator_pending_flow_draft", None)
-        if isinstance(draft, dict) and draft:
-            parts.append(self._operator_flow_draft_preview_text(draft, include_params=True))
-        dialogue_text = self._operator_recent_dialogue_context()
-        if dialogue_text:
-            parts.append(dialogue_text)
-        flow_text = self._operator_current_flow_context_answer()
-        if flow_text:
-            parts.append(flow_text)
+        scene_state = getattr(self, "_operator_scene_state", OperatorSceneState())
+        current_scene = str(getattr(scene_state, "current", "") or "").strip()
         last_result = self._operator_last_execution_result_text()
-        if last_result and "还没有可报告" not in last_result:
-            parts.append(last_result)
-        last_state = self._operator_last_execution_state_after_text()
-        if last_state:
-            parts.append(last_state)
+        if last_result and "还没有可报告" in last_result:
+            last_result = ""
+        position_lines: list[str] = []
         try:
             registry = self._position_registry() if hasattr(self, "_position_registry") else None
             entries = list(registry.list_all()) if registry is not None and hasattr(registry, "list_all") else []
         except Exception:
             entries = []
         if entries:
-            position_lines = []
             for entry in entries[:8]:
                 x, y, z, rx, ry, rz = getattr(entry, "pose", (0, 0, 0, 0, 0, 0))
                 position_lines.append(
@@ -3519,8 +3768,16 @@ class OperatorUiMixin:
                     f"{self._operator_compact_number(z)}, {self._operator_compact_number(rx)}, "
                     f"{self._operator_compact_number(ry)}, {self._operator_compact_number(rz)})"
                 )
-            parts.append("位置库：" + "；".join(position_lines))
-        return "\n".join(part for part in parts if part).strip()
+        return AgentContextBuilder().build_text(
+            current_scene=current_scene,
+            pending_confirm_plan=getattr(self, "_operator_pending_confirm_plan", None),
+            pending_flow_draft=getattr(self, "_operator_pending_flow_draft", None),
+            recent_messages=tuple(getattr(self, "_operator_chat_messages", []) or ()),
+            current_flow_text=self._operator_current_flow_context_answer(),
+            last_execution_result=last_result,
+            last_execution_state=self._operator_last_execution_state_after_text(),
+            position_lines=tuple(position_lines),
+        )
 
     def _operator_recent_dialogue_context(self, *, limit: int = 6, max_chars: int = 160) -> str:
         messages = getattr(self, "_operator_chat_messages", None)
@@ -3838,6 +4095,7 @@ class OperatorUiMixin:
             )
             if not changed:
                 return False
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
             text_out = f"已将待确认计划速度调整为{speed:g}%，加速度和减速度同步为{speed:g}%。请再次确认执行。"
             self._operator_prepare_plan_prechecks(plan)
             self.status_label.setText(text_out)
@@ -3851,6 +4109,7 @@ class OperatorUiMixin:
             changed = self._operator_update_pending_confirm_records(plan, {"pos_val": step})
             if not changed:
                 return False
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
             text_out = f"已将待确认计划步长调整为{step:g}。请再次确认执行。"
             self._operator_prepare_plan_prechecks(plan)
             self.status_label.setText(text_out)
@@ -3859,6 +4118,35 @@ class OperatorUiMixin:
             self._refresh_operator_view()
             return True
         return False
+
+    def _operator_sync_compound_step_params_from_confirm_plan(self, plan) -> bool:
+        draft = getattr(plan, "flow_draft", None)
+        if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_step_confirmation":
+            return False
+        compound_draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(compound_draft, dict):
+            return False
+        steps = compound_draft.get("expanded_steps")
+        if not isinstance(steps, list):
+            return False
+        try:
+            index = int(draft.get("compound_step_index") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(steps) or not isinstance(steps[index], dict):
+            return False
+        records = getattr(plan, "atomic_records", {}) or {}
+        record = next(iter(records.values()), None)
+        params = getattr(record, "params", None)
+        if not isinstance(params, dict):
+            return False
+        step_params = steps[index].get("params")
+        if not isinstance(step_params, dict):
+            step_params = {}
+            steps[index]["params"] = step_params
+        step_params.update(dict(params))
+        compound_draft["needs_precheck"] = True
+        return True
 
     @staticmethod
     def _operator_update_pending_confirm_records(plan, updates: dict[str, float]) -> bool:
@@ -5847,7 +6135,7 @@ class OperatorUiMixin:
         )
 
         self.operator_confirm_title.setText("等待确认执行")
-        self.operator_confirm_detail.setHtml(self._operator_confirm_detail_html())
+        self._operator_set_confirm_detail_html(self._operator_confirm_detail_html())
         if hasattr(self, "operator_accept_suggestion_btn"):
             self.operator_accept_suggestion_btn.setEnabled(
                 self._operator_accept_suggestion_available(getattr(self, "_operator_pending_confirm_plan", None))
@@ -6099,6 +6387,63 @@ class OperatorUiMixin:
             return self._operator_agent_confirm_detail_html(plan, flow_draft)
         return self._operator_plain_confirm_detail_html()
 
+    def _operator_set_confirm_detail_html(self, html_text: str) -> None:
+        browser = getattr(self, "operator_confirm_detail", None)
+        if browser is None:
+            return
+        signature = self._operator_confirm_detail_signature()
+        previous_signature = getattr(self, "_operator_confirm_html_signature", None)
+        previous_html = getattr(self, "_operator_confirm_html_text", None)
+        same_confirm_context = signature == previous_signature
+        if same_confirm_context and previous_html == html_text:
+            return
+        scroll_value = 0
+        scroll_bar = None
+        if same_confirm_context:
+            try:
+                scroll_bar = browser.verticalScrollBar()
+                scroll_value = int(scroll_bar.value())
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                scroll_bar = None
+                scroll_value = 0
+        browser.setHtml(html_text)
+        self._operator_confirm_html_signature = signature
+        self._operator_confirm_html_text = html_text
+
+        def restore_scroll() -> None:
+            bar = scroll_bar
+            if bar is None:
+                try:
+                    bar = browser.verticalScrollBar()
+                except (AttributeError, RuntimeError):
+                    return
+            try:
+                target = scroll_value if same_confirm_context else 0
+                target = max(int(bar.minimum()), min(int(bar.maximum()), int(target)))
+                bar.setValue(target)
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                return
+
+        QTimer.singleShot(0, restore_scroll)
+
+    def _operator_confirm_detail_signature(self) -> str:
+        plan = getattr(self, "_operator_pending_confirm_plan", None)
+        if plan is None:
+            return "none"
+        flow_draft = getattr(plan, "flow_draft", None)
+        if isinstance(flow_draft, dict):
+            draft_id = str(flow_draft.get("draft_id") or flow_draft.get("plan_id") or "").strip()
+            if draft_id:
+                return draft_id
+        actions = tuple(getattr(plan, "actions", ()) or ())
+        if actions:
+            first = actions[0]
+            target = str(getattr(first, "target", "") or "")
+            action_type = str(getattr(first, "action_type", "") or "")
+            if target or action_type:
+                return f"{action_type}:{target}"
+        return str(id(plan))
+
     def _operator_agent_confirm_detail_html(self, plan, draft: dict[str, object]) -> str:
         confirmation_text = str(draft.get("confirmation_text") or "").strip()
         title = self._operator_confirmation_title(confirmation_text, draft)
@@ -6327,9 +6672,12 @@ class OperatorUiMixin:
             p {{
                 margin: 4px 0;
             }}
+            .confirm-bottom-spacer {{
+                height: 56px;
+            }}
         </style>
         </head>
-        <body>{body}</body>
+        <body>{body}<div class="confirm-bottom-spacer"></div></body>
         </html>
         """
 
@@ -6690,7 +7038,7 @@ class OperatorUiMixin:
         if not getattr(self, "_operator_chat_rendered", False):
             self._render_operator_chat()
 
-    def _operator_add_chat_message(self, role: str, text: str, *, scroll_to_bottom: bool = True) -> None:
+    def _operator_add_chat_message(self, role: str, text: str, *, scroll_to_bottom: bool = True, kind: str = "") -> None:
         clean_text = (text or "").strip()
         if not clean_text:
             return
@@ -7125,6 +7473,8 @@ class OperatorUiMixin:
             self._render_operator_chat()
 
     def _operator_add_chat_from_log(self, entry: dict[str, Any]) -> None:
+        if self._operator_handle_compound_step_log(entry):
+            return
         category = str(entry.get("category", ""))
         action = str(entry.get("action", ""))
         result = str(entry.get("result", ""))
@@ -7149,6 +7499,22 @@ class OperatorUiMixin:
             if action == "动作序列终止":
                 self._operator_add_chat_message("assistant", f"执行失败：{detail or '动作序列已终止'}")
                 return
+
+    def _operator_handle_compound_step_log(self, entry: dict[str, Any]) -> bool:
+        if str(entry.get("category", "")) != "自然语言":
+            return False
+        action = str(entry.get("action", "") or "")
+        result = str(entry.get("result", "") or "")
+        detail = str(entry.get("detail", "") or "")
+        if "compound_step" not in detail:
+            return False
+        if not action.startswith("动作序列第"):
+            return False
+        if result == "成功" or action.endswith("成功"):
+            return self._operator_update_compound_step_result(ok=True, reason=detail)
+        if result == "失败" or action.endswith("失败"):
+            return self._operator_update_compound_step_result(ok=False, reason=detail)
+        return False
 
     def _operator_note_flow_completion_response(self, entry: dict[str, Any]) -> None:
         if str(entry.get("category", "")) != "流程":

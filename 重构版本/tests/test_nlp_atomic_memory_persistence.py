@@ -203,6 +203,7 @@ def test_command_dispatch_success_updates_memory_params_without_nlp_duplicate(tm
     dummy._refresh_all = lambda: None
     dummy._refresh_status_labels = lambda: None
     dummy._fmt = lambda value: str(value)
+    dummy._apply_feedback_values = lambda *args, **kwargs: None
     record = QueryRecord(
         query_key="manual_jog",
         func_num=107,
@@ -216,3 +217,29 @@ def test_command_dispatch_success_updates_memory_params_without_nlp_duplicate(tm
     memory = MemoryManager(Path(tmp_path) / "data" / "memory_params.json").memory
     assert memory.total_commands == 1
     assert memory.last_jog_speed_pct == 40
+
+
+def test_command_dispatch_after_send_updates_execution_monitor_snapshot(tmp_path):
+    dummy = DummyDispatch()
+    dummy.runtime_root = tmp_path
+    dummy.history = []
+    dummy.task_id = 1
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._build_record_dispatch_snapshot = lambda record: {"query_key": record.query_key}
+    dummy._refresh_all = lambda: None
+    dummy._refresh_status_labels = lambda: None
+    dummy._fmt = lambda value: str(value)
+    dummy._apply_feedback_values = lambda *args, **kwargs: None
+    record = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        params={"target_x": 1000, "target_y": 200, "target_z": 800},
+    )
+
+    dummy._after_send(record, True, "", [0.0, 1000.0, 200.0, 800.0, 0.0, 45.0, 0.0])
+
+    snapshot = dummy._operator_last_execution_monitor_snapshot
+    assert snapshot["status"] == "completed"
+    assert snapshot["query_key"] == "move_a"
+    assert snapshot["func_id"] == 108

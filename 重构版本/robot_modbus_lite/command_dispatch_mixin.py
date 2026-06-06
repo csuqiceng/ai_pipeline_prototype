@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
+from .agent.execution_monitor import ExecutionMonitorAgent
 from .gui_constants import FUNC_LABELS
 from .models import QueryRecord
 
@@ -89,6 +91,11 @@ class CommandDispatchMixin:
                     "plan_records": [self._build_record_dispatch_snapshot(item) for item in plan_records],
                 },
             )
+            if plan_records:
+                self._update_execution_monitor_started(
+                    plan_records[0],
+                    context={**dispatch_extra, "plan_step_total": len(plan_records)},
+                )
         except Exception as exc:
             fallback = self.table.get(query_key)
             if isinstance(fallback, QueryRecord):
@@ -193,6 +200,7 @@ class CommandDispatchMixin:
         show_error_dialog: bool = True,
     ) -> None:
         """处理相关数据。"""
+        self._update_execution_monitor_result(record, ok=ok, error=error, feedback=feedback, context=log_extra)
         self.history.insert(0, {
             "task": self.task_id,
             "code": record.func_num,
@@ -260,4 +268,43 @@ class CommandDispatchMixin:
             self._refresh_all()
         else:
             self._refresh_status_labels()
+
+    def _execution_monitor_agent(self) -> ExecutionMonitorAgent:
+        agent = getattr(self, "_execution_monitor_agent_instance", None)
+        if not isinstance(agent, ExecutionMonitorAgent):
+            agent = ExecutionMonitorAgent()
+            self._execution_monitor_agent_instance = agent
+        return agent
+
+    def _update_execution_monitor_started(self, record: QueryRecord, *, context: dict[str, Any] | None = None) -> None:
+        progress = None
+        getter = getattr(self, "_operator_execution_progress", None)
+        if callable(getter):
+            progress = getter()
+        snapshot = self._execution_monitor_agent().record_dispatch_started(
+            record,
+            context=context,
+            now=time.time(),
+            progress_pct=progress,
+        )
+        self._operator_last_execution_monitor_snapshot = snapshot.to_dict()
+
+    def _update_execution_monitor_result(
+        self,
+        record: QueryRecord,
+        *,
+        ok: bool,
+        error: str,
+        feedback: list[float] | None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        snapshot = self._execution_monitor_agent().record_dispatch_result(
+            record,
+            ok=ok,
+            error=error,
+            feedback=feedback,
+            context=context,
+            now=time.time(),
+        )
+        self._operator_last_execution_monitor_snapshot = snapshot.to_dict()
 

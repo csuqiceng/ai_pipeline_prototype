@@ -126,3 +126,52 @@ def test_poll_feedback_silent_skips_status_detail_until_group_interval(monkeypat
     assert dummy.robot_dpos_pose == (110, 120, 130, 140, 150, 160)
     assert dummy.axis_status == tuple(range(12))
     assert dummy.motion_type == tuple(range(20, 32))
+
+
+def test_controller_status_poll_updates_running_execution_monitor_on_alarm():
+    dummy = DummyControllerRuntime()
+    dummy.robot_dpos_pose = (1000.0, 200.0, 800.0, 0.0, 45.0, 0.0)
+    dummy._operator_last_execution_monitor_snapshot = {
+        "status": "running",
+        "query_key": "move_a",
+        "func_id": 108,
+        "started_at": 10.0,
+        "updated_at": 10.0,
+    }
+
+    dummy._update_execution_monitor_from_status_poll(
+        alarm_active=True,
+        alarm_text="报警: 机械臂超限",
+        channel_idle=False,
+        current_func=108,
+        result_code="268435456",
+    )
+
+    snapshot = dummy._operator_last_execution_monitor_snapshot
+    assert snapshot["status"] == "failed"
+    assert "机械臂超限" in snapshot["detail"]
+
+
+def test_controller_status_poll_marks_running_execution_completed_when_channel_idle():
+    dummy = DummyControllerRuntime()
+    dummy.robot_dpos_pose = (1000.0, 200.0, 800.0, 0.0, 45.0, 0.0)
+    dummy._operator_last_execution_monitor_snapshot = {
+        "status": "running",
+        "query_key": "move_a",
+        "func_id": 108,
+        "started_at": 10.0,
+        "updated_at": 10.0,
+    }
+
+    dummy._update_execution_monitor_from_status_poll(
+        alarm_active=False,
+        alarm_text="系统正常",
+        channel_idle=True,
+        current_func=0,
+        result_code="0",
+    )
+
+    snapshot = dummy._operator_last_execution_monitor_snapshot
+    assert snapshot["status"] == "completed"
+    assert snapshot["progress_pct"] == 100
+    assert snapshot["feedback"][:3] == [1000.0, 200.0, 800.0]

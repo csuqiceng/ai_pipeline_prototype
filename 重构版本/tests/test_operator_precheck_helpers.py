@@ -873,6 +873,32 @@ def test_operator_deepseek_runtime_context_includes_recent_dialogue(tmp_path):
     assert "当前待确认流程草案：打招呼" in context
 
 
+def test_operator_deepseek_runtime_context_includes_pending_confirmation(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_scene_state = OperatorSceneState("confirm")
+    dummy._operator_chat_messages = [("user", "X100。"), ("assistant", "等待确认执行。")]
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "agent:draft", "restricted_agent", "X100", "等待确认"),),
+        source="restricted_agent",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+        flow_draft={
+            "agent_kind": "waiting_confirmation",
+            "func_id": 108,
+            "confirmation_text": "【复述确认】Func108 直线插补\nX=100.0mm\n速度=50.0%",
+            "params": {"target_x": 100.0, "spd_pct": 50.0},
+        },
+    )
+
+    context = dummy._operator_deepseek_runtime_context()
+
+    assert "当前页面：confirm" in context
+    assert "待确认指令：Func108" in context
+    assert "X=100.0mm" in context
+    assert "用户：X100。" in context
+
+
 def test_operator_deepseek_runtime_context_includes_last_execution_state_after(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
     dummy.session_id = "session-1"
@@ -1473,6 +1499,71 @@ def test_operator_answer_query_plan_uses_agent_status_explanation():
     assert "伺服未使能" in messages[-1].text
 
 
+def test_operator_answer_completion_query_uses_execution_monitor_snapshot():
+    dummy = DummyOperator()
+    messages = []
+    archived = []
+    dummy._operator_last_execution_monitor_snapshot = {
+        "status": "completed",
+        "query_key": "move_a",
+        "func_id": 108,
+        "result_code": "0",
+        "detail": "动作执行完成",
+        "updated_at": 10.0,
+        "feedback": [0.0, 1000.0, 200.0, 800.0, 0.0, 45.0, 0.0],
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "执行完成了吗", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="执行完成了吗",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert messages[-1].context_id == "agent:execution_monitor"
+    assert "动作执行完成：move_a" in messages[-1].text
+    assert "当前位置 1000.0 / 200.0 / 800.0" in messages[-1].text
+    assert archived[-1]["result"] == "answered"
+
+
+def test_operator_answer_completion_query_reports_timeout_for_running_snapshot():
+    dummy = DummyOperator()
+    messages = []
+    dummy._operator_now_seconds = lambda: 45.0
+    dummy._operator_last_execution_monitor_snapshot = {
+        "status": "running",
+        "query_key": "move_a",
+        "func_id": 108,
+        "started_at": 10.0,
+        "updated_at": 10.0,
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "执行完成了吗", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="执行完成了吗",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    assert dummy._operator_answer_query_plan(plan) is True
+
+    assert messages[-1].context_id == "agent:execution_monitor"
+    assert "可能超时" in messages[-1].text
+
+
 def test_operator_answer_query_plan_passes_axis_alarm_flags_to_agent():
     dummy = DummyOperator()
     messages = []
@@ -1857,6 +1948,60 @@ def test_operator_confirm_detail_html_groups_agent_parameters():
     assert "1000.0 mm" in html_text
     assert "继承安全参数" in html_text
     assert "确认有效期：剩余 46 秒。" in html_text
+    assert "confirm-bottom-spacer" in html_text
+
+
+def test_operator_set_confirm_detail_html_preserves_scroll_for_same_draft(monkeypatch):
+    dummy = DummyOperator()
+    calls = []
+
+    class Bar:
+        def __init__(self):
+            self._value = 120
+            self.maximum_value = 400
+
+        def value(self):
+            return self._value
+
+        def maximum(self):
+            return self.maximum_value
+
+        def minimum(self):
+            return 0
+
+        def setValue(self, value):
+            calls.append(value)
+            self._value = value
+
+    class Browser:
+        def __init__(self):
+            self.bar = Bar()
+            self.html = ""
+
+        def verticalScrollBar(self):
+            return self.bar
+
+        def setHtml(self, value):
+            self.html = value
+
+    monkeypatch.setattr("robot_modbus_lite.operator_ui_mixin.QTimer.singleShot", lambda _ms, callback: callback())
+    dummy.operator_confirm_detail = Browser()
+    dummy._operator_confirm_html_signature = "draft1"
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+
+    dummy._operator_set_confirm_detail_html("<html>updated</html>")
+
+    assert dummy.operator_confirm_detail.html == "<html>updated</html>"
+    assert calls[-1] == 120
 
 
 def test_operator_confirm_agent_draft_converts_to_atomic_plan_for_existing_execution():
@@ -3265,9 +3410,8 @@ def test_operator_execute_nlp_plan_stores_executable_compound_as_pending_flow_dr
     assert "当前不会自动执行" not in chats[-1][1]
 
 
-def test_operator_pending_executable_compound_confirm_starts_flow(tmp_path):
+def test_operator_pending_executable_compound_confirm_prepares_first_step(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
-    started = []
     chats = []
     status_messages = []
     logs = []
@@ -3275,10 +3419,12 @@ def test_operator_pending_executable_compound_confirm_starts_flow(tmp_path):
     dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
     dummy._append_log = lambda *args, **kwargs: logs.append(args)
     dummy._refresh_operator_view = lambda: None
-    dummy._start_flow = lambda: started.append(True)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
     dummy._operator_pending_flow_draft = {
         "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
         "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
         "expanded_steps": [
             {
                 "step_id": 1,
@@ -3305,13 +3451,321 @@ def test_operator_pending_executable_compound_confirm_starts_flow(tmp_path):
             },
             {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
         ],
+        "step_machine": {
+            "status": "waiting_step_confirmation",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": [
+                {"index": 0, "text": "走到X1000", "status": "waiting_confirmation"},
+                {"index": 1, "text": "等待2秒", "status": "pending"},
+            ],
+        },
     }
 
     handled = dummy._operator_handle_pending_flow_draft_command("确认执行")
 
     assert handled is True
-    assert started == [True]
-    assert dummy.current_flow_name == "agent_compound_test"
+    assert dummy._operator_pending_confirm_plan.actions[0].action_type == "atomic_template"
+    assert dummy._operator_pending_confirm_plan.actions[0].target == "agent_compound_test_step_1"
+    assert "第 1/2 步" in chats[-1][1]
+
+
+def test_operator_confirm_executable_compound_prepares_current_step_confirmation(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    status_messages = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [
+            {"step_id": 1, "action": "move_linear", "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}},
+            {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+        ],
+        "step_machine": {
+            "status": "waiting_step_confirmation",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": (
+                {"index": 0, "text": "走到X1000", "status": "waiting_confirmation"},
+                {"index": 1, "text": "等待2秒", "status": "pending"},
+            ),
+        },
+    }
+
+    dummy._operator_confirm_execute()
+
+    assert dummy._operator_pending_confirm_plan is not None
+    assert dummy._operator_pending_confirm_plan.actions[0].action_type == "atomic_template"
+    assert dummy._operator_pending_confirm_plan.actions[0].target == "agent_compound_test_step_1"
+    assert "agent_compound_test_step_1" in dummy._operator_pending_confirm_plan.atomic_records
+    assert dummy._operator_pending_flow_draft["step_machine"]["steps"][0]["status"] == "waiting_confirmation"
+    assert "第 1/2 步" in chats[-1][1]
+    assert "走到X1000" in chats[-1][1]
+
+
+def test_operator_compound_step_success_advances_to_next_step(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    status_messages = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [
+            {"step_id": 1, "action": "move_linear", "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}},
+            {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+        ],
+        "step_machine": {
+            "status": "step_confirmed",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": [
+                {"index": 0, "text": "走到X1000", "status": "confirmed"},
+                {"index": 1, "text": "等待2秒", "status": "pending"},
+            ],
+        },
+    }
+
+    handled = dummy._operator_update_compound_step_result(ok=True, reason="第1步完成")
+
+    machine = dummy._operator_pending_flow_draft["step_machine"]
+    assert handled is True
+    assert machine["status"] == "waiting_step_confirmation"
+    assert machine["current_index"] == 1
+    assert machine["steps"][0]["status"] == "completed"
+    assert machine["steps"][1]["status"] == "waiting_confirmation"
+    assert "第 2/2 步" in chats[-1][1]
+    assert "等待2秒" in chats[-1][1]
+
+
+def test_operator_compound_step_failure_stops_at_current_step(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    status_messages = []
+    archived = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [
+            {"step_id": 1, "action": "move_linear", "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}},
+            {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+        ],
+        "step_machine": {
+            "status": "step_confirmed",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": [
+                {"index": 0, "text": "走到X1000", "status": "confirmed"},
+                {"index": 1, "text": "等待2秒", "status": "pending"},
+            ],
+        },
+    }
+
+    handled = dummy._operator_update_compound_step_result(ok=False, reason="控制器报警")
+
+    machine = dummy._operator_pending_flow_draft["step_machine"]
+    assert handled is True
+    assert machine["status"] == "failed"
+    assert machine["current_index"] == 0
+    assert machine["steps"][0]["status"] == "failed"
+    assert machine["steps"][1]["status"] == "pending"
+    assert "停止在第 1/2 步" in chats[-1][1]
+    assert "控制器报警" in chats[-1][1]
+    assert archived[-1]["result"] == "compound_step_failed"
+
+
+def test_operator_compound_final_step_success_marks_plan_completed(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    status_messages = []
+    archived = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [{"step_id": 1, "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}}],
+        "step_machine": {
+            "status": "step_confirmed",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": [{"index": 0, "text": "走到X1000", "status": "confirmed"}],
+        },
+    }
+
+    handled = dummy._operator_update_compound_step_result(ok=True, reason="第1步完成")
+
+    machine = dummy._operator_pending_flow_draft["step_machine"]
+    assert handled is True
+    assert machine["status"] == "completed"
+    assert machine["steps"][0]["status"] == "completed"
+    assert "复合指令执行完成：共完成 1 步" in chats[-1][1]
+    assert archived[-1]["result"] == "compound_completed"
+
+
+def test_operator_confirm_compound_step_marks_step_confirmed_before_execution(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    executed = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: None)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._set_nlp_execute_busy = lambda busy: None
+    dummy._execute_nlp_plan = lambda plan: executed.append(plan)
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [{"step_id": 1, "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}}],
+        "step_machine": {
+            "status": "waiting_step_confirmation",
+            "current_index": 0,
+            "steps": [{"index": 0, "text": "走到X1000", "status": "waiting_confirmation"}],
+        },
+    }
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_compound_test_step_1", "compound_step", "", "第1步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第1步",
+        requires_confirmation=True,
+        atomic_records={
+            "agent_compound_test_step_1": QueryRecord(
+                query_key="agent_compound_test_step_1",
+                func_num=108,
+                params={"target_x": 1000.0},
+            )
+        },
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 0},
+    )
+
+    dummy._operator_confirm_execute()
+
+    assert executed
+    assert dummy._operator_pending_flow_draft["step_machine"]["status"] == "step_confirmed"
+    assert dummy._operator_pending_flow_draft["step_machine"]["steps"][0]["status"] == "confirmed"
+
+
+def test_operator_compound_step_result_log_updates_step_machine(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    calls = []
+    dummy._operator_update_compound_step_result = lambda *, ok, reason="": calls.append((ok, reason)) or True
+    dummy._operator_archive_execution_from_log = lambda entry, text: None
+    dummy._operator_publish_response = lambda message: None
+    dummy._operator_route_voice_recognition_from_log = lambda entry: False
+    dummy._operator_note_flow_completion_response = lambda entry: None
+    dummy.operator_response_builder = ResponseBuilder()
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "自然语言",
+            "action": "动作序列第1步成功",
+            "result": "成功",
+            "detail": "atomic_template | agent_compound_test_step_1 | compound_step",
+        }
+    )
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "自然语言",
+            "action": "动作序列第1步失败",
+            "result": "失败",
+            "detail": "atomic_template | agent_compound_test_step_1 | compound_step",
+        }
+    )
+
+    assert calls == [(True, "atomic_template | agent_compound_test_step_1 | compound_step"), (False, "atomic_template | agent_compound_test_step_1 | compound_step")]
+
+
+def test_operator_cancel_compound_step_confirmation_clears_compound_plan(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    status_messages = []
+    archived = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._refresh_operator_view = lambda: None
+    dummy._operator_pending_flow_draft = {"agent_kind": "compound_plan_draft", "plan_id": "compound:test"}
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_compound_test_step_1", "compound_step", "", "第1步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第1步",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 0},
+    )
+
+    dummy._operator_cancel_confirm()
+
+    assert dummy._operator_pending_flow_draft is None
+    assert dummy._operator_pending_confirm_plan is None
+    assert "已取消复合指令" in chats[-1][1]
+    assert archived[-1]["result"] == "compound_cancelled"
+
+
+def test_operator_confirm_stage_modify_compound_step_updates_draft_params(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: None)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+    record = QueryRecord(
+        query_key="agent_compound_test_step_1",
+        func_num=108,
+        params={"target_x": 1000.0, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_compound_test_step_1", "compound_step", "", "第1步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第1步",
+        requires_confirmation=True,
+        atomic_records={"agent_compound_test_step_1": record},
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 0},
+    )
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "expanded_steps": [
+            {"step_id": 1, "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0}}
+        ],
+    }
+    dummy._operator_prepare_plan_prechecks = lambda plan: None
+
+    handled = dummy._operator_handle_pending_confirm_modify("速度改为30%")
+
+    assert handled is True
+    assert record.params["spd_pct"] == 30.0
+    assert dummy._operator_pending_flow_draft["expanded_steps"][0]["params"]["spd_pct"] == 30.0
+    assert dummy._operator_pending_flow_draft["expanded_steps"][0]["params"]["acc_pct"] == 30.0
+    assert "速度调整为30%" in chats[-1][1]
 
 
 def test_operator_compound_step_machine_text_shows_blocked_reason():
@@ -3852,6 +4306,17 @@ def test_operator_add_chat_message_appends_row_without_full_rerender_when_chat_i
     assert inserted
     assert inserted[-1][0] == 0
     assert rendered == []
+
+
+def test_operator_add_chat_message_accepts_optional_kind_keyword():
+    dummy = DummyOperator()
+    dummy._operator_chat_rendered = False
+    dummy._operator_replace_current_streaming_chat_message = lambda _text: False
+    dummy._render_operator_chat = lambda: None
+
+    dummy._operator_add_chat_message("assistant", "等待安全确认。", kind="warn")
+
+    assert dummy._operator_chat_messages[-1] == ("assistant", "等待安全确认。")
 
 
 def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():

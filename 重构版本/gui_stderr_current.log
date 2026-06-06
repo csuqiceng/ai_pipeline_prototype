@@ -1,37 +1,6 @@
 Unknown property placeholder-text-color
 Unknown property placeholder-text-color
-libpng warning: iCCP: known incorrect sRGB profile
 Building prefix dict from the default dictionary ...
 Loading model from cache C:\Users\a\AppData\Local\Temp\jieba.cache
-Loading model cost 0.664 seconds.
+Loading model cost 0.694 seconds.
 Prefix dict has been built successfully.
-Traceback (most recent call last):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1521, in _operator_execute_text
-    if not self._operator_submit_nlp_text(text, input_mode="text", add_user_message=True):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1578, in _operator_submit_nlp_text
-    self._execute_nlp_text()
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1150, in _execute_nlp_text
-    self._execute_nlp_plan(agent_plan)
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 893, in _execute_nlp_plan
-    self._operator_add_chat_message("assistant", chat_text, kind="warn")
-TypeError: OperatorUiMixin._operator_add_chat_message() got an unexpected keyword argument 'kind'
-Traceback (most recent call last):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1521, in _operator_execute_text
-    if not self._operator_submit_nlp_text(text, input_mode="text", add_user_message=True):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1578, in _operator_submit_nlp_text
-    self._execute_nlp_text()
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1150, in _execute_nlp_text
-    self._execute_nlp_plan(agent_plan)
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 893, in _execute_nlp_plan
-    self._operator_add_chat_message("assistant", chat_text, kind="warn")
-TypeError: OperatorUiMixin._operator_add_chat_message() got an unexpected keyword argument 'kind'
-Traceback (most recent call last):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1521, in _operator_execute_text
-    if not self._operator_submit_nlp_text(text, input_mode="text", add_user_message=True):
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1578, in _operator_submit_nlp_text
-    self._execute_nlp_text()
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 1150, in _execute_nlp_text
-    self._execute_nlp_plan(agent_plan)
-  File "C:\Users\a\Desktop\ai_pipeline_prototype\重构版本\robot_modbus_lite\operator_ui_mixin.py", line 893, in _execute_nlp_plan
-    self._operator_add_chat_message("assistant", chat_text, kind="warn")
-TypeError: OperatorUiMixin._operator_add_chat_message() got an unexpected keyword argument 'kind'
