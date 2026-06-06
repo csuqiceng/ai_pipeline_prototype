@@ -200,6 +200,12 @@ class SettingsMixin:
         self.safe_speed_max_edit.setText(self._fmt(limits["safe_speed_max"]))
         self.safe_acc_max_edit.setText(self._fmt(limits["safe_acc_max"]))
         self.safe_dec_max_edit.setText(self._fmt(limits["safe_dec_max"]))
+        self.controller_pose_angle_limits = {
+            "pose_upper_angle": limits.get("pose_upper_angle", 90.0),
+            "pose_lower_angle": limits.get("pose_lower_angle", 90.0),
+            "pose_cw_angle": limits.get("pose_cw_angle", 90.0),
+            "pose_ccw_angle": limits.get("pose_ccw_angle", 90.0),
+        }
         self.axis_ranges = AxisRangeConfig(
             x=self.axis_ranges.x,
             y=self.axis_ranges.y,

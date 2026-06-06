@@ -305,6 +305,27 @@ class NlpMixin:
 
     def _nlp_apply_memory_action(self, action: VoiceNlpAction, *, plan: VoiceNlpPlan | None = None) -> bool:
         target = str(action.target or "")
+        if target.startswith("position_delete:"):
+            memory = getattr(self, "_atomic_memory", None)
+            if memory is None:
+                self._append_log("自然语言", "删除位置", "失败", "原子记忆对象不存在")
+                return False
+            name = target.split(":", 1)[1].strip().upper()
+            if not name:
+                self._append_log("自然语言", "删除位置", "失败", "未识别位置名称")
+                return False
+            try:
+                registry = self._position_registry()
+                ok, message = registry.remove(name)
+                if not ok:
+                    self._append_log("自然语言", "删除位置", "失败", message)
+                    return False
+                memory.delete_position(name)
+                self._append_log("自然语言", "删除位置", "成功", message)
+                return True
+            except Exception as exc:
+                self._append_log("自然语言", "删除位置", "失败", str(exc))
+                return False
         if not target.startswith("position_save:"):
             return True
         memory = getattr(self, "_atomic_memory", None)

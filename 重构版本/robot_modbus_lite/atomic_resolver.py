@@ -72,7 +72,8 @@ class AtomicResolver:
             self.memory.set_step_deg(elements.step)
         elif name == "confirm_mode":
             mode_by_target = {0: "expert", 1: "skilled", 2: "beginner"}
-            self.memory.set_confirm_mode(mode_by_target.get(int(elements.target or 2), "beginner"))
+            target = 2 if elements.target is None else int(elements.target)
+            self.memory.set_confirm_mode(mode_by_target.get(target, "beginner"))
         else:
             return AtomicResolved(
                 kind="unsupported",

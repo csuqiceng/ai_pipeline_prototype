@@ -40,6 +40,7 @@ DEFAULT_SYSTEM_CONFIG = {
     "operator_view_refresh_ms": 500,
     "controller_realtime_poll_ms": 500,
     "dashboard_stale_after_ms": 1000,
+    "restricted_agent_enabled": True,
     "l3_min_step_delay_ms": 0,
     "l3_cumulative_error_limit_mm": 0.0,
     "l3_forbidden_boxes": [],
@@ -82,6 +83,7 @@ class AxisRangeConfig:
     operator_view_refresh_ms: int = 500
     controller_realtime_poll_ms: int = 500
     dashboard_stale_after_ms: int = 1000
+    restricted_agent_enabled: bool = True
     l3_min_step_delay_ms: int = 0
     l3_cumulative_error_limit_mm: float = 0.0
     l3_forbidden_boxes: tuple[dict[str, Any], ...] = ()
@@ -145,6 +147,9 @@ class AxisRangeConfig:
             dashboard_stale_after_ms=int(
                 float(data.get("dashboard_stale_after_ms", DEFAULT_SYSTEM_CONFIG["dashboard_stale_after_ms"]))
             ),
+            restricted_agent_enabled=bool(
+                data.get("restricted_agent_enabled", DEFAULT_SYSTEM_CONFIG["restricted_agent_enabled"])
+            ),
             l3_min_step_delay_ms=int(float(data.get("l3_min_step_delay_ms", DEFAULT_SYSTEM_CONFIG["l3_min_step_delay_ms"]))),
             l3_cumulative_error_limit_mm=float(
                 data.get("l3_cumulative_error_limit_mm", DEFAULT_SYSTEM_CONFIG["l3_cumulative_error_limit_mm"])
@@ -188,6 +193,7 @@ class AxisRangeConfig:
             "operator_view_refresh_ms": int(self.operator_view_refresh_ms),
             "controller_realtime_poll_ms": int(self.controller_realtime_poll_ms),
             "dashboard_stale_after_ms": int(self.dashboard_stale_after_ms),
+            "restricted_agent_enabled": bool(self.restricted_agent_enabled),
             "l3_min_step_delay_ms": int(self.l3_min_step_delay_ms),
             "l3_cumulative_error_limit_mm": float(self.l3_cumulative_error_limit_mm),
             "l3_forbidden_boxes": [dict(box) for box in self.l3_forbidden_boxes],

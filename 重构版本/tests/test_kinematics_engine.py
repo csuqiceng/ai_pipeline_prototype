@@ -32,6 +32,30 @@ def test_frame_trans2_inverse_writes_pose_fstatus_and_reads_joints():
     assert transport.commands == ["FRAME_TRANS2(550,560,2)"]
 
 
+def test_frame_trans2_inverse_prefers_direct_sdk_frame_trans2_when_available():
+    class DirectTransport(FakeFrameTrans2Transport):
+        def __init__(self):
+            super().__init__()
+            self.direct_calls = []
+
+        def frame_trans2(self, axis_list, table_in: int, table_out: int, mode: int) -> None:
+            self.direct_calls.append((tuple(axis_list), table_in, table_out, mode))
+            for offset in range(6):
+                self.tables[table_out + offset] = 20.0 + offset
+
+        def execute(self, command: str) -> None:
+            raise AssertionError("direct frame_trans2 should be used")
+
+    transport = DirectTransport()
+    engine = FrameTrans2KinematicsEngine(transport, axis_list=(6, 7, 8, 9, 10, 11))
+
+    result = engine.inverse((1, 2, 3, 4, 5, 6), fstatus=3)
+
+    assert result.success is True
+    assert result.joints == (20.0, 21.0, 22.0, 23.0, 24.0, 25.0)
+    assert transport.direct_calls == [((6, 7, 8, 9, 10, 11), 550, 560, 2)]
+
+
 def test_frame_trans2_inverse_returns_failure_when_transport_raises():
     class BrokenTransport(FakeFrameTrans2Transport):
         def execute(self, command: str) -> None:

@@ -31,11 +31,11 @@ def test_l1_precheck_passes_for_safe_snapshot_and_plan():
 
     result = service.run_l1(
         make_snapshot(),
-        {
-            "plan_id": "p1",
-            "target": {"x": 10.0, "y": 20.0, "z": 120.0},
-            "speed": {"spd_pct": 50.0, "acc_pct": 40.0, "dec_pct": 30.0},
-        },
+            {
+                "plan_id": "p1",
+                "target": {"x": 10.0, "y": 20.0, "z": 250.0},
+                "speed": {"spd_pct": 50.0, "acc_pct": 40.0, "dec_pct": 30.0},
+            },
     )
 
     assert result["status"] == "pass"
@@ -60,6 +60,67 @@ def test_l1_precheck_fails_when_target_exceeds_soft_limit():
 
     assert result["status"] == "fail"
     assert find_item(result, "target_x_range")["status"] == "fail"
+
+
+def test_l1_precheck_checks_target_r_z_safety_boundary():
+    service = SafetyPrecheckService(make_config())
+
+    result = service.run_l1(make_snapshot(), {"plan_id": "p1", "target": {"x": 400.0, "y": 400.0, "z": 290.0}})
+
+    assert result["status"] == "fail"
+    assert find_item(result, "target_r_range")["status"] == "fail"
+    assert find_item(result, "target_safe_z_range")["status"] == "fail"
+
+
+def test_l1_precheck_checks_outer_sphere_centered_at_z650():
+    config = AxisRangeConfig(
+        x=(-2000.0, 2000.0),
+        y=(-2000.0, 2000.0),
+        z=(0.0, 2000.0),
+        safe_r_min=100.0,
+        safe_r_max=500.0,
+        safe_z_min=0.0,
+        safe_z_max=2000.0,
+    )
+    service = SafetyPrecheckService(config, max_sphere_radius=0.0)
+
+    result = service.run_l1(make_snapshot(), {"plan_id": "p1", "target": {"x": 0.0, "y": 0.0, "z": 1200.0}})
+
+    assert result["status"] == "fail"
+    item = find_item(result, "target_r_range")
+    assert item["status"] == "fail"
+    assert "外径" in item["message"]
+    assert "550.0" in item["message"]
+
+
+def test_l1_precheck_checks_inner_cylinder_and_hemisphere():
+    config = AxisRangeConfig(
+        x=(-2000.0, 2000.0),
+        y=(-2000.0, 2000.0),
+        z=(0.0, 2000.0),
+        safe_r_min=200.0,
+        safe_r_max=2000.0,
+        safe_z_min=0.0,
+        safe_z_max=2000.0,
+    )
+    service = SafetyPrecheckService(config, max_sphere_radius=0.0)
+
+    cylinder = service.run_l1(make_snapshot(), {"plan_id": "p1", "target": {"x": 100.0, "y": 0.0, "z": 500.0}})
+    hemisphere = service.run_l1(make_snapshot(), {"plan_id": "p2", "target": {"x": 50.0, "y": 0.0, "z": 750.0}})
+
+    assert find_item(cylinder, "target_r_range")["status"] == "fail"
+    assert "内径超限" in find_item(cylinder, "target_r_range")["message"]
+    assert find_item(hemisphere, "target_r_range")["status"] == "fail"
+    assert "内径超限" in find_item(hemisphere, "target_r_range")["message"]
+
+
+def test_l1_precheck_checks_base_angle_limit():
+    service = SafetyPrecheckService(make_config(), max_sphere_radius=0.0)
+
+    result = service.run_l1(make_snapshot(), {"plan_id": "p1", "target": {"x": -100.0, "y": 10.0, "z": 100.0}})
+
+    assert result["status"] == "fail"
+    assert find_item(result, "target_base_angle_range")["status"] == "fail"
 
 
 def test_l1_precheck_fails_when_speed_exceeds_limit():
@@ -134,7 +195,7 @@ def test_l1_allows_motion_inside_sphere_and_clamp():
         {
             "plan_id": "p1",
             "func_id": 106,
-            "target": {"x": 10, "y": 10, "z": 10},
+            "target": {"x": 10, "y": 10, "z": 250},
             "speed": {"spd_pct": 50.0},
         },
     )

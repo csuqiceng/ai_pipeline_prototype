@@ -11,6 +11,7 @@ def test_default_system_config_contains_speech_broadcast_settings():
     assert DEFAULT_SYSTEM_CONFIG["operator_view_refresh_ms"] == 500
     assert DEFAULT_SYSTEM_CONFIG["controller_realtime_poll_ms"] == 500
     assert DEFAULT_SYSTEM_CONFIG["dashboard_stale_after_ms"] == 1000
+    assert DEFAULT_SYSTEM_CONFIG["restricted_agent_enabled"] is True
 
 
 def test_axis_range_config_reads_and_writes_speech_broadcast_settings():
@@ -28,6 +29,7 @@ def test_axis_range_config_reads_and_writes_speech_broadcast_settings():
             "operator_view_refresh_ms": 600,
             "controller_realtime_poll_ms": 750,
             "dashboard_stale_after_ms": 2000,
+            "restricted_agent_enabled": True,
         }
     )
 
@@ -40,6 +42,7 @@ def test_axis_range_config_reads_and_writes_speech_broadcast_settings():
     assert config.operator_view_refresh_ms == 600
     assert config.controller_realtime_poll_ms == 750
     assert config.dashboard_stale_after_ms == 2000
+    assert config.restricted_agent_enabled is True
     assert config.to_dict()["operator_tts_enabled"] is True
     assert config.to_dict()["broadcast_dedupe_window_sec"] == 8.5
     assert config.to_dict()["tts_retry_delay_sec"] == 2.5
@@ -49,6 +52,7 @@ def test_axis_range_config_reads_and_writes_speech_broadcast_settings():
     assert config.to_dict()["operator_view_refresh_ms"] == 600
     assert config.to_dict()["controller_realtime_poll_ms"] == 750
     assert config.to_dict()["dashboard_stale_after_ms"] == 2000
+    assert config.to_dict()["restricted_agent_enabled"] is True
 
 
 def test_validate_system_config_rejects_negative_broadcast_dedupe_window():

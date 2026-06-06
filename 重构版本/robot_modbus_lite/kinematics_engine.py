@@ -41,6 +41,10 @@ class FrameTrans2Transport(Protocol):
         """Execute one controller command string."""
         ...
 
+    def frame_trans2(self, axis_list: tuple[int, ...], table_in: int, table_out: int, mode: int) -> None:
+        """Invoke controller SDK ZAux_Direct_FrameTrans2 directly when available."""
+        ...
+
 
 class UnavailableKinematicsEngine:
     """Explicit placeholder until controller FRAME_TRANS2 is wired."""
@@ -52,10 +56,18 @@ class UnavailableKinematicsEngine:
 class FrameTrans2KinematicsEngine:
     """Kinematics engine backed by controller FRAME_TRANS2."""
 
-    def __init__(self, transport: FrameTrans2Transport, *, input_base: int = 550, output_base: int = 560) -> None:
+    def __init__(
+        self,
+        transport: FrameTrans2Transport,
+        *,
+        input_base: int = 550,
+        output_base: int = 560,
+        axis_list: tuple[int, ...] = (6, 7, 8, 9, 10, 11),
+    ) -> None:
         self.transport = transport
         self.input_base = int(input_base)
         self.output_base = int(output_base)
+        self.axis_list = tuple(int(axis) for axis in axis_list)
 
     def inverse(self, pose: tuple[float, float, float, float, float, float], fstatus: int) -> InverseKinematicsResult:
         try:
@@ -63,7 +75,11 @@ class FrameTrans2KinematicsEngine:
             for offset, value in enumerate(values):
                 self.transport.set_table(self.input_base + offset, value)
             self.transport.set_table(self.input_base + 6, float(fstatus))
-            self.transport.execute(f"FRAME_TRANS2({self.input_base},{self.output_base},2)")
+            frame_trans2 = getattr(self.transport, "frame_trans2", None)
+            if callable(frame_trans2):
+                frame_trans2(self.axis_list, self.input_base, self.output_base, 2)
+            else:
+                self.transport.execute(f"FRAME_TRANS2({self.input_base},{self.output_base},2)")
             joints = tuple(float(self.transport.get_table(self.output_base + offset)) for offset in range(6))
             return InverseKinematicsResult(True, joints, int(fstatus))
         except Exception as exc:

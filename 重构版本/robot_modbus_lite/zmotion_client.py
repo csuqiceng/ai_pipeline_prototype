@@ -119,6 +119,29 @@ class ZMotionVrClient:
             ret = self._device.ZAux_Execute(str(command))
             self._ensure_ok(ret, "ZAux_Execute")
 
+    def frame_trans2(self, axis_list: tuple[int, ...], table_in: int, table_out: int, mode: int) -> None:
+        """调用 ZMotion SDK ZAux_Direct_FrameTrans2，用于控制器在线逆解。"""
+        with self._lock:
+            if not self.connected:
+                raise ZMotionClientError("控制器未连接。")
+            axes = [int(axis) for axis in axis_list]
+            try:
+                ret = self._device.ZAux_Direct_FrameTrans2(
+                    axes,
+                    int(table_in),
+                    int(table_out),
+                    int(mode),
+                )
+            except TypeError:
+                ret = self._device.ZAux_Direct_FrameTrans2(
+                    axes,
+                    len(axes),
+                    int(table_in),
+                    int(table_out),
+                    int(mode),
+                )
+            self._ensure_ok(ret, "ZAux_Direct_FrameTrans2")
+
     # ── 旧版通信寄存器方法 ────────────────────────────────────────
 
     def write_modbus_float(self, request: VrWriteRequest) -> None:

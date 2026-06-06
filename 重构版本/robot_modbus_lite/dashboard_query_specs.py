@@ -129,11 +129,21 @@ def match_dashboard_query_spec(text: str) -> DashboardQuerySpec | None:
     compact = re.sub(r"\s+", "", text or "")
     if not compact:
         return None
+    if _looks_like_cartesian_motion_command(compact):
+        return None
     lowered = compact.lower()
     for spec in dashboard_query_specs():
         if any(alias.lower() in lowered for alias in spec.aliases):
             return spec
     return None
+
+
+def _looks_like_cartesian_motion_command(compact: str) -> bool:
+    if not any(word in compact for word in ("让机械手", "走", "移动", "运动", "去", "到")):
+        return False
+    if any(word in compact for word in ("能不能", "能否", "能到", "到不到", "可以到", "这个位置能到", "吗")):
+        return False
+    return bool(re.search(r"(?:RX|RY|RZ|X|Y|Z)-?\d+(?:\.\d+)?", compact, flags=re.IGNORECASE))
 
 
 def export_dashboard_query_rows() -> list[dict[str, object]]:

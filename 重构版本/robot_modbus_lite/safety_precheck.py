@@ -141,11 +141,91 @@ class SafetyPrecheckService:
                     f"目标 {label}={value:.1f} 超出软限位 {axis_range[0]:.1f}~{axis_range[1]:.1f}。",
                 )
             )
+        safety_r_item = self._target_safety_r_item(target)
+        if safety_r_item is not None:
+            items.append(safety_r_item)
+        safety_z_item = self._target_safety_z_item(target)
+        if safety_z_item is not None:
+            items.append(safety_z_item)
+        base_angle_item = self._target_base_angle_item(target)
+        if base_angle_item is not None:
+            items.append(base_angle_item)
         sphere_item = self._target_sphere_item(target)
         if sphere_item is not None:
             items.append(sphere_item)
         items.extend(self._joint_limit_items(target.get("joints")))
         return items
+
+    def _target_safety_r_item(self, target: dict[str, Any]) -> dict[str, str] | None:
+        if self.config.safe_r_max <= 0:
+            return None
+        x_value = self._float_or_none(target.get("x"))
+        y_value = self._float_or_none(target.get("y"))
+        z_value = self._float_or_none(target.get("z"))
+        if x_value is None or y_value is None or z_value is None:
+            return None
+        horizontal_r = math.sqrt(x_value * x_value + y_value * y_value)
+        sphere_r = math.sqrt(x_value * x_value + y_value * y_value + (z_value - 650.0) * (z_value - 650.0))
+        if sphere_r > self.config.safe_r_max:
+            return self._item(
+                "target_r_range",
+                "L1",
+                "目标外径在安全范围内",
+                False,
+                f"目标外径 {sphere_r:.1f}mm 未越界。",
+                f"目标外径 {sphere_r:.1f}mm 超出上限 {self.config.safe_r_max:.1f}mm。",
+            )
+        inner_distance = horizontal_r if z_value <= 650.0 else sphere_r
+        if self.config.safe_r_min > 0 and inner_distance < self.config.safe_r_min:
+            zone = "圆柱区" if z_value <= 650.0 else "半球区"
+            return self._item(
+                "target_r_range",
+                "L1",
+                "目标内径在安全范围内",
+                False,
+                f"目标内径 {inner_distance:.1f}mm 未越界。",
+                f"目标内径超限（{zone}）：当前 {inner_distance:.1f}mm，最小 {self.config.safe_r_min:.1f}mm。",
+            )
+        return self._item(
+            "target_r_range",
+            "L1",
+            "目标R/Z空间模型在安全范围内",
+            True,
+            f"目标外径 {sphere_r:.1f}mm、内径 {inner_distance:.1f}mm 未越界。",
+            "",
+        )
+
+    def _target_safety_z_item(self, target: dict[str, Any]) -> dict[str, str] | None:
+        if self.config.safe_z_max <= 0:
+            return None
+        z_value = self._float_or_none(target.get("z"))
+        if z_value is None:
+            return None
+        return self._item(
+            "target_safe_z_range",
+            "L1",
+            "目标 Z 在安全高度内",
+            self.config.safe_z_min <= z_value <= self.config.safe_z_max,
+            f"目标 Z={z_value:.1f}mm 未越界。",
+            f"目标 Z={z_value:.1f}mm 超出安全高度 {self.config.safe_z_min:.1f}~{self.config.safe_z_max:.1f}。",
+        )
+
+    def _target_base_angle_item(self, target: dict[str, Any]) -> dict[str, str] | None:
+        x_value = self._float_or_none(target.get("x"))
+        y_value = self._float_or_none(target.get("y"))
+        if x_value is None or y_value is None:
+            return None
+        if abs(x_value) < 1e-9 and abs(y_value) < 1e-9:
+            return None
+        angle = math.degrees(math.atan2(y_value, x_value))
+        return self._item(
+            "target_base_angle_range",
+            "L1",
+            "目标底座角度在±160°内",
+            abs(angle) <= 160.0,
+            f"目标底座角度 {angle:.1f}° 未越界。",
+            f"目标底座角度 {angle:.1f}° 超出±160°范围。",
+        )
 
     def _target_sphere_item(self, target: dict[str, Any]) -> dict[str, str] | None:
         if self.max_sphere_radius <= 0:

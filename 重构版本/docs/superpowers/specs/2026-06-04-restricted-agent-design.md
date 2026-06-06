@@ -36,8 +36,8 @@
 
 | 项目 | 当前项目口径 | 新文档口径 | 决策要求 |
 | --- | --- | --- | --- |
-| Func8 是否需要上位机写入 | 当前 `FUNC_NAME_MAP` 和六轴链路未实现 Func8 | 自然语言文档 1.4 表格出现 `绝对运动 8/102` | 确认 Func8 是控制器内部映射、历史兼容入口，还是上位机必须生成的函数号 |
-| 连续路径函数 | 代码实现 Func11；V4.3/V5.0 状态位还包含预留 Func111 | 新文档 Func112 | 确认固件 IEEE(0) 最终函数号，未确认前 Agent 不生成连续路径执行草案 |
+| Func8 是否需要上位机写入 | 当前默认自然语言绝对运动仍用 Func108 | 自然语言文档 1.4 表格出现 `绝对运动 8/102` | 已通过 `AddressResolver.absolute_motion_func` 支持注入 8/102；底层按 Func108 同参数布局写对应函数号 |
+| 连续路径函数 | 代码实现 Func11；V4.3/V5.0 状态位还包含预留 Func111 | 新文档 Func112 | 当前按新文档实现 Func112：同 Func108 参数格式，进入确认后写 IEEE(0)=112；若固件要求 Func11/111 兼容入口，通过 `AddressResolver` 调整 |
 | 笛卡尔继承源 | IEEE(1512~1522) DPOS / IEEE(1612~1622) 反馈 | IEEE(1500~1510) 当前位姿 | 确认继承时使用指令位置、反馈位置还是新地址 |
 | 运动中判定 | `SixAxisStatus.can_send` / `is_executing` 可判断已知函数槽状态；`build_six_motion_state_read()` 仅返回 int | 新文档写 BIT(252) 任意轴运动中 | 首版先复用 `SixAxisStatus.can_send` 阻断继承；确认是否必须新增 BIT(252) 读取作为底层运动判据 |
 | Func110 延时参数 | 当前写 IEEE(2) | 文档写 para(2) | 确认实际控制器参数位 |
@@ -54,12 +54,13 @@
 
 | 文档要求 | Agent 落点 | 实现约束 |
 | --- | --- | --- |
-| 所有正常运动首选 Func108 | `CommandUnderstandingAgent` | 自然语言运动入口默认生成 `move_linear` / Func108，不生成 106/107 |
-| 需要路径规避时使用连续路径函数 | `CommandUnderstandingAgent` + P0 协议确认 | 文档写 Func112，但当前项目实现 Func11；未确认前 Agent 不生成连续路径执行草案 |
+| 所有正常笛卡尔运动首选 Func108 | `CommandUnderstandingAgent` | 自然语言参数类运动主路径默认生成 `move_linear` / Func108；Func106/107 仅作为辅助点动能力保留，不属于该主路径 |
+| 需要路径规避时使用连续路径函数 | `CommandUnderstandingAgent` + `AddressResolver` | 文档写 Func112，当前 Agent 按 Func112 进入确认和现有六轴三道门；Func11/111 兼容由协议配置层承接 |
+| 辅助点动能力 | `CommandUnderstandingAgent` + `ParameterCompletionAgent` | Func106/107 只用于关节轴/虚拟轴点动、示教和微调类指令；仍必须经过参数补全、安全预检、复述确认和现有执行链路 |
 | 参数继承性 | `ParameterCompletionAgent` | 未指定的 X/Y/Z/RX/RY/RZ/速度/加减速必须从控制器或确认后的协议继承源读取，不依赖 HMI 页面状态 |
 | 复述确认 | `ConfirmationAgent` | 必须展示补全后的完整参数、参数来源、模式和安全预检结果，用户确认后才转换为 `QueryRecord` |
 | 半参数/单参数指令 | `CommandUnderstandingAgent` + `ParameterCompletionAgent` | 规则能明确提取的部分参数不调用大模型；其余参数走继承补全 |
-| 增量运动 | `ParameterCompletionAgent` + P0 协议确认 | 文档将 para(10) 定义为位置增量，当前代码字段为 `fuzzy_pos`；未确认前不改变写入语义 |
+| 增量运动 | `ParameterCompletionAgent` + `draft_to_query_record()` | 文档将 para(10) 定义为位置增量；Agent 草案保留绝对目标用于预检，确认后的执行副本把 `position_increment` 映射到 `fuzzy_pos/para(10)` |
 | 复合指令 | 后续 `CompoundCommandCoordinator` 或流程层 | 不在首批 5 个 Agent 范围内；每条子指令独立走补全、预检、确认；不能一次确认后批量绕过单步安全检查 |
 | 执行后监控 | 现有 `six_axis_command_mixin.py` + `AlarmExplanationAgent` | 继续轮询 LONG(34)/LONG(38)/IEEE(324)，将 EXEC/DONE/ERR 转为操作者话术 |
 
@@ -76,7 +77,7 @@
 | 半径/高度实时超限方向判断 | `AlarmExplanationAgent` | LONG(38).bit0/bit1 触发时结合 IEEE(1700~1706)、IEEE(1740/1742) 输出“伸太远/收太近/太高/太低” |
 | 速度/加速度/减速度钳制提示 | `AlarmExplanationAgent` | LONG(38).bit3/4/5 触发时读取 IEEE(1708/1710/1712) 生成安全上限提示 |
 | 每次运动前安全预判 | `SafetyReviewAgent` | 所有 Func108 运动草案确认前和执行前都必须检查，不允许跳过 |
-| 空间模型检查 | `SafetyReviewAgent` | 实现外球面、内圆柱+半球、Z 范围、底座角度四类本地检查 |
+| 空间模型检查 | `SafetyReviewAgent` | 已接入 `SafetyPrecheckService`，实现外球面、内圆柱+半球、Z 范围、底座角度四类本地检查；Agent 服务入口必须在这些检查失败时返回 `precheck_failed`，不得进入确认 |
 | FrameTrans2 逆解 | `SafetyReviewAgent` + `KinematicsEngine` | 复用 `FrameTrans2KinematicsEngine` / `MotionPlanService`，遍历 FSTATUS，结果与控制器逻辑一致 |
 | 关节限位和姿态四夹角 | `SafetyReviewAgent` | 逆解后检查关节软限位；读取 IEEE(1732~1738) 后检查上/下/顺时针/逆时针夹角 |
 
@@ -107,8 +108,8 @@
 
 ### 当前阶段明确禁用或阻断
 
-- 自然语言入口不生成 Func106/Func107。
-- 协议未确认前不生成 Func112 或连续路径执行草案。
+- 自然语言参数类运动主路径不生成 Func106/Func107；关节轴/虚拟轴点动、示教和微调类指令可作为辅助能力生成 Func106/Func107，但必须走参数补全、安全预检、复述确认和现有执行链路。
+- Func112 必须走参数补全、安全预检、复述确认和现有六轴三道门；不允许大模型直接生成点列或写 MODBUS。
 - 协议未确认前不把 `fuzzy_pos` 改写为“位置增量”。
 - 大模型不参与 MODBUS 地址选择、安全预检、AXISSTATUS 解释和执行触发。
 - 大模型不得改写复述确认中的数字、单位、参数名和参数顺序。
@@ -564,6 +565,7 @@ draft 失效条件：
 - `AxisStatusBitDecomposer` 对 `parse_six_axis_status()` 返回列表的轴映射。
 - `LONG(34)` 急停、暂停、报警、就绪组合。
 - `parse_six_safety_limits()` 显式解析 IEEE(1732~1738) 姿态四夹角。
+- `SafetyPrecheckService` 对外球面、内圆柱+半球、Z 范围和底座 `atan2` 角度的 L1 空间模型判断。
 - `SafetyReviewAgent` 对 `MotionPlanService.plan()` 结果的 pass/fail/unavailable 适配。
 - `CommandDraft.params` 转 `QueryRecord.params` 时深拷贝，confirmed draft 不被执行副本污染。
 - `AgentPlanAdapter` 对 `semantic_response_policy.py` 的 level / confirmation / precheck 映射。
@@ -580,6 +582,7 @@ draft 失效条件：
 - 安全预检通过。
 - 确认后进入现有六轴执行链路。
 - 控制器运动中收到 “走到 X1000” 时返回阻断提示，不生成 `CommandDraft`，不进入确认状态机。
+- 目标点触发内圆柱/半球内径超限或底座角度超限时，Agent 入口返回 `precheck_failed`，不生成待确认执行草案。
 - Agent 运动草案解析后未确认时，不会走 `_execute_nlp_plan()` / `_execute_query_key()`。
 - Web `draft_id` 过期或重复确认时拒绝执行。
 

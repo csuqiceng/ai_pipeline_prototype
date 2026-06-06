@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QStackedWidget
 
 from robot_modbus_lite.avoidance_config import AvoidanceConfig, SafePoint
+from robot_modbus_lite.atomic_memory import AtomicMemory
 from robot_modbus_lite.broadcast_queue import BroadcastQueue
 from robot_modbus_lite.clarification_state import PendingClarification
 from robot_modbus_lite.dashboard import DashboardCache
@@ -13,7 +14,9 @@ from robot_modbus_lite.emergency_channel import EmergencyDecision
 from robot_modbus_lite.execution_plan import ExecutionPlanStatus
 from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
 from robot_modbus_lite.models import FlowDefinition, QueryRecord
+from robot_modbus_lite.kinematics_engine import InverseKinematicsResult
 from robot_modbus_lite.flow_management_mixin import FlowManagementMixin
+from robot_modbus_lite.nlp_mixin import NlpMixin
 from robot_modbus_lite.operator_ui_mixin import OperatorSceneState, OperatorUiMixin
 from robot_modbus_lite.permission_service import PermissionService
 from robot_modbus_lite.position_registry import PositionRegistry
@@ -25,6 +28,10 @@ from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAction, VoiceNlpPlan
 
 
 class DummyOperator(OperatorUiMixin):
+    pass
+
+
+class DummyNlpMemory(NlpMixin):
     pass
 
 
@@ -1355,6 +1362,222 @@ def test_operator_answer_query_plan_answers_atomic_capability_query():
     assert "保护性拒绝" in messages[-1].text
 
 
+def test_operator_answer_query_plan_uses_agent_alarm_explanation_for_long38_radius():
+    dummy = DummyOperator()
+    messages = []
+    archived = []
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-3000.0, 3000.0),
+        y=(-3000.0, 3000.0),
+        z=(0.0, 3000.0),
+        safe_r_min=200.0,
+        safe_r_max=1800.0,
+        safe_z_min=0.0,
+        safe_z_max=2500.0,
+    )
+    dummy.six_long34 = 1 << 28
+    dummy.six_long36 = 0
+    dummy.six_long38 = 1 << 0
+    dummy.current_func_num = 108
+    dummy.axis_status = (0, 0, 0, 0, 0, 0)
+    dummy.current_r = 1900.0
+    dummy.robot_z = "800"
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "alarm_query", "restricted_agent", "当前报警是什么", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="当前报警是什么",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert messages[-1].context_id == "agent:alarm_query"
+    assert "手臂伸太远了" in messages[-1].text
+    assert "超出100.0mm" in messages[-1].text
+    assert archived[-1]["result"] == "answered"
+
+
+def test_operator_answer_query_plan_passes_hardware_state_to_agent_alarm_explanation():
+    dummy = DummyOperator()
+    messages = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.six_long34 = 1 << 28
+    dummy.six_long36 = 0
+    dummy.six_long38 = 0
+    dummy.current_func_num = 108
+    dummy.axis_status = ()
+    dummy.servo_enable = "0"
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "hardware": {"servo_enable": "0"},
+        "boards": {},
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "alarm_query", "restricted_agent", "当前报警是什么", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="当前报警是什么",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert "伺服未使能" in messages[-1].text
+
+
+def test_operator_answer_query_plan_uses_agent_status_explanation():
+    dummy = DummyOperator()
+    messages = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.six_long34 = 1 << 28
+    dummy.six_long36 = 0
+    dummy.six_long38 = 0
+    dummy.current_func_num = 108
+    dummy.axis_status = ()
+    dummy.servo_enable = "0"
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "hardware": {"servo_enable": "0"},
+        "boards": {},
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "为什么不能动", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="为什么不能动",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert messages[-1].context_id == "agent:status_query"
+    assert "伺服未使能" in messages[-1].text
+
+
+def test_operator_answer_query_plan_passes_axis_alarm_flags_to_agent():
+    dummy = DummyOperator()
+    messages = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.six_long34 = (1 << 28) | (1 << 24)
+    dummy.six_long36 = 0
+    dummy.six_long38 = 0
+    dummy.current_func_num = 108
+    dummy.axis_status = ()
+    dummy.axis_alarm_flags = (0, 1, 0, 0, 0, 1)
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "hardware": {"servo_enable": "1", "axis_alarm_flags": (0, 1, 0, 0, 0, 1)},
+        "boards": {},
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "为什么不能动", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="为什么不能动",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert "J2" in messages[-1].text
+    assert "J6" in messages[-1].text
+    assert "AXISSTATUS" in messages[-1].text
+
+
+def test_operator_answer_query_plan_passes_any_axis_moving_to_agent():
+    dummy = DummyOperator()
+    messages = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.six_long34 = 1 << 28
+    dummy.six_long36 = 0
+    dummy.six_long38 = 0
+    dummy.current_func_num = 108
+    dummy.axis_status = ()
+    dummy.motion_percent = "运动中"
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "hardware": {"servo_enable": "1", "any_axis_moving": 1},
+        "boards": {},
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "为什么不能动", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="为什么不能动",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert "存在轴正在运动" in messages[-1].text
+    assert "BIT(252" in messages[-1].text or "BIT(252-255" in messages[-1].text
+
+
+def test_operator_answer_query_plan_passes_axis_enabled_to_agent():
+    dummy = DummyOperator()
+    messages = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy.six_long34 = 1 << 28
+    dummy.six_long36 = 0
+    dummy.six_long38 = 0
+    dummy.current_func_num = 108
+    dummy.axis_status = ()
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "hardware": {"servo_enable": "1", "axis_enabled": [1, 0, 1, 1, 1, 1]},
+        "boards": {},
+    }
+    dummy._operator_publish_response = lambda message: messages.append(message)
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_set_pending_confirm_plan = lambda pending: setattr(dummy, "_operator_pending_confirm_plan", pending)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "status_query", "restricted_agent", "为什么不能动", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="为什么不能动",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+
+    handled = dummy._operator_answer_query_plan(plan)
+
+    assert handled is True
+    assert "J2轴未使能" in messages[-1].text
+    assert "BIT(190-195" in messages[-1].text
+
+
 def test_operator_answer_query_plan_queues_ai_answer_for_speech():
     dummy = DummyOperator()
     dummy.operator_broadcast_queue = BroadcastQueue()
@@ -1497,6 +1720,1182 @@ def test_operator_execute_nlp_plan_waits_when_plan_requires_confirmation():
     assert "等待安全确认" in status_messages[-1]
     assert "确认执行" in chats[-1][1]
     assert log_args(logs[-1])[0:3] == ("用户页面", "等待确认", "提示")
+
+
+def test_operator_execute_nlp_plan_sets_agent_draft_pending_before_sequence():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=False,
+        requires_confirmation=True,
+        flow_draft={
+            "agent_kind": "waiting_confirmation",
+            "draft_id": "draft1",
+            "confirmation_text": "【复述确认】Func108 直线插补\nX=1000mm（指定）",
+        },
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    dummy._operator_pending_confirm_plan = None
+    dummy._operator_pending_confirm_deadline_sec = 0
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert dummy._operator_pending_confirm_plan is plan
+    assert dummy._operator_scene_override == "confirm"
+    assert "等待安全确认" in status_messages[-1]
+    assert "Func108" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "等待确认", "提示")
+
+
+def test_operator_agent_draft_plan_is_confirmable_without_old_precheck():
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=True,
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+
+    assert DummyOperator._operator_plan_is_executable(plan) is True
+    assert DummyOperator._operator_plan_requires_precheck(plan) is False
+    assert DummyOperator._operator_plan_requires_confirmation(plan) is True
+
+
+def test_operator_confirm_detail_uses_agent_confirmation_text():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={
+            "agent_kind": "waiting_confirmation",
+            "draft_id": "draft1",
+            "confirmation_text": "【复述确认】Func108 直线插补\nX=1000mm（指定）",
+        },
+    )
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 0
+
+    text = dummy._operator_confirm_detail_text()
+
+    assert "【复述确认】Func108 直线插补" in text
+    assert "X=1000mm（指定）" in text
+
+
+def test_operator_confirm_detail_html_groups_agent_parameters():
+    dummy = DummyOperator()
+    dummy._operator_now_seconds = lambda: 10.0
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={
+            "agent_kind": "waiting_confirmation",
+            "draft_id": "draft1",
+            "func_id": 108,
+            "confirmation_text": "【复述确认】Func108 直线插补\nX=1000mm（指定）",
+            "params": {
+                "target_x": 1000.0,
+                "target_y": 200.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 45.0,
+                "target_rz": 0.0,
+                "spd_pct": 60.0,
+                "acc_pct": 50.0,
+                "dec_pct": 50.0,
+            },
+            "param_sources": {
+                "target_x": "specified",
+                "target_y": "specified",
+                "target_z": "specified",
+                "target_rx": "inherited",
+                "target_ry": "specified",
+                "target_rz": "inherited",
+                "spd_pct": "specified",
+                "acc_pct": "controller",
+                "dec_pct": "controller",
+            },
+            "precheck_result": {"valid": True, "summary": "L1安全检查通过。"},
+        },
+    )
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 56.0
+
+    html_text = dummy._operator_confirm_detail_html()
+
+    assert "Func108 直线插补" in html_text
+    assert "目标位置" in html_text
+    assert "姿态" in html_text
+    assert "运动参数" in html_text
+    assert "安全预检" in html_text
+    assert "1000.0 mm" in html_text
+    assert "继承安全参数" in html_text
+    assert "确认有效期：剩余 46 秒。" in html_text
+
+
+def test_operator_confirm_agent_draft_converts_to_atomic_plan_for_existing_execution():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="agent:draft1",
+        func_num=108,
+        params={
+            "target_x": 1000.0,
+            "target_y": 20.0,
+            "target_z": 300.0,
+            "target_rx": 1.0,
+            "target_ry": 2.0,
+            "target_rz": 3.0,
+            "spd_pct": 60.0,
+            "acc_pct": 45.0,
+            "dec_pct": 50.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0,
+        },
+        description="Agent confirmed draft",
+    )
+    service = SimpleNamespace(confirm=lambda draft_id: record)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待操作者确认。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    executed = []
+    status_messages = []
+    chats = []
+    logs = []
+    dummy._restricted_agent_service = service
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = None
+    dummy._operator_last_motion_plan_result = None
+    dummy._operator_last_process_precheck_result = None
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._execute_nlp_plan = lambda converted_plan: executed.append(converted_plan)
+
+    dummy._operator_confirm_execute()
+
+    assert getattr(dummy, "_operator_pending_confirm_plan") is None
+    assert getattr(dummy, "execute_busy") is True
+    assert "确认收到" in status_messages[-1]
+    converted = executed[-1]
+    assert converted.actions[0].action_type == "atomic_template"
+    assert converted.actions[0].target == "agent:draft1"
+    assert converted.atomic_records["agent:draft1"] is record
+    assert converted.requires_confirmation is False
+
+
+def test_operator_restricted_agent_gate_is_conservative():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    assert dummy._operator_should_try_restricted_agent("走到 X1000 Z300") is True
+    assert dummy._operator_should_try_restricted_agent("当前报警是什么") is True
+    assert dummy._operator_should_try_restricted_agent("为什么不能动") is True
+    assert dummy._operator_should_try_restricted_agent("运动完成了吗") is True
+    assert dummy._operator_should_try_restricted_agent("急停") is True
+    assert dummy._operator_should_try_restricted_agent("等待2秒") is True
+    assert dummy._operator_should_try_restricted_agent("IO1开") is True
+    assert dummy._operator_should_try_restricted_agent("向左移动200") is True
+    assert dummy._operator_should_try_restricted_agent("上升3毫米") is False
+    assert dummy._operator_should_try_restricted_agent("小正，上升3毫米") is True
+    assert dummy._operator_should_try_restricted_agent("小正，左移5毫米") is True
+    assert dummy._operator_should_try_restricted_agent("小正，J1转到45度") is True
+    assert dummy._operator_should_try_restricted_agent("小正，RY反转15度") is True
+    assert dummy._operator_should_try_restricted_agent("J2关节软限位是多少") is False
+
+
+def test_operator_restricted_agent_gate_is_enabled_by_default():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+
+    assert dummy._operator_should_try_restricted_agent("走到 X1000 Z300") is True
+
+
+def test_operator_restricted_agent_gate_can_be_disabled():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=False)
+
+    assert dummy._operator_should_try_restricted_agent("走到 X1000 Z300") is False
+
+
+def test_operator_restricted_agent_moving_state_ignores_stale_current_func_when_idle():
+    dummy = DummyOperator()
+    dummy.motion_percent = "空闲"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy.current_func_text = "Func108"
+    dummy.nlp_sequence_running = False
+    dummy.flow_running = False
+
+    assert dummy._operator_restricted_agent_is_moving() is False
+
+
+def test_operator_restricted_agent_moving_state_blocks_active_runtime():
+    dummy = DummyOperator()
+    dummy.motion_percent = "空闲"
+    dummy.busy = "运行中"
+    dummy.run_state = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.nlp_sequence_running = False
+    dummy.flow_running = False
+
+    assert dummy._operator_restricted_agent_is_moving() is True
+
+
+def test_operator_try_restricted_agent_plan_uses_injected_service_and_adapter():
+    dummy = DummyOperator()
+    result = SimpleNamespace(
+        kind="bypass",
+        intent="alarm_query",
+        func_id=None,
+        message="规则旁路",
+        understanding=None,
+        draft=None,
+        precheck_result=None,
+        confirmation_text="",
+        query_record=None,
+    )
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
+
+    plan = dummy._operator_try_restricted_agent_plan("当前报警是什么")
+
+    assert plan.actions[0].action_type == "query"
+    assert plan.actions[0].target == "alarm_query"
+    assert plan.source == "restricted_agent"
+
+
+def test_operator_try_agent_orchestrator_returns_chat_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("L2是什么")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "chat"
+    assert "运动规划预演" in plan.reason
+    assert plan.source == "agent_orchestrator"
+
+
+def test_operator_try_agent_orchestrator_returns_atomic_capability_chat_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("支持哪些原子命令")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "chat"
+    assert "二次原子函数能力" in plan.reason
+    assert plan.source == "agent_orchestrator"
+
+
+def test_operator_try_agent_orchestrator_returns_identity_chat_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("你是谁")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "chat"
+    assert "机械手自然语言交互助手" in plan.reason
+    assert plan.source == "agent_orchestrator"
+
+
+def test_operator_try_agent_orchestrator_returns_position_query_chat_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._position_registry = lambda: SimpleNamespace(
+        get=lambda name: SimpleNamespace(pose=(350.0, 200.0, 500.0, 0.0, 90.0, 0.0)) if name == "A" else None
+    )
+
+    plan = dummy._operator_try_agent_orchestrator_plan("位置A坐标是多少")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "chat"
+    assert "位置A坐标" in plan.reason
+    assert "没有触发机械手动作" in plan.reason
+    assert plan.source == "agent_orchestrator"
+
+
+def test_operator_try_agent_orchestrator_returns_dashboard_query_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("通讯正常吗")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "query"
+    assert plan.actions[0].target == "communication_faults"
+    assert plan.source == "agent_orchestrator"
+
+
+def test_operator_try_agent_orchestrator_returns_flow_draft_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    flow_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow_draft", "打招呼", "flow_draft", "小正，创建流程", "已生成流程草案。"),),
+        source="flow_draft",
+        raw_text="小正，创建流程",
+        reason="已生成流程草案。",
+        flow_draft={"flow_name": "打招呼", "expanded_steps": [{"step_id": 1}]},
+    )
+    dummy._operator_agent_flow_draft_parse = lambda text: flow_plan
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，创建流程")
+
+    assert plan is flow_plan
+
+
+def test_operator_try_agent_orchestrator_returns_registered_flow_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    flow_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "打招呼", "rule", "执行打招呼", "命中流程规则"),),
+        source="rule",
+        raw_text="执行打招呼",
+        reason="命中流程规则",
+    )
+    dummy._operator_agent_registered_flow_parse = lambda text: flow_plan
+
+    plan = dummy._operator_try_agent_orchestrator_plan("执行打招呼")
+
+    assert plan is flow_plan
+
+
+def test_operator_try_agent_orchestrator_returns_memory_setting_chat_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    saved = []
+    dummy._save_atomic_memory = lambda: saved.append(True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，速度60%")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "chat"
+    assert "速度=60.0%" in plan.reason
+    assert dummy._atomic_memory.current_speed == 60.0
+    assert saved == [True]
+
+
+def test_operator_try_agent_orchestrator_returns_position_save_memory_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，保存当前位置为位置A")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "memory"
+    assert plan.actions[0].target == "position_save:A"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+
+
+def test_operator_try_agent_orchestrator_returns_position_move_atomic_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy._atomic_memory.save_position("A", (350.0, 200.0, 500.0, 0.0, 90.0, 0.0))
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，移动到位置A")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.func_num == 108
+    assert record.params["target_x"] == 350.0
+    assert record.params["target_z"] == 500.0
+    assert plan.requires_confirmation is True
+
+
+def test_operator_try_agent_orchestrator_returns_rest_pose_atomic_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory(default_rest_pose=(900.0, 0.0, 1000.0, 0.0, 0.0, 0.0))
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，去休息")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.query_key == "atomic:rest_pose"
+    assert record.params["target_x"] == 900.0
+
+
+def test_operator_try_agent_orchestrator_repeats_last_atomic_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    last_record = QueryRecord(
+        query_key="atomic:virtual:8:1:3",
+        func_num=107,
+        description="原子函数：虚拟轴点动",
+        params={"axis_no": 8, "pos_val": 3.0, "fuzzy_pos": 1, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+    )
+    dummy._atomic_memory.remember_record(last_record)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，再走一次")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.query_key == "atomic:repeat:atomic:virtual:8:1:3"
+    assert record.func_num == 107
+    assert record.params["axis_no"] == 8
+
+
+def test_operator_try_agent_orchestrator_continues_last_direction_atomic_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy._atomic_memory.record_direction(func_num=107, axis_no=6, direction=1, step=3.0)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，继续")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.func_num == 107
+    assert record.params["axis_no"] == 6
+    assert record.params["pos_val"] == 3.0
+
+
+def test_operator_try_agent_orchestrator_returns_back_history_atomic_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy._atomic_memory.push_position((100.0, 200.0, 300.0, 0.0, 45.0, 0.0))
+    before_stack = list(dummy._atomic_memory.position_stack)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，返回上一步")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.query_key == "atomic:history:back"
+    assert record.func_num == 108
+    assert record.params["target_x"] == 100.0
+    assert dummy._atomic_memory.position_stack == before_stack
+
+
+def test_nlp_apply_memory_action_deletes_position_from_memory_and_registry():
+    dummy = DummyNlpMemory()
+    dummy._atomic_memory = AtomicMemory()
+    dummy._atomic_memory.save_position("A", (350.0, 200.0, 500.0, 0.0, 90.0, 0.0))
+    removed = []
+    logs = []
+    dummy._position_registry = lambda: SimpleNamespace(
+        remove=lambda name: (removed.append(name), (True, f"位置'{name}'已删除"))[1]
+    )
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    ok = dummy._nlp_apply_memory_action(
+        VoiceNlpAction("memory", "position_delete:A", "agent_orchestrator", "小正，删除位置A", "请求删除位置A。")
+    )
+
+    assert ok is True
+    assert removed == ["A"]
+    assert dummy._atomic_memory.get_position("A") is None
+    assert log_args(logs[-1])[0:3] == ("自然语言", "删除位置", "成功")
+
+
+def test_operator_try_agent_orchestrator_routes_joint_limit_query_to_dashboard_query():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("J2关节软限位是多少")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "query"
+    assert plan.actions[0].target == "safety_boundary"
+
+
+def test_operator_try_agent_orchestrator_falls_back_for_unknown_legacy_text():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("打开旧版帮助页面")
+
+    assert plan is None
+
+
+def test_operator_try_agent_orchestrator_logs_fallback_audit_payload():
+    dummy = DummyOperator()
+    logs = []
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("打开旧版帮助页面")
+
+    assert plan is None
+    assert log_args(logs[-1])[0:3] == ("Agent", "统一Agent交回旧路径", "提示")
+    assert "reason=chat_agent_disabled_or_no_route" in log_args(logs[-1])[3]
+    assert "intent=unknown" in log_args(logs[-1])[3]
+    assert "needs_model=False" in log_args(logs[-1])[3]
+
+
+def test_operator_try_agent_orchestrator_returns_clarification_for_ambiguous_control_text():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("往安全一点的位置挪一下")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "clarification"
+    assert plan.source == "agent_orchestrator"
+    assert "请补充明确" in plan.reason
+
+
+def test_operator_try_agent_orchestrator_uses_deepseek_fallback_when_enabled():
+    class FakeRestrictedService:
+        def parse(self, text):
+            self.text = text
+            return SimpleNamespace(
+                kind="blocked",
+                intent="move_linear",
+                func_id=108,
+                message="测试阻断",
+                understanding=None,
+                draft=None,
+                precheck_result=None,
+                confirmation_text="",
+                query_record=None,
+            )
+
+    class FakeDeepSeekClient:
+        def generate_chat(self, prompt, system_prompt=None):
+            self.prompt = prompt
+            self.system_prompt = system_prompt
+            return '{"kind":"candidate_text","text":"向左移动200","confidence":0.8}'
+
+    service = FakeRestrictedService()
+    client = FakeDeepSeekClient()
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._restricted_agent_service = service
+    dummy._deepseek_client = client
+    dummy.nlp_use_deepseek_check = SimpleNamespace(isChecked=lambda: True)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("往左边去一点")
+
+    assert plan is not None
+    assert service.text == "向左移动200"
+    assert "不要输出 MODBUS" in client.system_prompt
+
+
+def test_operator_try_agent_orchestrator_routes_joint_jog_to_agent_draft():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    result = SimpleNamespace(
+        kind="waiting_confirmation",
+        intent="joint_jog",
+        func_id=106,
+        message="等待操作者确认。",
+        understanding=None,
+        draft=SimpleNamespace(
+            draft_id="draft-j1",
+            func_id=106,
+            intent="joint_jog",
+            params={
+                "axis_no": 0,
+                "pos_val": 45.0,
+                "spd_pct": 40.0,
+                "acc_pct": 45.0,
+                "dec_pct": 50.0,
+                "fuzzy_pos": 0,
+                "fuzzy_spd": 1,
+                "fuzzy_acc": 1,
+                "fuzzy_dec": 1,
+                "stop_cmd": 0,
+            },
+            param_sources={},
+            raw_text="小正，J1转到45度",
+            confidence=0.95,
+            precheck_result={"valid": True, "summary": "L1通过。"},
+        ),
+        precheck_result={"valid": True, "summary": "L1通过。"},
+        confirmation_text="【复述确认】Func106 关节轴点动",
+        query_record=None,
+    )
+    dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，J1转到45度")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.source == "restricted_agent"
+    assert plan.flow_draft["func_id"] == 106
+
+
+def test_operator_try_agent_orchestrator_does_not_depend_on_old_whitelist_for_supported_actions():
+    from robot_modbus_lite.agent.command_understanding import CommandUnderstandingResult
+    from robot_modbus_lite.agent.service import RestrictedAgentResult
+
+    class FakeRestrictedService:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, text):
+            self.calls.append(text)
+            return RestrictedAgentResult(
+                kind="bypass",
+                intent="sys_estop",
+                message="应急停止。",
+                understanding=CommandUnderstandingResult(raw_text=text, intent="sys_estop", func_id=104, confidence=1.0),
+            )
+
+    dummy = DummyOperator()
+    service = FakeRestrictedService()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._operator_should_try_restricted_agent = lambda text: False
+    dummy._operator_restricted_agent_service = lambda: service
+
+    plan = dummy._operator_try_agent_orchestrator_plan("急停")
+
+    assert plan is not None
+    assert service.calls == ["急停"]
+    assert plan.actions[0].action_type == "system"
+    assert plan.actions[0].target == "sys_estop"
+
+
+def test_operator_try_agent_orchestrator_respects_restricted_agent_disabled():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=False)
+    dummy._operator_restricted_agent_service = lambda: (_ for _ in ()).throw(AssertionError("service should not be created"))
+
+    plan = dummy._operator_try_agent_orchestrator_plan("急停")
+
+    assert plan is None
+
+
+def test_operator_try_agent_orchestrator_routes_virtual_linear_jog_to_agent_draft():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    result = SimpleNamespace(
+        kind="waiting_confirmation",
+        intent="virtual_jog",
+        func_id=107,
+        message="等待操作者确认。",
+        understanding=None,
+        draft=SimpleNamespace(
+            draft_id="draft-up",
+            func_id=107,
+            intent="virtual_jog",
+            params={
+                "axis_no": 8,
+                "pos_val": 3.0,
+                "spd_pct": 40.0,
+                "acc_pct": 45.0,
+                "dec_pct": 50.0,
+                "fuzzy_pos": 1,
+                "fuzzy_spd": 1,
+                "fuzzy_acc": 1,
+                "fuzzy_dec": 1,
+                "stop_cmd": 0,
+            },
+            param_sources={},
+            raw_text="小正，上升3毫米",
+            confidence=0.95,
+            precheck_result={"valid": True, "summary": "L1通过。"},
+        ),
+        precheck_result={"valid": True, "summary": "L1通过。"},
+        confirmation_text="【复述确认】Func107 虚拟轴点动",
+        query_record=None,
+    )
+    dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，上升3毫米")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.source == "restricted_agent"
+    assert plan.flow_draft["func_id"] == 107
+
+
+def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft():
+    from robot_modbus_lite.agent.command_understanding import CommandUnderstandingResult
+    from robot_modbus_lite.agent.drafts import CommandDraft
+    from robot_modbus_lite.agent.service import RestrictedAgentResult
+
+    draft = CommandDraft(
+        draft_id="path1",
+        func_id=112,
+        intent="continuous_path",
+        params={
+            "target_x": 1000.0,
+            "target_y": 20.0,
+            "target_z": 300.0,
+            "target_rx": 1.0,
+            "target_ry": 2.0,
+            "target_rz": 3.0,
+            "spd_pct": 40.0,
+            "acc_pct": 45.0,
+            "dec_pct": 50.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0,
+            "position_increment": 0,
+        },
+        param_sources={},
+        raw_text="规划路径走到 X1000 Z300",
+        confidence=0.9,
+    )
+    result = RestrictedAgentResult(
+        kind="waiting_confirmation",
+        intent="continuous_path",
+        func_id=112,
+        message="等待操作者确认。",
+        understanding=CommandUnderstandingResult(
+            raw_text="规划路径走到 X1000 Z300",
+            intent="continuous_path",
+            func_id=112,
+            confidence=0.9,
+        ),
+        draft=draft,
+        precheck_result={"valid": True, "summary": "L1通过。"},
+        confirmation_text="【复述确认】Func112 连续路径运动",
+    )
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
+
+    plan = dummy._operator_try_agent_orchestrator_plan("规划路径走到 X1000 Z300")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.requires_confirmation is True
+    assert plan.requires_precheck is True
+    assert plan.flow_draft["func_id"] == 112
+    assert plan.flow_draft["safe_to_execute"] is False
+
+
+def test_operator_try_agent_orchestrator_compound_plans_each_step_with_restricted_service():
+    class FakeRestrictedService:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, text):
+            self.calls.append(text)
+            return {"kind": "waiting_confirmation", "text": text}
+
+    dummy = DummyOperator()
+    service = FakeRestrictedService()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._operator_restricted_agent_service = lambda: service
+
+    plan = dummy._operator_try_agent_orchestrator_plan("走到X1000，然后等待2秒")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "compound_plan"
+    assert service.calls == ["走到X1000", "等待2秒"]
+    assert len(plan.flow_draft["step_results"]) == 2
+
+
+def test_operator_parse_nlp_text_uses_restricted_agent_for_supported_text():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("query", "alarm_query", "restricted_agent", "当前报警是什么", "规则旁路"),),
+        source="restricted_agent",
+        raw_text="当前报警是什么",
+        reason="规则旁路",
+        semantic_level=2,
+        semantic_label="工艺查询层",
+    )
+    calls = []
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "当前报警是什么")
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_try_agent_orchestrator_plan = lambda text: plan
+    dummy._set_nlp_parse_busy = lambda busy: calls.append(("busy", busy))
+    dummy._set_nlp_result_plan = lambda parsed: calls.append(("plan", parsed))
+    dummy.status_label = SimpleNamespace(setText=lambda text: calls.append(("status", text)))
+    dummy._append_log = lambda *args, **kwargs: calls.append(("log", args))
+
+    dummy._parse_nlp_text()
+
+    assert ("busy", True) in calls
+    assert ("busy", False) in calls
+    assert ("plan", plan) in calls
+    assert any(item[0] == "status" and "解析完成" in item[1] for item in calls)
+
+
+def test_operator_execute_nlp_text_uses_restricted_agent_for_supported_text():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "restricted_agent", "走到 X1000", "等待确认"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="等待确认",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    calls = []
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "走到 X1000", setPlainText=lambda text: None)
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_set_pending_confirm_plan = lambda pending: calls.append(("pending", pending))
+    dummy._operator_try_agent_orchestrator_plan = lambda text: plan
+    dummy._set_nlp_execute_busy = lambda busy: calls.append(("busy", busy))
+    dummy._set_nlp_result_plan = lambda parsed: calls.append(("plan", parsed))
+    dummy._execute_nlp_plan = lambda parsed: calls.append(("execute", parsed))
+
+    dummy._execute_nlp_text()
+
+    assert ("pending", None) in calls
+    assert ("busy", True) in calls
+    assert ("plan", plan) in calls
+    assert ("execute", plan) in calls
+
+
+def test_operator_restricted_agent_end_to_end_to_existing_execution_plan():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-100.0, 1200.0),
+        y=(-200.0, 200.0),
+        z=(0.0, 500.0),
+        safe_r_min=0.0,
+        safe_r_max=1200.0,
+        safe_z_min=0.0,
+        safe_z_max=500.0,
+        safe_speed_max=80.0,
+        safe_acc_max=70.0,
+        safe_dec_max=60.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "走到 X1000 Z300 速度60%", setPlainText=lambda text: None)
+    dummy.robot_x = "10"
+    dummy.robot_y = "20"
+    dummy.robot_z = "30"
+    dummy.robot_r = "1 / 2 / 3"
+    dummy.busy = "空闲"
+    dummy.motion_percent = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.alarm_code = "ERR_000"
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=True: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 300.0, "z": 100.0}},
+    }
+    status_messages = []
+    chats = []
+    executed = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._execute_nlp_plan = lambda converted_plan: executed.append(converted_plan)
+
+    plan = dummy._operator_try_restricted_agent_plan("走到 X1000 Z300 速度60%")
+    dummy._operator_set_pending_confirm_plan(plan)
+
+    assert plan.actions[0].action_type == "agent_draft"
+    assert dummy._operator_pending_confirm_plan is plan
+    assert "Func108" in dummy._operator_confirm_detail_text()
+
+    dummy._operator_confirm_execute()
+
+    converted = executed[-1]
+    assert converted.actions[0].action_type == "atomic_template"
+    record = converted.atomic_records[converted.actions[0].target]
+    assert record.func_num == 108
+    assert record.params["target_x"] == 1000.0
+    assert record.params["target_y"] == 20.0
+    assert record.params["target_z"] == 300.0
+    assert converted.requires_confirmation is False
+
+
+def test_operator_restricted_agent_accepts_full_pose_inside_rz_boundary():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-3000.0, 3000.0),
+        y=(-3000.0, 3000.0),
+        z=(0.0, 3000.0),
+        safe_r_min=200.0,
+        safe_r_max=1800.0,
+        safe_z_min=0.0,
+        safe_z_max=2500.0,
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.robot_x = "10"
+    dummy.robot_y = "20"
+    dummy.robot_z = "30"
+    dummy.robot_r = "1 / 2 / 3"
+    dummy.busy = "空闲"
+    dummy.motion_percent = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.alarm_code = "ERR_000"
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=True: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 300.0, "z": 100.0}},
+    }
+
+    plan = dummy._operator_try_restricted_agent_plan(
+        "让机械手走到X1000, Y200, Z800, RX0, RY45, RZ0, 速度60%, 加速度50%, 减速度50%"
+    )
+
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.flow_draft["precheck_result"]["valid"] is True
+
+
+def test_operator_restricted_agent_runs_l2_motion_plan_when_engine_configured():
+    class FakeEngine:
+        def inverse(self, pose, fstatus: int):
+            if fstatus == 0:
+                return InverseKinematicsResult(True, (10.0, 20.0, 30.0, 40.0, 0.0, 0.0), fstatus)
+            return InverseKinematicsResult(False, (), fstatus, "no solution")
+
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-3000.0, 3000.0),
+        y=(-3000.0, 3000.0),
+        z=(0.0, 3000.0),
+        safe_r_min=200.0,
+        safe_r_max=1800.0,
+        safe_z_min=0.0,
+        safe_z_max=2500.0,
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.operator_kinematics_engine = FakeEngine()
+    dummy.robot_x = "10"
+    dummy.robot_y = "20"
+    dummy.robot_z = "650"
+    dummy.robot_r = "1 / 2 / 3"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy.motion_percent = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.alarm_code = "ERR_000"
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_publish_l2_progress = lambda event: None
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=True: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 300.0, "z": 650.0}},
+    }
+
+    plan = dummy._operator_try_restricted_agent_plan(
+        "让机械手走到X1000, Y200, Z800, RX0, RY45, RZ0, 速度60%, 加速度50%, 减速度50%"
+    )
+
+    precheck = plan.flow_draft["precheck_result"]
+    assert precheck["valid"] is True
+    assert precheck["l2"]["status"] == "pass"
+    assert precheck["selected_fstatus"] == 0
+
+
+def test_operator_restricted_agent_blocks_when_l2_motion_plan_fails():
+    class SingularEngine:
+        def inverse(self, pose, fstatus: int):
+            return InverseKinematicsResult(True, (10.0, 20.0, 30.0, 1.0, 0.0, 0.0), fstatus)
+
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-3000.0, 3000.0),
+        y=(-3000.0, 3000.0),
+        z=(0.0, 3000.0),
+        safe_r_min=200.0,
+        safe_r_max=1800.0,
+        safe_z_min=0.0,
+        safe_z_max=2500.0,
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.operator_kinematics_engine = SingularEngine()
+    dummy.robot_x = "10"
+    dummy.robot_y = "20"
+    dummy.robot_z = "650"
+    dummy.robot_r = "1 / 2 / 3"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy.motion_percent = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.alarm_code = "ERR_000"
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_publish_l2_progress = lambda event: None
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=True: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 300.0, "z": 650.0}},
+    }
+
+    plan = dummy._operator_try_restricted_agent_plan(
+        "让机械手走到X1000, Y200, Z800, RX0, RY45, RZ0, 速度60%, 加速度50%, 减速度50%"
+    )
+
+    assert plan.actions[0].action_type == "agent_blocked"
+    assert plan.flow_draft["precheck_result"]["blocking_level"] == "L2"
+    assert plan.flow_draft["precheck_result"]["l2"]["status"] == "fail"
+
+
+def test_operator_restricted_agent_blocks_pose_angle_after_l2_passes():
+    class FakeEngine:
+        def inverse(self, pose, fstatus: int):
+            return InverseKinematicsResult(True, (10.0, 20.0, 30.0, 40.0, 0.0, 0.0), fstatus)
+
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-3000.0, 3000.0),
+        y=(-3000.0, 3000.0),
+        z=(0.0, 3000.0),
+        safe_r_min=200.0,
+        safe_r_max=1800.0,
+        safe_z_min=0.0,
+        safe_z_max=2500.0,
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.operator_kinematics_engine = FakeEngine()
+    dummy.robot_x = "10"
+    dummy.robot_y = "20"
+    dummy.robot_z = "650"
+    dummy.robot_r = "1 / 2 / 3"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy.motion_percent = "空闲"
+    dummy.current_func_text = "空闲"
+    dummy.alarm_code = "ERR_000"
+    dummy.estop_active = False
+    dummy.pause_active = False
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_publish_l2_progress = lambda event: None
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=True: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 300.0, "z": 650.0}},
+    }
+
+    plan = dummy._operator_try_restricted_agent_plan(
+        "让机械手走到X1000, Y200, Z800, RX0, RY120, RZ0, 速度60%, 加速度50%, 减速度50%"
+    )
+
+    precheck = plan.flow_draft["precheck_result"]
+    assert plan.actions[0].action_type == "agent_blocked"
+    assert precheck["blocking_level"] == "POSE"
+    assert precheck["pose_angles"]["status"] == "fail"
+
+
+def test_operator_execute_nlp_plan_handles_agent_blocked_without_running_sequence():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_blocked", "draft1", "restricted_agent", "走到 X1000", "L1预检未通过。"),),
+        source="restricted_agent",
+        raw_text="走到 X1000",
+        reason="L1预检未通过。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_precheck=False,
+        requires_confirmation=False,
+        flow_draft={
+            "agent_kind": "precheck_failed",
+            "draft_id": "draft1",
+            "precheck_result": {
+                "valid": False,
+                "items": [
+                    {"id": "target_r_range", "status": "fail", "message": "目标 R=1900.0mm 超出安全范围。"}
+                ],
+                "suggestion": "请处理失败项后再执行计划。",
+            },
+        },
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    archived = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_publish_ai_answer_for_speech = lambda text: None
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert "目标 R=1900.0mm 超出安全范围" in status_messages[-1]
+    assert "目标 R=1900.0mm 超出安全范围" in chats[-1][1]
+    assert archived[-1]["result"] == "blocked"
+    assert log_args(logs[-1])[0:3] == ("Agent", "安全预检阻断", "阻断")
 
 
 def test_operator_execute_nlp_plan_handles_clarification_without_running_sequence():
@@ -1772,6 +3171,163 @@ def test_operator_execute_nlp_plan_handles_chat_unknown_without_failure():
     assert "没有触发机械手动作" in status_messages[-1]
     assert info_messages == []
     assert log_args(logs[-1])[0:3] == ("自然语言", "闲聊咨询", "成功")
+
+
+def test_operator_execute_nlp_plan_handles_compound_plan_without_running_sequence():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("compound_plan", "compound:test", "agent_orchestrator", "走到X1000，然后等待2秒", "已生成复合指令草案：2 步，等待确认。"),),
+        source="agent_orchestrator",
+        raw_text="走到X1000，然后等待2秒",
+        reason="已生成复合指令草案：2 步，当前仅展示，不自动执行。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        flow_draft={
+            "agent_kind": "compound_plan_draft",
+            "plan_id": "compound:test",
+            "steps": ("走到X1000", "等待2秒"),
+            "step_machine": {
+                "status": "waiting_step_confirmation",
+                "current_index": 0,
+                "current_step_text": "走到X1000",
+                "steps": (
+                    {"index": 0, "text": "走到X1000", "status": "waiting_confirmation"},
+                    {"index": 1, "text": "等待2秒", "status": "pending"},
+                ),
+            },
+        },
+    )
+    status_messages = []
+    logs = []
+    chats = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._operator_archive_execution_result = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "execute_busy") is False
+    assert not getattr(dummy, "nlp_sequence_running", False)
+    assert "复合指令草案" in status_messages[-1]
+    assert "当前等待确认第 1/2 步：走到X1000" in chats[-1][1]
+    assert "当前不会自动执行" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("Agent", "复合指令草案", "提示")
+
+
+def test_operator_execute_nlp_plan_stores_executable_compound_as_pending_flow_draft():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("compound_plan", "compound:test", "agent_orchestrator", "走到X1000，然后等待2秒", "已生成复合指令草案：2 步。"),),
+        source="agent_orchestrator",
+        raw_text="走到X1000，然后等待2秒",
+        reason="已生成复合指令草案：2 步。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        flow_draft={
+            "agent_kind": "compound_plan_draft",
+            "plan_id": "compound:test",
+            "flow_name": "agent_compound_test",
+            "steps": ("走到X1000", "等待2秒"),
+            "expanded_steps": [
+                {"step_id": 1, "action": "move_linear", "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}},
+                {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+            ],
+            "safe_to_execute": True,
+            "step_machine": {
+                "status": "waiting_step_confirmation",
+                "current_index": 0,
+                "current_step_text": "走到X1000",
+                "steps": (
+                    {"index": 0, "text": "走到X1000", "status": "waiting_confirmation"},
+                    {"index": 1, "text": "等待2秒", "status": "pending"},
+                ),
+            },
+        },
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._operator_archive_execution_result = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._execute_nlp_plan(plan)
+
+    assert dummy._operator_pending_flow_draft["flow_name"] == "agent_compound_test"
+    assert dummy._operator_pending_flow_draft["expanded_steps"][1]["func_id"] == 109
+    assert "可说“确认执行”" in chats[-1][1]
+    assert "当前不会自动执行" not in chats[-1][1]
+
+
+def test_operator_pending_executable_compound_confirm_starts_flow(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    started = []
+    chats = []
+    status_messages = []
+    logs = []
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy._start_flow = lambda: started.append(True)
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "flow_name": "agent_compound_test",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "move_linear",
+                "func_id": 108,
+                "description": "走到X1000",
+                "params": {
+                    "target_x": 1000.0,
+                    "target_y": 200.0,
+                    "target_z": 800.0,
+                    "target_rx": 0.0,
+                    "target_ry": 45.0,
+                    "target_rz": 0.0,
+                    "spd_pct": 60.0,
+                    "acc_pct": 50.0,
+                    "dec_pct": 50.0,
+                    "stop_cmd": 0,
+                    "fuzzy_pos": 0,
+                    "fuzzy_spd": 0,
+                    "fuzzy_acc": 0,
+                    "fuzzy_dec": 0,
+                    "move_type": 0,
+                },
+            },
+            {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+        ],
+    }
+
+    handled = dummy._operator_handle_pending_flow_draft_command("确认执行")
+
+    assert handled is True
+    assert started == [True]
+    assert dummy.current_flow_name == "agent_compound_test"
+
+
+def test_operator_compound_step_machine_text_shows_blocked_reason():
+    text = DummyOperator._operator_compound_step_machine_text(
+        {
+            "step_machine": {
+                "status": "blocked",
+                "current_index": 0,
+                "current_step_text": "走到X1000",
+                "reason": "L1预检未通过。",
+                "steps": ({"index": 0, "text": "走到X1000", "status": "blocked"},),
+            }
+        }
+    )
+
+    assert text == "L1预检未通过。"
 
 
 def test_operator_execute_nlp_plan_handles_deepseek_chat_answer_without_popup():
@@ -4281,7 +5837,10 @@ def test_operator_l2_unavailable_summary_does_not_block_execution():
 
     assert result["status"] == "unavailable"
     assert dummy._operator_l2_should_block(result) is False
-    assert "未配置运动学逆解引擎" in dummy._operator_l2_summary(result)
+    summary = dummy._operator_l2_summary(result)
+    assert "L1安全检查结果" in summary
+    assert "L2运动规划预演暂不可用" in summary
+    assert "现场确认" in summary
 
 
 def test_operator_execute_detail_renders_running_flow_as_compact_summary():

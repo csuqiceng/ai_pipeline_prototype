@@ -8,16 +8,19 @@ from typing import Any, ClassVar, Protocol, runtime_checkable
 
 FUNC_NAME_MAP = {
     104: "FUNC104_STOP",
+    8: "FUNC8_ABSOLUTE_MOVE",
+    102: "FUNC102_ABSOLUTE_MOVE",
     106: "FUNC106_JOINT_JOG",
     107: "FUNC107_VIRTUAL_JOG",
     108: "FUNC108_LINEAR_MOVE",
+    112: "FUNC112_CONTINUOUS_PATH",
     11: "FUNC11_MULTI_POINT_INTERP",
     109: "FUNC109_TIMER_CHECK",
     110: "FUNC110_DELAY",
     120: "FUNC120_IO",
 }
 
-SIX_MOTION_FUNCS: frozenset[int] = frozenset({11, 106, 107, 108, 109})
+SIX_MOTION_FUNCS: frozenset[int] = frozenset({8, 11, 102, 106, 107, 108, 109, 112})
 SIX_PROGRAM_FUNCS: frozenset[int] = frozenset({110, 120})
 SIX_SYSTEM_FUNCS: frozenset[int] = frozenset({104})
 
@@ -69,7 +72,7 @@ class QueryRecord:
     @property
     def registers(self) -> tuple[float, float, float, float, float, float, float]:
         """处理相关数据。"""
-        if self.func_num == 108:
+        if self.func_num in (8, 102, 108, 112):
             return (
                 self.float_param("target_x"),
                 self.float_param("target_y"),
@@ -109,7 +112,7 @@ class QueryRecord:
 
     def pose_tuple(self) -> tuple[float, float, float, float, float, float] | None:
         """处理位姿。"""
-        if self.func_num != 108:
+        if self.func_num not in (8, 102, 108, 112):
             return None
         return (
             self.float_param("target_x"),
@@ -436,9 +439,9 @@ class SixAxisCommand:
                 VrWriteRequest(start_vr=18, values=(self.fuzzy_dec,)),
                 VrWriteRequest(start_vr=20, values=(float(self.stop_cmd),)),
             ]
-        if self.func_num == 108:
+        if self.func_num in (8, 102, 108, 112):
             return [
-                VrWriteRequest(start_vr=0, values=(108.0,)),
+                VrWriteRequest(start_vr=0, values=(float(self.func_num),)),
                 VrWriteRequest(start_vr=2, values=(self.target_x,)),
                 VrWriteRequest(start_vr=4, values=(self.target_y,)),
                 VrWriteRequest(start_vr=6, values=(self.target_z,)),

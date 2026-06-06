@@ -24,6 +24,12 @@ def test_dashboard_query_specs_match_common_questions():
     assert match_dashboard_query_spec("现在下位机状态是什么").board_key == "device_status"
 
 
+def test_dashboard_query_specs_do_not_capture_cartesian_motion_command():
+    text = "让机械手走到X1000, Y200, Z800, RX0, RY45, RZ0, 速度60%, 加速度50%, 减速度50%"
+
+    assert match_dashboard_query_spec(text) is None
+
+
 def test_dashboard_query_specs_export_rows_are_reviewable():
     rows = export_dashboard_query_rows()
 

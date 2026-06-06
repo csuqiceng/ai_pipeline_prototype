@@ -211,6 +211,14 @@ def test_voice_nlp_adapter_updates_atomic_memory():
     assert plan.requires_confirmation is False
 
 
+def test_voice_nlp_adapter_sets_expert_confirm_mode():
+    memory = AtomicMemory()
+    plan = make_adapter(memory).parse("小正，专家模式")
+
+    assert plan.actions[0].action_type == "memory"
+    assert memory.confirm_mode == "expert"
+
+
 def test_voice_nlp_adapter_ignores_unsupported_atomic_and_falls_back_unknown():
     plan = make_adapter().parse("小正，画个圆")
 

@@ -13,6 +13,7 @@ except ModuleNotFoundError:
     from ..mock_controller import MockZMotionVrClient
 
 from .background_tasks import run_background_thread
+from .kinematics_engine import FrameTrans2KinematicsEngine
 from .models import VrReadRequest
 
 
@@ -38,6 +39,7 @@ class ControllerRuntimeMixin:
             client.connect()
             self._cached_client = client
             self._cached_client_host = host
+            self._install_operator_kinematics_engine(client)
             return client
 
     def _disconnect_client(self) -> None:
@@ -54,6 +56,12 @@ class ControllerRuntimeMixin:
                 pass
             self._cached_client = None
             self._cached_client_host = ""
+        self.operator_kinematics_engine = None
+
+    def _install_operator_kinematics_engine(self, client: Any) -> None:
+        has_table = all(hasattr(client, name) for name in ("set_table", "get_table"))
+        has_trigger = hasattr(client, "frame_trans2") or hasattr(client, "execute")
+        self.operator_kinematics_engine = FrameTrans2KinematicsEngine(client) if has_table and has_trigger else None
 
     def closeEvent(self, event) -> None:
         """关闭相关数据。"""

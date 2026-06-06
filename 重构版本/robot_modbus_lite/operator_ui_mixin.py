@@ -447,27 +447,29 @@ class OperatorUiMixin:
         layout.setContentsMargins(18, 16, 18, 16)
         layout.setSpacing(12)
 
-        self.operator_confirm_title = QLabel("等待安全确认")
+        self.operator_confirm_title = QLabel("等待确认执行")
         self.operator_confirm_title.setObjectName("operatorSceneTitle")
-        self.operator_confirm_detail = QLabel("当前没有需要确认的风险。")
-        self.operator_confirm_detail.setObjectName("operatorSceneSubtitle")
-        self.operator_confirm_detail.setWordWrap(True)
+        self.operator_confirm_detail = QTextBrowser()
+        self.operator_confirm_detail.setObjectName("operatorRecentBrowser")
+        self.operator_confirm_detail.setOpenExternalLinks(False)
+        self.operator_confirm_detail.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.operator_confirm_detail.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.operator_confirm_detail.setHtml("<p>当前没有需要确认的指令。</p>")
         button_row = QHBoxLayout()
         for text, slot in [
             ("确认执行", self._operator_confirm_execute),
-            ("采纳建议", self._operator_accept_suggestion),
-            ("取消", self._operator_cancel_confirm),
+            ("采纳安全建议", self._operator_accept_suggestion),
+            ("取消指令", self._operator_cancel_confirm),
         ]:
             btn = QPushButton(text)
             btn.setObjectName("operatorActionButton")
             btn.clicked.connect(slot)
-            if text == "采纳建议":
+            if text == "采纳安全建议":
                 self.operator_accept_suggestion_btn = btn
             button_row.addWidget(btn)
         layout.addWidget(self.operator_confirm_title)
-        layout.addWidget(self.operator_confirm_detail)
+        layout.addWidget(self.operator_confirm_detail, 1)
         layout.addLayout(button_row)
-        layout.addStretch(1)
         return scene
 
     def _build_operator_alarm_scene(self) -> QWidget:
@@ -691,6 +693,22 @@ class OperatorUiMixin:
         actions = tuple(getattr(plan, "actions", ()) or ())
         if not actions or getattr(actions[0], "action_type", "") != "query":
             return False
+        query_target = str(getattr(actions[0], "target", "") or "")
+        if query_target in {"alarm_query", "status_query"}:
+            answer_text = self._operator_agent_alarm_query_text()
+            self._operator_set_pending_confirm_plan(None)
+            self._operator_scene_override = "query"
+            self._operator_publish_response(
+                ResponseMessage(
+                    kind="result",
+                    text=answer_text,
+                    priority="high" if "无法" in answer_text or "超限" in answer_text or "急停" in answer_text else "normal",
+                    context_id=f"agent:{query_target}",
+                )
+            )
+            self._operator_publish_ai_answer_for_speech(answer_text)
+            self._operator_archive_execution_result(result="answered", final_text=answer_text)
+            return True
         if getattr(actions[0], "target", "") == "atomic_capabilities":
             answer_text = self._operator_atomic_capability_answer_text()
             self._operator_set_pending_confirm_plan(None)
@@ -726,6 +744,116 @@ class OperatorUiMixin:
         self._operator_archive_execution_result(result="answered", final_text=answer.text)
         return True
 
+    def _operator_agent_alarm_query_text(self) -> str:
+        from .agent.alarm_explanation import AlarmExplanationAgent
+
+        result = AlarmExplanationAgent().explain(
+            long34=self._operator_int_attr("six_long34", default=0),
+            long36=self._operator_int_attr("six_long36", default=0),
+            long38=self._operator_int_attr("six_long38", fallback="long38_raw", default=0),
+            axis_status=tuple(getattr(self, "axis_status", ()) or ()),
+            current_func=self._operator_current_func_num_for_agent(),
+            safety_values=self._operator_alarm_query_safety_values(),
+            hardware_values=self._operator_alarm_query_hardware_values(),
+        )
+        text = str(result.get("summary", "") or "当前报警状态暂不可用。")
+        detail = str(result.get("detail", "") or "").strip()
+        suggestions = [str(item).strip() for item in result.get("suggestions", []) if str(item).strip()]
+        if detail:
+            text += f" {detail}"
+        if suggestions:
+            text += " 建议：" + " ".join(suggestions[:3])
+        return text
+
+    def _operator_alarm_query_safety_values(self) -> dict[str, Any]:
+        axis_ranges = getattr(self, "axis_ranges", None)
+        boundary: dict[str, Any] = {}
+        try:
+            snapshot = self._operator_dashboard_snapshot_dict()
+            boards = snapshot.get("boards", {}) if isinstance(snapshot, dict) else {}
+            boundary = boards.get("safety_boundary", {}) or {}
+        except Exception:
+            boundary = {}
+        return {
+            "safe_r_min": getattr(axis_ranges, "safe_r_min", None),
+            "safe_r_max": getattr(axis_ranges, "safe_r_max", None),
+            "safe_z_min": getattr(axis_ranges, "safe_z_min", None),
+            "safe_z_max": getattr(axis_ranges, "safe_z_max", None),
+            "safe_speed_max": getattr(axis_ranges, "safe_speed_max", None),
+            "safe_acc_max": getattr(axis_ranges, "safe_acc_max", None),
+            "safe_dec_max": getattr(axis_ranges, "safe_dec_max", None),
+            "current_r": self._operator_float_attr("current_r", fallback="robot_r")
+            if self._operator_float_attr("current_r", fallback="robot_r") is not None
+            else boundary.get("current_r"),
+            "current_z": self._operator_float_attr("current_z", fallback="robot_z")
+            if self._operator_float_attr("current_z", fallback="robot_z") is not None
+            else boundary.get("current_z"),
+        }
+
+    def _operator_alarm_query_hardware_values(self) -> dict[str, Any]:
+        snapshot: dict[str, Any] = {}
+        try:
+            snapshot = self._operator_dashboard_snapshot_dict()
+        except Exception:
+            snapshot = {}
+        hardware = snapshot.get("hardware", {}) if isinstance(snapshot, dict) else {}
+        connection = snapshot.get("connection", {}) if isinstance(snapshot, dict) else {}
+        servo_value = hardware.get("servo_enable", getattr(self, "servo_enable", None)) if isinstance(hardware, dict) else getattr(self, "servo_enable", None)
+        axis_alarm_flags = (
+            hardware.get("axis_alarm_flags", getattr(self, "axis_alarm_flags", None))
+            if isinstance(hardware, dict)
+            else getattr(self, "axis_alarm_flags", None)
+        )
+        axis_enabled = (
+            hardware.get("axis_enabled", getattr(self, "axis_enabled", None))
+            if isinstance(hardware, dict)
+            else getattr(self, "axis_enabled", None)
+        )
+        any_axis_moving = (
+            hardware.get("any_axis_moving", None)
+            if isinstance(hardware, dict)
+            else None
+        )
+        if any_axis_moving is None:
+            any_axis_moving = str(getattr(self, "motion_percent", "") or "") == "运动中"
+        return {
+            "servo_enabled": servo_value,
+            "ethercat_initialized": str(connection.get("controller", "")).lower() == "online"
+            if isinstance(connection, dict) and connection
+            else None,
+            "axis_alarm_flags": axis_alarm_flags,
+            "axis_enabled": axis_enabled,
+            "any_axis_moving": any_axis_moving,
+        }
+
+    def _operator_current_func_num_for_agent(self) -> int | None:
+        explicit = self._operator_int_attr("current_func_num", default=None)
+        if explicit is not None:
+            return explicit
+        text = str(getattr(self, "current_func_text", "") or "")
+        match = re.search(r"Func\s*(\d+)", text, flags=re.IGNORECASE)
+        return int(match.group(1)) if match else None
+
+    def _operator_int_attr(self, name: str, *, fallback: str | None = None, default: int | None = 0) -> int | None:
+        value = getattr(self, name, None)
+        if value is None and fallback:
+            value = getattr(self, fallback, None)
+        parsed = self._operator_float_or_none(value)
+        return default if parsed is None else int(parsed)
+
+    def _operator_float_attr(self, name: str, *, fallback: str | None = None) -> float | None:
+        value = getattr(self, name, None)
+        if value is None and fallback:
+            value = getattr(self, fallback, None)
+        return self._operator_float_or_none(value)
+
+    @staticmethod
+    def _operator_float_or_none(value: object) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def _set_nlp_parse_busy(self, busy: bool) -> None:
         super()._set_nlp_parse_busy(busy)
         if busy:
@@ -751,6 +879,18 @@ class OperatorUiMixin:
             self._set_nlp_execute_busy(False)
             self.status_label.setText(text)
             self._operator_add_chat_message("assistant", text, kind="warn")
+            self._append_log("用户页面", "等待确认", "提示", text)
+            self._refresh_operator_view()
+            return
+        if self._operator_plan_requires_confirmation(plan):
+            self._operator_set_pending_confirm_plan(plan)
+            self._operator_scene_override = "confirm"
+            text = "等待安全确认，请说“确认执行”或点击确认执行。"
+            detail = self._operator_confirm_detail_text()
+            chat_text = detail if detail and detail != "当前没有需要确认的风险。" else text
+            self._set_nlp_execute_busy(False)
+            self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", chat_text, kind="warn")
             self._append_log("用户页面", "等待确认", "提示", text)
             self._refresh_operator_view()
             return
@@ -792,6 +932,66 @@ class OperatorUiMixin:
             return True
         first_type = str(getattr(actions[0], "action_type", "") or "")
         semantic_level = int(getattr(plan, "semantic_level", 0) or 0)
+        if first_type == "compound_plan":
+            draft = getattr(plan, "flow_draft", {}) or {}
+            steps = tuple(draft.get("steps", ()) or ()) if isinstance(draft, dict) else ()
+            step_lines = "\n".join(f"{idx}. {step}" for idx, step in enumerate(steps, start=1))
+            step_machine_text = self._operator_compound_step_machine_text(draft)
+            reason = str(getattr(plan, "reason", "") or f"已生成复合指令草案：{len(steps)} 步。")
+            safe_to_execute = bool(draft.get("safe_to_execute")) if isinstance(draft, dict) else False
+            if safe_to_execute:
+                self._operator_pending_flow_draft = dict(draft)
+            text = reason
+            if step_machine_text:
+                text = f"{text}\n{step_machine_text}"
+            if step_lines:
+                text = f"{reason}\n{step_lines}"
+                if step_machine_text:
+                    text = f"{reason}\n{step_machine_text}\n{step_lines}"
+            if safe_to_execute:
+                text = f"{text}\n已生成可执行复合流程草案。可说“确认执行”开始逐步执行，或说“取消草案”。"
+            else:
+                text = f"{text}\n当前不会自动执行复合计划，请拆成单条指令逐条确认。"
+            self._set_nlp_execute_busy(False)
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self._operator_footer_status_text(reason))
+            if hasattr(self, "_operator_add_chat_message"):
+                self._operator_add_chat_message("assistant", text)
+            if hasattr(self, "_operator_publish_ai_answer_for_speech"):
+                self._operator_publish_ai_answer_for_speech(text)
+            if hasattr(self, "_operator_archive_execution_result"):
+                self._operator_archive_execution_result(result="compound_plan_draft", final_text=text)
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "复合指令草案", "提示", text)
+            self._refresh_operator_view()
+            return True
+        if first_type == "agent_blocked":
+            reason = str(getattr(plan, "reason", "") or getattr(actions[0], "reason", "") or "Agent 安全预检未通过。").strip()
+            failed_messages: list[str] = []
+            flow_draft = getattr(plan, "flow_draft", {}) or {}
+            if isinstance(flow_draft, dict):
+                precheck = flow_draft.get("precheck_result") or {}
+                if isinstance(precheck, dict):
+                    for item in tuple(precheck.get("items", ()) or ()):
+                        if isinstance(item, dict) and item.get("status") == "fail":
+                            message = str(item.get("message") or "").strip()
+                            if message:
+                                failed_messages.append(message)
+            detail = "；".join(failed_messages[:3])
+            text = reason if not detail else f"{reason}失败项：{detail}"
+            self._set_nlp_execute_busy(False)
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self._operator_footer_status_text(text))
+            if hasattr(self, "_operator_add_chat_message"):
+                self._operator_add_chat_message("assistant", text, kind="warn")
+            if hasattr(self, "_operator_publish_ai_answer_for_speech"):
+                self._operator_publish_ai_answer_for_speech(text)
+            if hasattr(self, "_operator_archive_execution_result"):
+                self._operator_archive_execution_result(result="blocked", final_text=text)
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "安全预检阻断", "阻断", text)
+            self._refresh_operator_view()
+            return True
         if first_type in {"unknown", "chat"} and semantic_level == 1:
             self._operator_update_flow_creation_followup_state(plan)
             reason = str(getattr(plan, "reason", "") or "闲聊咨询，未触发控制动作。")
@@ -912,6 +1112,24 @@ class OperatorUiMixin:
             return
         if self._operator_reject_new_action_while_busy(text):
             return
+        agent_plan = self._operator_try_agent_orchestrator_plan(text)
+        if agent_plan is not None:
+            self._set_nlp_parse_busy(True)
+            self._set_nlp_result_plan(agent_plan)
+            first_action = agent_plan.actions[0] if agent_plan.actions else SimpleNamespace(action_type="unknown", target=None)
+            if hasattr(self, "status_label"):
+                self.status_label.setText(
+                    f"解析完成: {len(agent_plan.actions)} 步 / {first_action.action_type} / {first_action.target or '-'}"
+                )
+            if hasattr(self, "_append_log"):
+                self._append_log(
+                    "自然语言",
+                    "解析文本",
+                    "成功" if agent_plan.actions and agent_plan.actions[0].action_type != "unknown" else "失败",
+                    f"{agent_plan.source} | {len(agent_plan.actions)}步 | {agent_plan.reason}",
+                )
+            self._set_nlp_parse_busy(False)
+            return
         super()._parse_nlp_text()
 
     def _execute_nlp_text(self) -> None:
@@ -925,7 +1143,317 @@ class OperatorUiMixin:
         if self._operator_reject_new_action_while_busy(text):
             return
         self._operator_set_pending_confirm_plan(None)
+        agent_plan = self._operator_try_agent_orchestrator_plan(text)
+        if agent_plan is not None:
+            self._set_nlp_execute_busy(True)
+            self._set_nlp_result_plan(agent_plan)
+            self._execute_nlp_plan(agent_plan)
+            return
         super()._execute_nlp_text()
+
+    def _operator_try_restricted_agent_plan(self, text: str):
+        if not self._operator_should_try_restricted_agent(text):
+            return None
+        try:
+            service = self._operator_restricted_agent_service()
+            result = service.parse(text)
+            from .agent.plan_adapter import AgentPlanAdapter
+
+            return AgentPlanAdapter().to_voice_plan(result)
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "受限Agent解析", "失败", str(exc))
+            return None
+
+    def _operator_try_agent_orchestrator_plan(self, text: str):
+        try:
+            from .agent.atomic_template import AtomicTemplateAgent
+            from .agent.chat_explanation import ChatExplanationAgent
+            from .agent.dashboard_query import DashboardQueryAgent
+            from .agent.flow_draft import FlowDraftAgent
+            from .agent.llm_fallback import LlmFallbackAgent
+            from .agent.memory_setting import MemorySettingAgent
+            from .agent.orchestrator import AgentOrchestrator
+            from .agent.plan_adapter import AgentPlanAdapter
+            from .agent.position_memory import PositionMemoryAgent
+            from .agent.position_query import PositionQueryAgent
+            from .agent.registered_flow import RegisteredFlowAgent
+
+            restricted_service = None
+            if self._operator_restricted_agent_enabled():
+                restricted_service = self._operator_restricted_agent_service()
+            result = AgentOrchestrator(
+                restricted_service=restricted_service,
+                chat_agent=ChatExplanationAgent(),
+                position_query_agent=PositionQueryAgent(lookup=self._operator_agent_position_lookup),
+                memory_setting_agent=self._operator_agent_memory_setting_agent(MemorySettingAgent),
+                position_memory_agent=PositionMemoryAgent(),
+                atomic_template_agent=self._operator_agent_atomic_template_agent(AtomicTemplateAgent),
+                dashboard_query_agent=DashboardQueryAgent(),
+                flow_draft_agent=self._operator_agent_flow_draft_agent(FlowDraftAgent),
+                registered_flow_agent=self._operator_agent_registered_flow_agent(RegisteredFlowAgent),
+                llm_fallback_agent=self._operator_agent_llm_fallback_agent(LlmFallbackAgent),
+                llm_fallback_enabled=self._operator_agent_llm_fallback_enabled(),
+            ).handle(text)
+            if result.kind == "fallback_legacy":
+                self._operator_log_agent_orchestrator_fallback(result)
+                return None
+            if result.kind in {"restricted_agent", "compound_plan_draft", "unsupported_compound"}:
+                return AgentPlanAdapter().to_voice_plan(result.payload)
+            return AgentPlanAdapter().to_voice_plan(result)
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "统一Agent解析", "失败", str(exc))
+            return None
+
+    def _operator_restricted_agent_enabled(self) -> bool:
+        return bool(getattr(getattr(self, "axis_ranges", None), "restricted_agent_enabled", False))
+
+    def _operator_agent_llm_fallback_enabled(self) -> bool:
+        check = getattr(self, "nlp_use_deepseek_check", None)
+        if check is None or not hasattr(check, "isChecked"):
+            return False
+        try:
+            return bool(check.isChecked()) and getattr(self, "_deepseek_client", None) is not None
+        except Exception:
+            return False
+
+    def _operator_agent_llm_fallback_agent(self, agent_cls):
+        client = getattr(self, "_deepseek_client", None)
+        if client is None:
+            return None
+        return agent_cls(client=client)
+
+    def _operator_log_agent_orchestrator_fallback(self, result) -> None:
+        if not hasattr(self, "_append_log"):
+            return
+        payload = getattr(result, "payload", None) or {}
+        understanding = payload.get("understanding") or {}
+        detail = (
+            f"reason={payload.get('reason', '')}; "
+            f"intent={understanding.get('intent', '')}; "
+            f"func_id={understanding.get('func_id')}; "
+            f"confidence={understanding.get('confidence', 0.0)}; "
+            f"needs_model={payload.get('needs_model', False)}; "
+            f"clarification={understanding.get('clarification', '')}"
+        )
+        self._append_log("Agent", "统一Agent交回旧路径", "提示", detail)
+
+    @staticmethod
+    def _operator_compound_step_machine_text(draft) -> str:
+        if not isinstance(draft, dict):
+            return ""
+        machine = draft.get("step_machine")
+        if not isinstance(machine, dict):
+            return ""
+        status = str(machine.get("status") or "")
+        current_text = str(machine.get("current_step_text") or "").strip()
+        steps = tuple(machine.get("steps") or ())
+        total = len(steps)
+        current_index = int(machine.get("current_index") or 0)
+        if status == "waiting_step_confirmation" and current_text and total > 0:
+            return f"当前等待确认第 {current_index + 1}/{total} 步：{current_text}"
+        if status in {"blocked", "failed"}:
+            reason = str(machine.get("reason") or "复合计划已停止。").strip()
+            return reason
+        if status == "completed":
+            return "复合计划所有步骤已完成。"
+        return ""
+
+    def _operator_agent_memory_setting_agent(self, agent_cls):
+        memory = getattr(self, "_atomic_memory", None)
+        if memory is None:
+            return None
+        return agent_cls(memory=memory, save_callback=lambda _memory: self._save_atomic_memory())
+
+    def _operator_agent_atomic_template_agent(self, agent_cls):
+        memory = getattr(self, "_atomic_memory", None)
+        if memory is None:
+            return None
+        try:
+            memory.position_registry = self._position_registry()
+        except Exception:
+            pass
+        return agent_cls(memory=memory)
+
+    def _operator_agent_flow_draft_agent(self, agent_cls):
+        parse_func = getattr(self, "_operator_agent_flow_draft_parse", None)
+        if callable(parse_func):
+            return agent_cls(parse_func=parse_func)
+        build_adapter = getattr(self, "_build_voice_nlp_adapter", None)
+        if not callable(build_adapter):
+            return None
+
+        def parse(text: str):
+            return build_adapter().parse(text, use_deepseek=False)
+
+        return agent_cls(parse_func=parse)
+
+    def _operator_agent_registered_flow_agent(self, agent_cls):
+        parse_func = getattr(self, "_operator_agent_registered_flow_parse", None)
+        if callable(parse_func):
+            return agent_cls(parse_func=parse_func)
+        build_adapter = getattr(self, "_build_voice_nlp_adapter", None)
+        if not callable(build_adapter):
+            return None
+
+        def parse(text: str):
+            return build_adapter().parse(text, use_deepseek=False)
+
+        return agent_cls(parse_func=parse)
+
+    def _operator_agent_position_lookup(self, name: str):
+        if not hasattr(self, "_position_registry"):
+            return None
+        registry = self._position_registry()
+        entry = registry.get(name) if registry is not None and hasattr(registry, "get") else None
+        return getattr(entry, "pose", None) if entry is not None else None
+
+    def _operator_should_try_restricted_agent(self, text: str) -> bool:
+        if not bool(getattr(getattr(self, "axis_ranges", None), "restricted_agent_enabled", False)):
+            return False
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        if compact in {"急停", "暂停", "继续", "恢复", "报警复位", "复位", "取消当前动作", "取消当前任务", "停止当前动作", "停止当前任务"}:
+            return True
+        if "报警" in compact and any(word in compact for word in ("什么", "查询", "说明", "原因", "当前", "状态")):
+            return True
+        if any(phrase in compact for phrase in ("为什么不能动", "为何不能动", "怎么不能动", "不能动了吗")):
+            return True
+        if any(phrase in compact for phrase in ("运动完成了吗", "执行完成了吗", "完成了吗", "结束了吗")):
+            return True
+        if any(word in compact for word in ("当前状态", "系统状态", "设备状态", "运行状态", "现在状态")):
+            return True
+        if re.search(r"(?:等待|延时|暂停)\d+(?:\.\d+)?(?:秒|s|毫秒|ms)", compact, flags=re.IGNORECASE):
+            return True
+        if re.search(r"(?:io|IO|输出|y|Y)\d+(?:开|打开|关|关闭|on|off)", compact, flags=re.IGNORECASE):
+            return True
+        if re.search(r"J[1-6](?:转到|到|绝对|正转|反转|负转|逆时针|回退)-?\d+(?:\.\d+)?(?:度|°)?", compact, flags=re.IGNORECASE):
+            return True
+        if re.search(r"(?:RX|RY|RZ|rx|ry|rz)(?:正转|反转|负转|逆时针|回退)-?\d+(?:\.\d+)?(?:度|°)?", compact, flags=re.IGNORECASE):
+            return True
+        wake_words = tuple(word for word in configured_wake_words() if word)
+        has_wake_word = any(word in compact for word in wake_words)
+        if has_wake_word and re.search(
+            r"(?:前进|后退|左移|右移|上升|下降|向前|向后|向左|向右|向上|向下)(?:移动)?-?\d+(?:\.\d+)?(?:毫米|mm)?",
+            compact,
+            flags=re.IGNORECASE,
+        ):
+            return True
+        if re.search(r"(?:向左|左移|向右|右移|向前|前进|向后|后退|升高|下降|降低|向上|向下)(?:移动)?-?\d+(?:\.\d+)?(?:毫米|mm)?", compact, flags=re.IGNORECASE):
+            return True
+        return bool(re.search(r"(?:RX|RY|RZ|X|Y|Z)-?\d+(?:\.\d+)?", compact, flags=re.IGNORECASE))
+
+    def _operator_restricted_agent_service(self):
+        service = getattr(self, "_restricted_agent_service", None)
+        if service is not None:
+            return service
+        from .agent.parameter_completion import ControllerSnapshot
+        from .agent.pose_angle import PoseAngleSafetyChecker
+        from .agent.safety_review import SafetyReviewAgent
+        from .agent.service import RestrictedAgentService
+
+        def controller_snapshot_provider() -> ControllerSnapshot:
+            pose = self._operator_current_pose_tuple()
+            axis_ranges = getattr(self, "axis_ranges", None)
+            return ControllerSnapshot(
+                current_pose={
+                    "target_x": float(pose[0]),
+                    "target_y": float(pose[1]),
+                    "target_z": float(pose[2]),
+                    "target_rx": float(pose[3]),
+                    "target_ry": float(pose[4]),
+                    "target_rz": float(pose[5]),
+                },
+                safety_params={
+                    "spd_pct": float(getattr(axis_ranges, "safe_speed_max", 50.0) or 50.0),
+                    "acc_pct": float(getattr(axis_ranges, "safe_acc_max", 50.0) or 50.0),
+                    "dec_pct": float(getattr(axis_ranges, "safe_dec_max", 50.0) or 50.0),
+                },
+                is_moving=self._operator_restricted_agent_is_moving(),
+                read_ok=True,
+            )
+
+        service = RestrictedAgentService(
+            controller_snapshot_provider=controller_snapshot_provider,
+            runtime_snapshot_provider=lambda: self._operator_dashboard_snapshot_dict(refresh=True),
+            safety_review_agent=SafetyReviewAgent(
+                l1_service=SafetyPrecheckService(self.axis_ranges, max_sphere_radius=0.0),
+                motion_plan_service=self._operator_agent_motion_plan_service(),
+                pose_angle_checker=PoseAngleSafetyChecker(self._operator_agent_pose_angle_limits()),
+            ),
+            status_signature_provider=self._operator_restricted_agent_status_signature,
+            safety_signature_provider=self._operator_restricted_agent_safety_signature,
+            clock=self._operator_now_seconds,
+            confirm_timeout_sec=self._operator_confirm_timeout_seconds(),
+            start_pose_provider=self._operator_current_pose_tuple,
+        )
+        self._restricted_agent_service = service
+        return service
+
+    def _operator_agent_motion_plan_service(self) -> MotionPlanService:
+        return MotionPlanService(
+            engine=getattr(self, "operator_kinematics_engine", None),
+            joint_limits=tuple(getattr(getattr(self, "axis_ranges", None), "joint_limits", ()) or ()),
+            progress_callback=getattr(self, "_operator_publish_l2_progress", None),
+        )
+
+    def _operator_agent_pose_angle_limits(self) -> dict[str, float]:
+        values = getattr(self, "controller_pose_angle_limits", None)
+        if isinstance(values, dict) and values:
+            return {
+                "pose_upper_angle": self._operator_float_or_none(values.get("pose_upper_angle")) or 90.0,
+                "pose_lower_angle": self._operator_float_or_none(values.get("pose_lower_angle")) or 90.0,
+                "pose_cw_angle": self._operator_float_or_none(values.get("pose_cw_angle")) or 90.0,
+                "pose_ccw_angle": self._operator_float_or_none(values.get("pose_ccw_angle")) or 90.0,
+            }
+        return {
+            "pose_upper_angle": 90.0,
+            "pose_lower_angle": 90.0,
+            "pose_cw_angle": 90.0,
+            "pose_ccw_angle": 90.0,
+        }
+
+    def _operator_restricted_agent_is_moving(self) -> bool:
+        motion_percent = str(getattr(self, "motion_percent", "") or "")
+        busy = str(getattr(self, "busy", "") or "")
+        run_state = str(getattr(self, "run_state", "") or "")
+        return bool(
+            motion_percent == "运动中"
+            or busy == "运行中"
+            or run_state == "运行中"
+            or getattr(self, "nlp_sequence_running", False)
+            or getattr(self, "flow_running", False)
+        )
+
+    def _operator_restricted_agent_status_signature(self) -> str:
+        return "|".join(
+            str(value)
+            for value in (
+                getattr(self, "busy", ""),
+                getattr(self, "motion_percent", ""),
+                getattr(self, "current_func_text", ""),
+                getattr(self, "alarm_code", ""),
+                getattr(self, "estop_active", ""),
+                getattr(self, "pause_active", ""),
+            )
+        )
+
+    def _operator_restricted_agent_safety_signature(self) -> str:
+        axis_ranges = getattr(self, "axis_ranges", None)
+        return "|".join(
+            str(value)
+            for value in (
+                getattr(axis_ranges, "safe_speed_max", ""),
+                getattr(axis_ranges, "safe_acc_max", ""),
+                getattr(axis_ranges, "safe_dec_max", ""),
+                getattr(axis_ranges, "safe_r_min", ""),
+                getattr(axis_ranges, "safe_r_max", ""),
+                getattr(axis_ranges, "safe_z_min", ""),
+                getattr(axis_ranges, "safe_z_max", ""),
+            )
+        )
 
     def _operator_update_flow_creation_followup_state(self, plan) -> None:
         raw_text = str(getattr(plan, "raw_text", "") or "")
@@ -1958,6 +2486,9 @@ class OperatorUiMixin:
         if not self._operator_plan_is_executable(plan):
             self._operator_no_pending_confirm()
             return
+        if self._operator_plan_is_agent_draft(plan):
+            self._operator_confirm_agent_draft(plan)
+            return
         precheck = getattr(self, "_operator_last_precheck_result", None)
         if isinstance(precheck, dict) and precheck.get("status") == "fail":
             text = self._operator_precheck_summary(precheck)
@@ -1993,6 +2524,39 @@ class OperatorUiMixin:
         self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
         self._append_log("用户页面", "确认执行", "成功", getattr(plan, "reason", "已确认执行"))
         self._execute_nlp_plan(plan)
+
+    def _operator_confirm_agent_draft(self, plan) -> None:
+        draft_id = self._operator_agent_draft_id(plan)
+        service = getattr(self, "_restricted_agent_service", None)
+        if not draft_id or service is None or not hasattr(service, "confirm"):
+            text = "Agent 待确认草稿不可用，未执行。请重新输入指令。"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", text)
+            self._operator_archive_execution_result(result="blocked", final_text=text)
+            self._append_log("用户页面", "Agent确认执行", "拒绝", text)
+            self._refresh_operator_view()
+            return
+        try:
+            record = service.confirm(draft_id)
+        except Exception as exc:
+            text = f"Agent 草稿确认失败：{exc}"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", text)
+            self._operator_archive_execution_result(result="blocked", final_text=text)
+            self._append_log("用户页面", "Agent确认执行", "拒绝", text)
+            self._refresh_operator_view()
+            return
+
+        self._operator_set_pending_confirm_plan(None)
+        self._operator_scene_override = None
+        self._set_nlp_execute_busy(True)
+        self.status_label.setText("确认收到，开始执行。")
+        self._operator_add_chat_message("assistant", "确认收到，开始执行。")
+        self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
+        self._append_log("用户页面", "Agent确认执行", "成功", getattr(plan, "reason", "已确认执行"))
+        self._execute_nlp_plan(self._operator_agent_record_to_execution_plan(plan, record))
 
     def _operator_accept_suggestion(self) -> None:
         if self._operator_reject_expired_pending_confirm():
@@ -4899,10 +5463,16 @@ class OperatorUiMixin:
     @staticmethod
     def _operator_plan_is_executable(plan) -> bool:
         actions = tuple(getattr(plan, "actions", ()) or ())
-        return bool(actions) and all(getattr(action, "action_type", "unknown") in {"template", "atomic_template", "flow", "system", "memory"} for action in actions)
+        return bool(actions) and all(
+            getattr(action, "action_type", "unknown")
+            in {"template", "atomic_template", "flow", "system", "memory", "agent_draft"}
+            for action in actions
+        )
 
     @staticmethod
     def _operator_plan_requires_precheck(plan) -> bool:
+        if OperatorUiMixin._operator_plan_is_agent_draft(plan):
+            return False
         actions = tuple(getattr(plan, "actions", ()) or ())
         if any(getattr(action, "action_type", "") in {"template", "atomic_template", "flow"} for action in actions):
             return True
@@ -4910,10 +5480,53 @@ class OperatorUiMixin:
 
     @staticmethod
     def _operator_plan_requires_confirmation(plan) -> bool:
+        if OperatorUiMixin._operator_plan_is_agent_draft(plan):
+            return True
         actions = tuple(getattr(plan, "actions", ()) or ())
         if any(getattr(action, "action_type", "") in {"template", "flow"} for action in actions):
             return True
         return bool(policy_for_plan(plan).requires_confirmation)
+
+    @staticmethod
+    def _operator_plan_is_agent_draft(plan) -> bool:
+        actions = tuple(getattr(plan, "actions", ()) or ())
+        return bool(actions) and all(getattr(action, "action_type", "") == "agent_draft" for action in actions)
+
+    @staticmethod
+    def _operator_agent_draft_id(plan) -> str:
+        draft = getattr(plan, "flow_draft", {}) or {}
+        draft_id = str(draft.get("draft_id") or "").strip() if isinstance(draft, dict) else ""
+        if draft_id:
+            return draft_id
+        actions = tuple(getattr(plan, "actions", ()) or ())
+        if not actions:
+            return ""
+        return str(getattr(actions[0], "target", "") or "").strip()
+
+    @staticmethod
+    def _operator_agent_record_to_execution_plan(source_plan, record: QueryRecord):
+        from .voice_nlp_adapter import VoiceNlpAction, VoiceNlpPlan
+
+        return VoiceNlpPlan(
+            actions=(
+                VoiceNlpAction(
+                    "atomic_template",
+                    record.query_key,
+                    "restricted_agent",
+                    str(getattr(source_plan, "raw_text", "") or ""),
+                    "Agent 草稿已确认，转入现有执行链路。",
+                ),
+            ),
+            source="restricted_agent",
+            raw_text=str(getattr(source_plan, "raw_text", "") or ""),
+            reason="Agent 草稿已确认，转入现有执行链路。",
+            semantic_level=3,
+            semantic_label="常规生产执行层",
+            requires_precheck=False,
+            requires_confirmation=False,
+            nlp_engine="restricted_agent",
+            atomic_records={record.query_key: record},
+        )
 
     def _operator_record_for_action(self, plan, action):
         target = getattr(action, "target", None)
@@ -5233,8 +5846,8 @@ class OperatorUiMixin:
             f"位置 X:{self.robot_x} Y:{self.robot_y} Z:{self.robot_z} R:{self.robot_r}"
         )
 
-        self.operator_confirm_title.setText("等待安全确认")
-        self.operator_confirm_detail.setText(self._operator_confirm_detail_text())
+        self.operator_confirm_title.setText("等待确认执行")
+        self.operator_confirm_detail.setHtml(self._operator_confirm_detail_html())
         if hasattr(self, "operator_accept_suggestion_btn"):
             self.operator_accept_suggestion_btn.setEnabled(
                 self._operator_accept_suggestion_available(getattr(self, "_operator_pending_confirm_plan", None))
@@ -5477,10 +6090,263 @@ class OperatorUiMixin:
         except (AttributeError, TypeError, ValueError, RuntimeError):
             return
 
+    def _operator_confirm_detail_html(self) -> str:
+        plan = getattr(self, "_operator_pending_confirm_plan", None)
+        if plan is None:
+            return self._operator_confirm_html_shell("<p class='muted'>当前没有需要确认的指令。</p>")
+        flow_draft = getattr(plan, "flow_draft", None)
+        if isinstance(flow_draft, dict) and flow_draft.get("agent_kind") == "waiting_confirmation":
+            return self._operator_agent_confirm_detail_html(plan, flow_draft)
+        return self._operator_plain_confirm_detail_html()
+
+    def _operator_agent_confirm_detail_html(self, plan, draft: dict[str, object]) -> str:
+        confirmation_text = str(draft.get("confirmation_text") or "").strip()
+        title = self._operator_confirmation_title(confirmation_text, draft)
+        params = draft.get("params") if isinstance(draft.get("params"), dict) else {}
+        sources = draft.get("param_sources") if isinstance(draft.get("param_sources"), dict) else {}
+        precheck = draft.get("precheck_result") if isinstance(draft.get("precheck_result"), dict) else {}
+
+        body_parts = [
+            f"<div class='subtitle'>{html.escape(title)}</div>",
+            "<div class='hint'>请核对目标位置、姿态、运动参数和安全预检结果，确认后将写入控制器。</div>",
+        ]
+        position_rows = self._operator_confirm_param_rows(
+            params,
+            sources,
+            (
+                ("X", "target_x", "mm"),
+                ("Y", "target_y", "mm"),
+                ("Z", "target_z", "mm"),
+            ),
+        )
+        if position_rows:
+            body_parts.append(self._operator_confirm_section_html("目标位置", position_rows))
+        pose_rows = self._operator_confirm_param_rows(
+            params,
+            sources,
+            (
+                ("RX", "target_rx", "°"),
+                ("RY", "target_ry", "°"),
+                ("RZ", "target_rz", "°"),
+            ),
+        )
+        if pose_rows:
+            body_parts.append(self._operator_confirm_section_html("姿态", pose_rows))
+        motion_rows = self._operator_confirm_param_rows(
+            params,
+            sources,
+            (
+                ("速度", "spd_pct", "%"),
+                ("加速度", "acc_pct", "%"),
+                ("减速度", "dec_pct", "%"),
+            ),
+        )
+        if motion_rows:
+            body_parts.append(self._operator_confirm_section_html("运动参数", motion_rows))
+        body_parts.append(self._operator_confirm_precheck_html(precheck))
+        timeout_text = self._operator_confirm_timeout_text()
+        if timeout_text:
+            body_parts.append(
+                f"<div class='timeout'>{html.escape(timeout_text.replace('确认有效期: ', '确认有效期：'))}</div>"
+            )
+        suggestion_lines = self._operator_confirm_suggestion_lines(plan)
+        if suggestion_lines:
+            body_parts.append(self._operator_confirm_note_html("可采纳安全建议", suggestion_lines))
+        return self._operator_confirm_html_shell("".join(body_parts))
+
+    def _operator_plain_confirm_detail_html(self) -> str:
+        lines = [line.strip() for line in self._operator_confirm_detail_text().splitlines() if line.strip()]
+        if not lines:
+            return self._operator_confirm_html_shell("<p class='muted'>当前没有需要确认的指令。</p>")
+        title = html.escape(lines[0])
+        paragraphs = "".join(f"<p>{html.escape(line)}</p>" for line in lines[1:])
+        return self._operator_confirm_html_shell(f"<div class='subtitle'>{title}</div>{paragraphs}")
+
+    def _operator_confirm_precheck_html(self, precheck: dict[str, object]) -> str:
+        valid = precheck.get("valid")
+        summary = str(precheck.get("summary") or "无补充说明。")
+        if valid is True:
+            badge = "<span class='badge ok'>通过</span>"
+            line = f"{badge}<span>L1 安全检查：{html.escape(summary)}</span>"
+        elif valid is False:
+            badge = "<span class='badge bad'>未通过</span>"
+            line = f"{badge}<span>L1 安全检查：{html.escape(summary)}</span>"
+        else:
+            badge = "<span class='badge warn'>未执行</span>"
+            line = f"{badge}<span>L1 安全检查：{html.escape(summary)}</span>"
+        l2_text = self._operator_confirm_l2_decision_text()
+        rows = [f"<div class='checkrow'>{line}</div>"]
+        if l2_text:
+            rows.append(f"<div class='checkrow'><span class='badge warn'>提示</span><span>{html.escape(l2_text)}</span></div>")
+        return "<div class='section'><div class='section-title'>安全预检</div>" + "".join(rows) + "</div>"
+
+    def _operator_confirm_param_rows(
+        self,
+        params: dict[str, object],
+        sources: dict[str, object],
+        fields: tuple[tuple[str, str, str], ...],
+    ) -> list[tuple[str, str, str]]:
+        rows: list[tuple[str, str, str]] = []
+        for label, key, unit in fields:
+            if key not in params:
+                continue
+            rows.append(
+                (
+                    label,
+                    self._operator_confirm_value_text(params.get(key), unit=unit),
+                    self._operator_confirm_source_label(str(sources.get(key, "") or "")),
+                )
+            )
+        return rows
+
+    @staticmethod
+    def _operator_confirm_value_text(value: object, *, unit: str) -> str:
+        try:
+            numeric = float(value)
+            text = f"{numeric:.1f}"
+        except (TypeError, ValueError):
+            text = str(value)
+        return f"{text} {unit}".strip()
+
+    @staticmethod
+    def _operator_confirm_source_label(source: str) -> str:
+        return {
+            "specified": "指定",
+            "inherited": "继承当前",
+            "incremental": "增量计算",
+            "controller": "继承安全参数",
+            "default": "默认",
+            "system": "系统",
+        }.get(source, source or "未知")
+
+    @staticmethod
+    def _operator_confirmation_title(confirmation_text: str, draft: dict[str, object]) -> str:
+        for line in confirmation_text.splitlines():
+            clean = line.strip()
+            if clean:
+                return clean.replace("【复述确认】", "")
+        func_id = draft.get("func_id")
+        return f"Func{func_id} 待确认指令" if func_id is not None else "待确认指令"
+
+    @staticmethod
+    def _operator_confirm_section_html(title: str, rows: list[tuple[str, str, str]]) -> str:
+        body = "".join(
+            "<tr>"
+            f"<td class='name'>{html.escape(name)}</td>"
+            f"<td class='value'>{html.escape(value)}</td>"
+            f"<td class='source'>{html.escape(source)}</td>"
+            "</tr>"
+            for name, value, source in rows
+        )
+        return (
+            "<div class='section'>"
+            f"<div class='section-title'>{html.escape(title)}</div>"
+            "<table class='param-table' cellspacing='0' cellpadding='0'>"
+            f"{body}"
+            "</table>"
+            "</div>"
+        )
+
+    @staticmethod
+    def _operator_confirm_note_html(title: str, lines: list[str]) -> str:
+        items = "".join(f"<li>{html.escape(line)}</li>" for line in lines)
+        return f"<div class='section'><div class='section-title'>{html.escape(title)}</div><ul>{items}</ul></div>"
+
+    @staticmethod
+    def _operator_confirm_html_shell(body: str) -> str:
+        return f"""
+        <html>
+        <head>
+        <style>
+            body {{
+                font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+                color: #122033;
+                font-size: 13px;
+                line-height: 1.35;
+                margin: 0;
+            }}
+            .subtitle {{
+                font-size: 16px;
+                font-weight: 700;
+                margin: 0 0 4px 0;
+            }}
+            .hint, .muted {{
+                color: #667085;
+                margin-bottom: 10px;
+            }}
+            .section {{
+                margin-top: 10px;
+                padding-top: 8px;
+                border-top: 1px solid #e5e7eb;
+            }}
+            .section-title {{
+                font-weight: 700;
+                color: #334155;
+                margin-bottom: 5px;
+            }}
+            .param-table {{
+                width: 100%;
+            }}
+            .param-table td {{
+                padding: 3px 4px;
+                vertical-align: middle;
+            }}
+            .name {{
+                width: 34px;
+                color: #475467;
+                font-weight: 700;
+            }}
+            .value {{
+                color: #101828;
+                font-weight: 700;
+            }}
+            .source {{
+                color: #667085;
+                text-align: right;
+                white-space: nowrap;
+            }}
+            .checkrow {{
+                margin: 4px 0;
+            }}
+            .badge {{
+                display: inline-block;
+                min-width: 34px;
+                padding: 1px 5px;
+                margin-right: 6px;
+                border-radius: 4px;
+                font-weight: 700;
+            }}
+            .ok {{ color: #067647; background: #ecfdf3; }}
+            .warn {{ color: #b54708; background: #fffaeb; }}
+            .bad {{ color: #b42318; background: #fef3f2; }}
+            .timeout {{
+                margin-top: 12px;
+                color: #344054;
+                font-weight: 700;
+            }}
+            p {{
+                margin: 4px 0;
+            }}
+        </style>
+        </head>
+        <body>{body}</body>
+        </html>
+        """
+
     def _operator_confirm_detail_text(self) -> str:
         plan = getattr(self, "_operator_pending_confirm_plan", None)
         if not self._operator_plan_is_executable(plan):
             return "当前没有需要确认的风险。"
+        if self._operator_plan_is_agent_draft(plan):
+            draft = getattr(plan, "flow_draft", {}) or {}
+            confirmation_text = ""
+            if isinstance(draft, dict):
+                confirmation_text = str(draft.get("confirmation_text") or "").strip()
+            parts = [confirmation_text or str(getattr(plan, "reason", "") or "Agent 草稿等待确认。")]
+            timeout_text = self._operator_confirm_timeout_text()
+            if timeout_text:
+                parts.append(timeout_text)
+            return "\n\n".join(part for part in parts if part)
         rows = []
         for idx, action in enumerate(getattr(plan, "actions", ()), start=1):
             target = getattr(action, "target", "") or "-"

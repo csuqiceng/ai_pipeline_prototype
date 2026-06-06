@@ -320,9 +320,9 @@ class RobotModbusService:
                 stop_cmd=int(float(params.get("stop_cmd", 0))),
             )
 
-        if func_num == 108:
+        if func_num in (8, 102, 108, 112):
             return SixAxisCommand(
-                func_num=108,
+                func_num=func_num,
                 desc=record.description or record.query_key,
                 target_x=float(params.get("target_x", 0.0)),
                 target_y=float(params.get("target_y", 0.0)),
@@ -542,9 +542,13 @@ class RobotModbusService:
             "cartesian_speed_pct": float(padded[13]),
             "cartesian_acc_pct": float(padded[14]),
             "cartesian_dec_pct": float(padded[15]),
+            "pose_upper_angle": float(padded[16]),
+            "pose_lower_angle": float(padded[17]),
+            "pose_cw_angle": float(padded[18]),
+            "pose_ccw_angle": float(padded[19]),
             "current_r3d": float(padded[20]),
             "current_z": float(padded[21]),
-            "reserved": [float(value) for value in padded[7:10]] + [float(value) for value in padded[16:20]],
+            "reserved": [float(value) for value in padded[7:10]],
         }
 
     def build_six_realtime_xyz_read(self) -> VrReadRequest:

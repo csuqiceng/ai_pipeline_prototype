@@ -35,7 +35,8 @@ class MotionPlanService:
     ) -> dict:
         self._publish_progress("start", 0, "准备 L2 运动规划预演。")
         if self.engine is None:
-            self._publish_progress("complete", 100, "L2 运动规划预演不可用，未配置运动学逆解引擎。")
+            unavailable_text = "L2运动规划预演暂不可用：未配置运动学逆解引擎。已保留L1安全检查结果，请现场确认后再执行。"
+            self._publish_progress("complete", 100, unavailable_text)
             return {
                 "status": "unavailable",
                 "selected_fstatus": None,
@@ -50,7 +51,7 @@ class MotionPlanService:
                         "未配置运动学逆解引擎。",
                     )
                 ],
-                "suggestion": "未配置运动学逆解引擎，无法执行 L2 运动规划预演。",
+                "suggestion": unavailable_text,
             }
 
         pose = self._six_tuple(target_pose)

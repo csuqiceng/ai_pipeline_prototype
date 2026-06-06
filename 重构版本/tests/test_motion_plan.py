@@ -117,7 +117,7 @@ def test_motion_plan_is_unavailable_without_kinematics_engine():
 
     assert result["status"] == "unavailable"
     assert result["selected_fstatus"] is None
-    assert result["suggestion"] == "未配置运动学逆解引擎，无法执行 L2 运动规划预演。"
+    assert result["suggestion"] == "L2运动规划预演暂不可用：未配置运动学逆解引擎。已保留L1安全检查结果，请现场确认后再执行。"
 
 
 def test_motion_plan_reports_fine_grained_progress_events():
