@@ -14,7 +14,3 @@ websockets>=11,<16
 
 # Packaging
 pyinstaller
-
-# Optional, installed only when using local iFlytek SDK mode.
-# xfyunsdkspeech
-# pyaudio

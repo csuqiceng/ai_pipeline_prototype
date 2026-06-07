@@ -9,7 +9,7 @@ from typing import Iterable
 
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "data" / "voice_wake_words.json"
-DEFAULT_WAKE_WORDS = ("小正", "小郑", "校正", "小镇", "小政", "小真", "小针", "小郭")
+DEFAULT_WAKE_WORDS = ("小正", "小兵", "小郑", "校正", "小镇", "小政", "小真", "小针", "小郭")
 
 
 def load_wake_words(path: str | Path | None = None) -> tuple[str, ...]:

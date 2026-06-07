@@ -127,6 +127,9 @@ class AgentOrchestrator:
                 },
             )
         if intent == "unknown" and self.chat_agent is not None:
+            llm_result = self._try_llm_fallback(text, understanding)
+            if llm_result is not None and not self._is_llm_rejected_result(llm_result):
+                return llm_result
             if self.position_query_agent is not None:
                 position_answer = self.position_query_agent.answer(text)
                 if position_answer is not None:
@@ -157,6 +160,11 @@ class AgentOrchestrator:
             },
         )
 
+    @staticmethod
+    def _is_llm_rejected_result(result: AgentOrchestratorResult) -> bool:
+        payload = getattr(result, "payload", None)
+        return isinstance(payload, dict) and bool(payload.get("llm_fallback_rejected", False))
+
     def _try_llm_fallback(self, text: str, understanding: Any) -> AgentOrchestratorResult | None:
         if not self.llm_fallback_enabled or self.llm_fallback_agent is None:
             return None
@@ -175,6 +183,36 @@ class AgentOrchestrator:
                     "needs_model": True,
                     "understanding": self._serialize_understanding(understanding, text),
                     "llm_fallback": dict(raw_payload),
+                },
+            )
+        structured_kinds = {
+            "chat_answer",
+            "flow_create",
+            "flow_append_step",
+            "flow_modify_step",
+            "flow_list",
+            "flow_query",
+            "confirm_modify",
+            "dashboard_query",
+            "command_candidate",
+            "suggestion",
+        }
+        if kind in structured_kinds:
+            message = str(
+                raw_payload.get("suggested_reply")
+                or raw_payload.get("text")
+                or raw_payload.get("message")
+                or getattr(understanding, "clarification", "")
+                or "已结合上下文识别到用户意图，请继续补充或确认。"
+            )
+            return AgentOrchestratorResult(
+                kind=kind,
+                message=message,
+                payload={
+                    "needs_model": True,
+                    "understanding": self._serialize_understanding(understanding, text),
+                    "llm_context_intent": dict(raw_payload),
+                    "generates_command": False,
                 },
             )
         if kind != "candidate_text":

@@ -270,7 +270,7 @@ class IFlytekIATClient:
         backends = []
         if mic_config.preferred_backend:
             backends.append(mic_config.preferred_backend)
-        for candidate in ("sounddevice", "pyaudio"):
+        for candidate in ("sounddevice",):
             if candidate not in backends:
                 backends.append(candidate)
 
@@ -279,14 +279,12 @@ class IFlytekIATClient:
             try:
                 if backend == "sounddevice":
                     return _SoundDeviceMicStream(mic_config)
-                if backend == "pyaudio":
-                    return _PyAudioMicStream(mic_config)
                 errors.append(f"不支持的麦克风后端: {backend}")
             except Exception as exc:
                 errors.append(f"{backend}: {exc}")
 
         raise IFlytekRTASRError(
-            "无法打开麦克风。请先安装 sounddevice 或 pyaudio，并确认麦克风可用。\n"
+            "无法打开麦克风。请确认已安装 sounddevice、电脑已连接麦克风，并允许本程序访问麦克风。\n"
             f"尝试结果:\n" + "\n".join(errors)
         )
 
@@ -361,75 +359,6 @@ class _SoundDeviceMicStream:
             self._stream.close()
         except Exception:
             pass
-        self._closed = True
-        self._stopped = True
-        _save_debug_audio(self._config.debug_save_path, bytes(self._captured))
-
-
-class _PyAudioMicStream:
-    """基于音频库的备用麦克风采集流。"""
-    def __init__(self, config: IFlytekMicrophoneConfig) -> None:
-        """初始化对象。"""
-        try:
-            import pyaudio
-        except ImportError as exc:
-            raise RuntimeError("未安装 pyaudio，无法使用 pyaudio 麦克风后端。") from exc
-
-        self._pyaudio = pyaudio.PyAudio()
-        self._config = config
-        self._frames_remaining = int(config.duration_sec * config.sample_rate)
-        self._bytes_per_frame = config.channels * config.sample_width_bytes
-        self._captured = bytearray()
-        self._closed = False
-        self._stopped = False
-        self._stream = self._pyaudio.open(
-            format=pyaudio.paInt16,
-            channels=config.channels,
-            rate=config.sample_rate,
-            input=True,
-            input_device_index=config.device,
-            frames_per_buffer=max(1, 1280 // self._bytes_per_frame),
-        )
-        if config.warmup_sec > 0:
-            time.sleep(config.warmup_sec)
-
-    def read(self, bytes_requested: int) -> bytes:
-        """读取相关数据。"""
-        if self._closed or self._stopped or self._frames_remaining <= 0 or _should_stop(self._config):
-            return b""
-        frames_to_read = min(self._frames_remaining, max(1, bytes_requested // self._bytes_per_frame))
-        try:
-            data = self._stream.read(frames_to_read, exception_on_overflow=False)
-        except Exception:
-            self._stopped = True
-            return b""
-        self._frames_remaining -= frames_to_read
-        self._captured.extend(data)
-        return data
-
-    def stop_stream(self) -> None:
-        """停止相关数据。"""
-        if self._closed or self._stopped:
-            return
-        try:
-            self._stream.stop_stream()
-        finally:
-            self._stopped = True
-
-    def close(self) -> None:
-        """关闭相关数据。"""
-        if self._closed:
-            return
-        try:
-            if not self._stopped:
-                self._stream.stop_stream()
-        except Exception:
-            pass
-        try:
-            self._stream.close()
-        except Exception:
-            pass
-        self._pyaudio.terminate()
         self._closed = True
         self._stopped = True
         _save_debug_audio(self._config.debug_save_path, bytes(self._captured))

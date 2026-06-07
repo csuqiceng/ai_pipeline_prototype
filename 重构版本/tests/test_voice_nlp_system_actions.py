@@ -33,12 +33,22 @@ def test_voice_nlp_adapter_rejects_production_command_without_wake_word():
 
     assert plan.actions[0].action_type == "unknown"
     assert "小正" in plan.reason
+    assert "小兵" in plan.reason
 
 
 def test_voice_nlp_adapter_accepts_wake_word_homophones():
     adapter = VoiceNlpAdapter(table={}, flow_names=())
 
     plan = adapter.parse("小郑，暂停")
+
+    assert plan.actions[0].action_type == "system"
+    assert plan.actions[0].target == "sys_pause"
+
+
+def test_voice_nlp_adapter_accepts_xiaobing_wake_word():
+    adapter = VoiceNlpAdapter(table={}, flow_names=())
+
+    plan = adapter.parse("小兵，暂停")
 
     assert plan.actions[0].action_type == "system"
     assert plan.actions[0].target == "sys_pause"

@@ -175,8 +175,8 @@ class VoiceMixin:
         from .env_loader import load_local_env_file
 
         load_local_env_file()
-        provider = str(os.environ.get("VOICE_ASR_PROVIDER", "iflytek")).strip().lower()
-        return provider or "iflytek"
+        provider = str(os.environ.get("VOICE_ASR_PROVIDER", "doubao")).strip().lower()
+        return "doubao" if provider != "doubao" else provider
 
     def _get_doubao_voice_client(self):
         client = getattr(self, "_doubao_voice_client", None)
@@ -318,8 +318,21 @@ class VoiceMixin:
         if self._proxy_mic_capturing:
             return
         try:
-            if hasattr(self, "nlp_input_edit"):
-                self.nlp_input_edit.clear()
+            clear_input = getattr(getattr(self, "nlp_input_edit", None), "clear", None)
+            if callable(clear_input):
+                clear_input()
+
+            if self._voice_asr_provider_name() == "doubao":
+                self._ensure_mic_stream()
+                if self._mic_recorder_thread is None:
+                    raise RuntimeError("无法启动麦克风流，请确认 sounddevice 和麦克风设备可用。")
+                self._mic_recorder_thread.start_capturing()
+                self._proxy_mic_capturing = True
+                self.mic_toggle_btn.setText("停止录音")
+                self.status_label.setText("麦克风录音中，请说话...")
+                self._append_log("语音", "开始录音", "成功", "豆包录音模式")
+                return
+
             self._create_iflytek_client()
 
             if not self._use_license_voice:
@@ -1085,7 +1098,7 @@ class VoiceMixin:
             self._append_log("语音", "麦克风识别", "失败", "未录到音频")
             return
 
-        if self._use_license_voice:
+        if self._use_license_voice and self._voice_asr_provider_name() != "doubao":
             self._recognize_via_proxy(pcm_data)
         else:
             self._recognize_via_local(pcm_data)
@@ -1156,7 +1169,7 @@ class VoiceMixin:
 
         def work():
             """处理相关数据。"""
-            return self._transcribe_pcm_via_local_client(pcm_data)
+            return self._transcribe_pcm_for_voice_session(pcm_data)
 
         def on_result(result):
             """处理结果。"""

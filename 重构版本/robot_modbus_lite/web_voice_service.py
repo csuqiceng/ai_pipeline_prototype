@@ -5,13 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import json
-import subprocess
-import sys
+import threading
 import time
 from typing import Any
 
+from .doubao_voice_client import DoubaoVoiceClient
 from .runtime_paths import runtime_dir
-from .voice_ipc import cleanup_stop_flag, make_voice_worker_files, reset_stop_flag, write_stop_flag
 
 
 @dataclass
@@ -28,24 +27,21 @@ class VoiceServiceState:
 
 
 class WebVoiceService:
-    """Short-term voice API facade.
-
-    The existing iFlytek/VAD capture remains Python-side. This facade exposes
-    the controls expected by the Web UI and can later delegate to the current
-    voice worker without changing routes.
-    """
+    """Web API voice facade backed by sounddevice capture and Doubao ASR."""
 
     def __init__(self) -> None:
         self._state = VoiceServiceState()
-        self._process: subprocess.Popen[str] | None = None
-        self._stop_flag_path = None
-        self._result_path = None
+        self._recording_thread: threading.Thread | None = None
+        self._stop_recording_event = threading.Event()
+        self._recording_frames: list[bytes] = []
+        self._recording_error: BaseException | None = None
+        self._debug_pcm_path = None
         self._worker_log_path = None
         self._started_monotonic = 0.0
         self._pending_event: dict[str, Any] | None = None
+        self._sample_rate = 16000
 
     def status(self) -> dict[str, Any]:
-        self._poll_finished_process()
         return {
             "running": self._state.running,
             "phase": self._state.phase,
@@ -59,7 +55,6 @@ class WebVoiceService:
         }
 
     def consume_event(self) -> dict[str, Any] | None:
-        self._poll_finished_process()
         event = self._pending_event
         self._pending_event = None
         return event
@@ -85,37 +80,32 @@ class WebVoiceService:
         return {"devices": devices, "selected_device_id": devices[0]["id"] if devices else None}
 
     def start(self) -> dict[str, Any]:
-        self._poll_finished_process()
-        if self._process and self._process.poll() is None:
+        if self._recording_thread is not None and self._recording_thread.is_alive():
             return self.status()
 
         log_dir = runtime_dir() / "data" / "exported_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        worker_files = make_voice_worker_files(log_dir, timestamp)
-        reset_stop_flag(worker_files.stop_flag)
-
-        cmd = self._build_worker_command(worker_files.debug_pcm, worker_files.result_json, worker_files.stop_flag)
-        self._worker_log_path = log_dir / f"iflytek_worker_web_{timestamp}.log"
-        self._stop_flag_path = worker_files.stop_flag
-        self._result_path = worker_files.result_json
+        self._debug_pcm_path = log_dir / f"doubao_voice_web_{timestamp}.pcm"
+        self._worker_log_path = log_dir / f"doubao_voice_web_{timestamp}.json"
+        self._recording_frames = []
+        self._recording_error = None
+        self._stop_recording_event.clear()
 
         try:
-            self._process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=str(runtime_dir()),
+            self._recording_thread = threading.Thread(
+                target=self._capture_microphone_until_stop,
+                name="web-doubao-voice-capture",
+                daemon=True,
             )
+            self._recording_thread.start()
             self._started_monotonic = time.monotonic()
             self._state.running = True
             self._state.phase = "recording"
+            self._state.mode = "doubao_backend_capture"
             self._state.last_error = ""
             self._state.last_text = ""
-            self._state.result_path = str(worker_files.result_json)
+            self._state.result_path = str(self._debug_pcm_path)
             self._state.worker_log_path = str(self._worker_log_path)
             self._state.started_at = datetime.now().isoformat(timespec="seconds")
             self._state.finished_at = ""
@@ -126,116 +116,100 @@ class WebVoiceService:
         return self.status()
 
     def stop(self) -> dict[str, Any]:
-        if self._process and self._process.poll() is None and self._stop_flag_path:
+        if self._recording_thread is not None and self._recording_thread.is_alive():
             elapsed = time.monotonic() - self._started_monotonic if self._started_monotonic else 0.0
-            if elapsed < 1.5:
-                time.sleep(1.5 - elapsed)
-            write_stop_flag(self._stop_flag_path)
+            if elapsed < 0.5:
+                time.sleep(0.5 - elapsed)
             self._state.phase = "recognizing"
-            self._wait_for_process(timeout_sec=75.0)
+            self._stop_recording_event.set()
+            self._recording_thread.join(timeout=5.0)
+            if self._recording_thread.is_alive():
+                self._state.running = True
+                self._state.phase = "recognizing"
+                self._state.last_error = "已发送停止信号，仍在等待麦克风采集线程结束。"
+                return self.status()
+            self._finalize_recording()
         else:
-            self._poll_finished_process()
+            self._state.running = False
+            self._state.phase = "idle"
         return self.status()
 
-    def _build_worker_command(self, debug_pcm, result_path, stop_flag_path) -> list[str]:
-        args = [
-            "--iflytek-worker",
-            "--mode",
-            "mic",
-            "--duration",
-            "3600",
-            "--stop-flag-path",
-            str(stop_flag_path),
-            "--debug-save-path",
-            str(debug_pcm),
-            "--result-path",
-            str(result_path),
-        ]
-        if getattr(sys, "frozen", False):
-            return [sys.executable, *args]
-        return [sys.executable, str(runtime_dir() / "gui_main.py"), *args]
-
-    def _poll_finished_process(self) -> None:
-        if not self._process or self._process.poll() is None:
-            return
-        self._finalize_process()
-
-    def _wait_for_process(self, *, timeout_sec: float) -> None:
-        if not self._process:
-            return
-        deadline = time.monotonic() + timeout_sec
-        while self._process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.1)
-        if self._process.poll() is None:
-            self._state.running = True
-            self._state.phase = "recognizing"
-            self._state.last_error = "已发送停止信号，仍在等待语音识别结果。"
-            return
-        self._finalize_process()
-
-    def _finalize_process(self) -> None:
-        process = self._process
-        if not process:
-            return
+    def _capture_microphone_until_stop(self) -> None:
         try:
-            stdout, stderr = process.communicate(timeout=2)
-        except Exception:
-            stdout, stderr = "", ""
-        returncode = process.returncode
-        self._process = None
+            import sounddevice as sd
 
-        if self._stop_flag_path:
+            def callback(indata, frames_count, time_info, status):
+                if status:
+                    pass
+                self._recording_frames.append(bytes(indata))
+
+            with sd.RawInputStream(
+                samplerate=self._sample_rate,
+                channels=1,
+                dtype="int16",
+                blocksize=3200,
+                callback=callback,
+            ):
+                while not self._stop_recording_event.is_set():
+                    time.sleep(0.05)
+        except BaseException as exc:
+            self._recording_error = exc
+
+    def _finalize_recording(self) -> None:
+        if self._recording_error is not None:
+            self._finish_failed(f"{type(self._recording_error).__name__}: {self._recording_error}")
+            return
+
+        pcm_data = b"".join(self._recording_frames)
+        if not pcm_data:
+            self._finish_failed("未录到音频，请确认麦克风可用并允许本程序访问麦克风。")
+            return
+
+        if self._debug_pcm_path:
             try:
-                cleanup_stop_flag(self._stop_flag_path)
+                self._debug_pcm_path.write_bytes(pcm_data)
             except Exception:
                 pass
-        self._stop_flag_path = None
 
-        payload: dict[str, Any] = {}
-        if self._result_path and self._result_path.exists():
-            try:
-                payload = json.loads(self._result_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                payload = {"ok": False, "error": f"语音结果文件解析失败: {type(exc).__name__}: {exc}"}
-        else:
-            payload = {"ok": False, "error": (stderr or "").strip() or "语音 worker 未返回结果。"}
+        try:
+            result = DoubaoVoiceClient().transcribe_pcm(pcm_data)
+            text = str(result.get("text", "") if isinstance(result, dict) else result).strip()
+            self._finish_success(text, result if isinstance(result, dict) else {})
+        except Exception as exc:
+            self._finish_failed(f"{type(exc).__name__}: {exc}")
 
+    def _finish_success(self, text: str, result: dict[str, Any]) -> None:
+        payload = {"ok": True, "text": text, "result": result}
+        self._write_log_payload(payload)
+        self._state.running = False
+        self._state.phase = "idle"
+        self._state.finished_at = datetime.now().isoformat(timespec="seconds")
+        self._state.last_text = text
+        self._state.last_error = ""
+        if text:
+            self._pending_event = {
+                "type": "voice_input_complete",
+                "text": text,
+                "finished_at": self._state.finished_at,
+                "result_path": self._state.result_path,
+                "worker_log_path": self._state.worker_log_path,
+            }
+
+    def _finish_failed(self, message: str) -> None:
+        payload = {"ok": False, "error": message}
+        self._write_log_payload(payload)
+        self._state.running = False
+        self._state.phase = "idle"
+        self._state.finished_at = datetime.now().isoformat(timespec="seconds")
+        self._state.last_text = ""
+        self._state.last_error = message
+
+    def _write_log_payload(self, payload: dict[str, Any]) -> None:
         if self._worker_log_path:
             try:
                 self._worker_log_path.write_text(
-                    json.dumps(
-                        {
-                            "returncode": returncode,
-                            "stdout": stdout or "",
-                            "stderr": stderr or "",
-                            "result_path": str(self._result_path or ""),
-                            "payload": payload,
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
+                    json.dumps({"payload": payload}, ensure_ascii=False, indent=2),
                     encoding="utf-8",
                 )
             except Exception:
                 pass
-
-        self._state.running = False
-        self._state.phase = "idle"
-        self._state.finished_at = datetime.now().isoformat(timespec="seconds")
-        if payload.get("ok"):
-            self._state.last_text = str(payload.get("text", "")).strip()
-            self._state.last_error = ""
-            if self._state.last_text:
-                self._pending_event = {
-                    "type": "voice_input_complete",
-                    "text": self._state.last_text,
-                    "finished_at": self._state.finished_at,
-                    "result_path": self._state.result_path,
-                    "worker_log_path": self._state.worker_log_path,
-                }
-        else:
-            self._state.last_text = ""
-            error_text = str(payload.get("error", "麦克风识别失败。"))
-            if "10165" in error_text or "invalid handle" in error_text.lower():
-                error_text = "录音时间过短或讯飞连接句柄未就绪，请等待按钮显示采集中后再停止录音。"
-            self._state.last_error = error_text

@@ -204,10 +204,10 @@ class VoiceNlpAdapter:
                     reason="闲聊或咨询，未触发控制动作",
                 )
             return self._build_plan(
-                actions=(VoiceNlpAction("unknown", None, "rule", text, "生产指令缺少“小正”唤醒词，未执行"),),
+                actions=(VoiceNlpAction("unknown", None, "rule", text, "生产指令缺少“小正或小兵”唤醒词，未执行"),),
                 source="rule",
                 raw_text=text,
-                reason="生产指令缺少“小正”唤醒词，未执行",
+                reason="生产指令缺少“小正或小兵”唤醒词，未执行",
             )
         if self._is_empty_command_after_wake(command_text):
             return self._build_plan(

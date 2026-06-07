@@ -116,7 +116,7 @@ def test_voice_session_segment_is_transcribed_and_routed_to_operator_handler():
     dummy._voice_session_active = True
     dummy.status_label = SimpleNamespace(setText=statuses.append)
     dummy._append_log = lambda *args, **kwargs: logs.append(args)
-    dummy._transcribe_pcm_via_local_client = lambda pcm, **_kwargs: {"text": "你好", "timing": {"voice_total_ms": 12}}
+    dummy._transcribe_pcm_for_voice_session = lambda pcm, **_kwargs: {"text": "你好", "timing": {"voice_total_ms": 12}}
     dummy._operator_handle_voice_session_text = lambda text: handled.append(text)
     dummy._run_in_background = lambda work, on_result: on_result(work())
 
@@ -142,7 +142,7 @@ def test_voice_session_passes_partial_callback_to_transcriber():
         partial_callback("你好")
         return {"text": "你好", "timing": {}}
 
-    dummy._transcribe_pcm_via_local_client = transcribe
+    dummy._transcribe_pcm_for_voice_session = transcribe
     dummy._run_in_background = lambda work, on_result: on_result(work())
 
     dummy._on_mic_audio_segment(b"pcm")
@@ -509,7 +509,7 @@ def test_voice_session_shows_recognition_status_and_replaces_on_success():
     dummy._operator_begin_voice_recognition_status = lambda: events.append(("begin", ""))
     dummy._operator_update_voice_recognition_status = lambda text: events.append(("update", text))
     dummy._operator_finish_voice_recognition_status = lambda text: events.append(("finish", text))
-    dummy._transcribe_pcm_via_local_client = lambda _pcm, **_kwargs: {"text": "小镇移动到位置A", "timing": {}}
+    dummy._transcribe_pcm_for_voice_session = lambda _pcm, **_kwargs: {"text": "小镇移动到位置A", "timing": {}}
     dummy._operator_handle_voice_session_text = lambda _text: None
     dummy._run_in_background = lambda work, on_result: on_result(work())
 
@@ -536,7 +536,7 @@ def test_voice_session_clears_recognition_status_on_empty_result():
     dummy._append_log = lambda *args, **kwargs: None
     dummy._operator_begin_voice_recognition_status = lambda: events.append("begin")
     dummy._operator_clear_voice_recognition_status = lambda: events.append("clear")
-    dummy._transcribe_pcm_via_local_client = lambda _pcm, **_kwargs: {"text": "", "timing": {}}
+    dummy._transcribe_pcm_for_voice_session = lambda _pcm, **_kwargs: {"text": "", "timing": {}}
     dummy._run_in_background = lambda work, on_result: on_result(work())
 
     dummy._on_mic_audio_segment(b"pcm")

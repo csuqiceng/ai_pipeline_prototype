@@ -13,6 +13,7 @@ from typing import Any
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFrame,
     QGridLayout,
@@ -43,6 +44,7 @@ from .engineer_voice_commands import (
     engineer_voice_capability_summary,
     match_engineer_voice_command,
 )
+from .exceptions import BackgroundTaskError
 from .dialog_logger import DialogLogger
 from .interaction_archiver import InteractionArchiveWriter
 from .json_schema import DeviceSnapshot
@@ -963,6 +965,8 @@ class OperatorUiMixin:
             return True
         first_type = str(getattr(actions[0], "action_type", "") or "")
         semantic_level = int(getattr(plan, "semantic_level", 0) or 0)
+        if self._operator_handle_llm_context_intent_plan(plan):
+            return True
         if first_type == "compound_plan":
             draft = getattr(plan, "flow_draft", {}) or {}
             steps = tuple(draft.get("steps", ()) or ()) if isinstance(draft, dict) else ()
@@ -1124,6 +1128,261 @@ class OperatorUiMixin:
             return True
         return False
 
+    def _operator_handle_llm_context_intent_plan(self, plan) -> bool:
+        intent = self._operator_llm_context_intent_from_plan(plan)
+        if not intent:
+            return False
+        kind = str(intent.get("kind") or "").strip()
+        if kind == "flow_create":
+            return self._operator_apply_llm_flow_create_intent(intent)
+        if kind == "flow_append_step":
+            return self._operator_apply_llm_flow_append_step_intent(intent)
+        if kind == "flow_modify_step":
+            return self._operator_apply_llm_flow_modify_step_intent(intent)
+        if kind == "flow_list":
+            return self._operator_apply_llm_flow_list_intent(intent)
+        if kind == "flow_query":
+            return self._operator_apply_llm_flow_query_intent(intent)
+        if kind == "confirm_modify":
+            return self._operator_apply_llm_confirm_modify_intent(intent)
+        if kind == "dashboard_query":
+            return self._operator_apply_llm_dashboard_query_intent(intent)
+        if kind == "command_candidate":
+            return self._operator_apply_llm_command_candidate_intent(intent, plan)
+        if kind == "suggestion":
+            return self._operator_apply_llm_suggestion_intent(intent)
+        return False
+
+    @staticmethod
+    def _operator_llm_context_intent_from_plan(plan) -> dict[str, Any]:
+        draft = getattr(plan, "flow_draft", {}) or {}
+        if not isinstance(draft, dict):
+            return {}
+        intent = draft.get("llm_context_intent")
+        return dict(intent) if isinstance(intent, dict) else {}
+
+    def _operator_apply_llm_flow_create_intent(self, intent: dict[str, Any]) -> bool:
+        flow_name = str(intent.get("flow_name") or intent.get("target_flow") or "").strip()
+        if not flow_name:
+            reply = str(intent.get("suggested_reply") or "请先告诉我要创建的流程名称。").strip()
+            self._operator_publish_context_intent_reply(reply, category="流程创建理解")
+            return True
+        draft = {
+            "flow_name": flow_name,
+            "expanded_steps": [],
+            "positions": self._operator_position_registry_draft_items(),
+            "needs_precheck": True,
+        }
+        self._operator_pending_flow_draft = draft
+        reply = str(intent.get("suggested_reply") or "").strip()
+        if not reply:
+            reply = f"已开始创建流程“{flow_name}”。"
+        reply = self._operator_flow_create_guidance_text(flow_name, reply)
+        self._operator_publish_context_intent_reply(reply, category="流程创建理解")
+        return True
+
+    @staticmethod
+    def _operator_flow_create_guidance_text(flow_name: str, reply: str) -> str:
+        clean = str(reply or "").strip() or f"已开始创建流程“{flow_name}”。"
+        if "怎么添加步骤" in clean and "保存并执行" in clean:
+            return clean
+        guidance = (
+            "\n\n怎么添加步骤：继续说每一步要做什么，系统会先生成草案，不会直接执行。"
+            "\n例如："
+            "\n1. 移动到位置A，X100 Y0 Z800，速度50%"
+            "\n2. 等待2秒"
+            "\n3. 输出1打开"
+            "\n添加完后可以说“查看流程”，确认没问题再说“保存并执行”。"
+        )
+        return f"{clean}{guidance}"
+
+    def _operator_apply_llm_flow_append_step_intent(self, intent: dict[str, Any]) -> bool:
+        flow_name = str(intent.get("target_flow") or intent.get("flow_name") or "").strip()
+        if not flow_name:
+            current = str(getattr(self, "current_flow_name", "") or "").strip()
+            if current:
+                flow_name = current
+        step_hint = str(intent.get("step_hint") or intent.get("text") or intent.get("suggested_step") or "").strip()
+        if not flow_name or not step_hint:
+            return False
+        local_text = f"在{flow_name}流程后面添加一步{step_hint}"
+        if self._operator_handle_saved_flow_edit_request(local_text):
+            return True
+        reply = str(intent.get("suggested_reply") or "").strip()
+        if reply:
+            self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+            return True
+        return False
+
+    def _operator_apply_llm_flow_modify_step_intent(self, intent: dict[str, Any]) -> bool:
+        draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(draft, dict) or not draft:
+            reply = str(intent.get("suggested_reply") or "当前没有正在编辑的流程草案，请先创建或选择流程。").strip()
+            self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+            return True
+        step_index = self._operator_llm_step_index(intent)
+        field = str(intent.get("field") or intent.get("param") or "").strip().lower()
+        value_text = str(intent.get("value_text") or intent.get("value") or "").strip()
+        text = self._operator_flow_modify_text_from_llm_field(step_index, field, value_text)
+        if text and self._operator_handle_pending_flow_draft_edit(text):
+            return True
+        reply = str(intent.get("suggested_reply") or "已理解为流程修改，但还缺少步骤编号、参数名或参数值。").strip()
+        self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+        return True
+
+    def _operator_apply_llm_flow_query_intent(self, intent: dict[str, Any]) -> bool:
+        flow_name = str(intent.get("target_flow") or intent.get("flow_name") or "").strip()
+        if not flow_name:
+            flow_name = str(getattr(self, "current_flow_name", "") or "").strip()
+        if not flow_name:
+            return False
+        draft = self._operator_flow_draft_from_saved_flow(flow_name)
+        if draft is None:
+            reply = f"没有找到流程“{flow_name}”。"
+            self._operator_publish_context_intent_reply(reply, category="流程查询")
+            return True
+        text = self._operator_flow_draft_preview_text(draft, include_params=True).replace(
+            "当前待确认流程草案：",
+            "流程 ",
+            1,
+        )
+        self._operator_publish_context_intent_reply(text, category="流程查询")
+        return True
+
+    def _operator_apply_llm_flow_list_intent(self, intent: dict[str, Any]) -> bool:
+        return self._operator_handle_flow_list_query(str(intent.get("query_text") or intent.get("text") or "有哪些流程"))
+
+    def _operator_apply_llm_confirm_modify_intent(self, intent: dict[str, Any]) -> bool:
+        plan = getattr(self, "_operator_pending_confirm_plan", None)
+        if plan is None:
+            return False
+        field = str(intent.get("field") or intent.get("param") or "").strip().lower()
+        value_text = str(intent.get("value_text") or intent.get("value") or "").strip()
+        text = self._operator_confirm_modify_text_from_llm_field(field, value_text)
+        if text and self._operator_handle_pending_confirm_modify(text):
+            return True
+        reply = str(intent.get("suggested_reply") or "").strip()
+        if reply:
+            self._operator_publish_context_intent_reply(reply, category="确认阶段理解")
+            return True
+        return False
+
+    def _operator_apply_llm_dashboard_query_intent(self, intent: dict[str, Any]) -> bool:
+        query_text = str(intent.get("query_text") or intent.get("question") or intent.get("text") or "").strip()
+        if not query_text:
+            query_text = str(intent.get("suggested_reply") or "").strip()
+        if query_text and self._operator_handle_dashboard_query(query_text):
+            return True
+        reply = str(intent.get("suggested_reply") or "当前状态查询无法直接匹配，请换一种问法，例如“现在急停状态怎么样”。").strip()
+        self._operator_publish_context_intent_reply(reply, category="状态查询理解")
+        return True
+
+    def _operator_apply_llm_command_candidate_intent(self, intent: dict[str, Any], source_plan) -> bool:
+        candidate_text = str(intent.get("candidate_text") or intent.get("text") or "").strip()
+        if not candidate_text:
+            reply = str(intent.get("suggested_reply") or "已识别为候选控制指令，但缺少可重新解析的命令文本。").strip()
+            self._operator_publish_context_intent_reply(reply, category="候选指令理解")
+            return True
+        raw_text = str(getattr(source_plan, "raw_text", "") or "").strip()
+        if not raw_text:
+            actions = tuple(getattr(source_plan, "actions", ()) or ())
+            if actions:
+                raw_text = str(getattr(actions[0], "raw_text", "") or "")
+        if not self._operator_is_wake_command(raw_text):
+            reply = "候选控制指令缺少“小正或小兵”唤醒词，未执行。请带唤醒词重新下发生产指令。"
+            self._operator_publish_context_intent_reply(reply, category="候选指令唤醒词校验")
+            return True
+        candidate_plan = self._operator_try_agent_orchestrator_plan(candidate_text)
+        if candidate_plan is None:
+            reply = str(intent.get("suggested_reply") or "已识别为候选控制指令，但本地安全解析未通过，请补充目标和参数。").strip()
+            self._operator_publish_context_intent_reply(reply, category="候选指令解析")
+            return True
+        self._execute_nlp_plan(candidate_plan)
+        return True
+
+    def _operator_apply_llm_suggestion_intent(self, intent: dict[str, Any]) -> bool:
+        reply = str(intent.get("suggested_reply") or intent.get("text") or "").strip()
+        if not reply:
+            reply = "已收到你的需求。建议先明确要查询、修改流程，还是执行控制指令。"
+        self._operator_publish_context_intent_reply(reply, category="上下文建议")
+        return True
+
+    @staticmethod
+    def _operator_confirm_modify_text_from_llm_field(field: str, value_text: str) -> str:
+        if not value_text:
+            return ""
+        aliases = {
+            "spd": "速度",
+            "speed": "速度",
+            "spd_pct": "速度",
+            "acc": "加速度",
+            "accel": "加速度",
+            "acceleration": "加速度",
+            "acc_pct": "加速度",
+            "dec": "减速度",
+            "decel": "减速度",
+            "deceleration": "减速度",
+            "dec_pct": "减速度",
+            "step": "步长",
+            "pos_val": "步长",
+        }
+        label = aliases.get(field)
+        if not label:
+            return ""
+        return f"{label}改为{value_text}"
+
+    @staticmethod
+    def _operator_llm_step_index(intent: dict[str, Any]) -> int:
+        raw = intent.get("step_index")
+        if raw is None:
+            raw = intent.get("step_no")
+        if raw is None:
+            raw = intent.get("step")
+        return OperatorUiMixin._operator_parse_step_index_text(str(raw or ""))
+
+    @staticmethod
+    def _operator_flow_modify_text_from_llm_field(step_index: int, field: str, value_text: str) -> str:
+        if step_index <= 0 or not value_text:
+            return ""
+        aliases = {
+            "spd": "速度",
+            "speed": "速度",
+            "spd_pct": "速度",
+            "acc": "加速度",
+            "accel": "加速度",
+            "acceleration": "加速度",
+            "acc_pct": "加速度",
+            "dec": "减速度",
+            "decel": "减速度",
+            "deceleration": "减速度",
+            "dec_pct": "减速度",
+            "delay": "延时",
+            "delay_sec": "延时",
+        }
+        label = aliases.get(field)
+        if not label:
+            return ""
+        return f"第{step_index}步{label}改成{value_text}"
+
+    def _operator_publish_context_intent_reply(self, text: str, *, category: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        self._set_nlp_execute_busy(False)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(clean))
+        if getattr(self, "_operator_streaming_chat_active", False):
+            self._operator_finish_streaming_chat_response(clean)
+        elif hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", clean)
+        if hasattr(self, "_operator_publish_ai_answer_for_speech"):
+            self._operator_publish_ai_answer_for_speech(clean)
+        if hasattr(self, "_append_log"):
+            self._append_log("Agent", category, "成功", clean)
+        if hasattr(self, "_operator_archive_execution_result"):
+            self._operator_archive_execution_result(result="context_intent", final_text=clean)
+        self._refresh_operator_view()
+
     @staticmethod
     def _operator_unknown_plan_chat_text(reason: str) -> str:
         clean = str(reason or "未识别到可执行动作。").strip()
@@ -1143,6 +1402,9 @@ class OperatorUiMixin:
             return
         if self._operator_reject_new_action_while_busy(text):
             return
+        processing_hint_started = self._operator_maybe_begin_agent_processing_response(text)
+        if processing_hint_started and self._operator_schedule_agent_plan_background(text, mode="parse"):
+            return
         agent_plan = self._operator_try_agent_orchestrator_plan(text)
         if agent_plan is not None:
             self._set_nlp_parse_busy(True)
@@ -1161,6 +1423,8 @@ class OperatorUiMixin:
                 )
             self._set_nlp_parse_busy(False)
             return
+        if processing_hint_started:
+            self._operator_cancel_streaming_chat_response()
         super()._parse_nlp_text()
 
     def _execute_nlp_text(self) -> None:
@@ -1174,13 +1438,72 @@ class OperatorUiMixin:
         if self._operator_reject_new_action_while_busy(text):
             return
         self._operator_set_pending_confirm_plan(None)
+        processing_hint_started = self._operator_maybe_begin_agent_processing_response(text)
+        if processing_hint_started and self._operator_schedule_agent_plan_background(text, mode="execute"):
+            return
         agent_plan = self._operator_try_agent_orchestrator_plan(text)
         if agent_plan is not None:
             self._set_nlp_execute_busy(True)
             self._set_nlp_result_plan(agent_plan)
             self._execute_nlp_plan(agent_plan)
             return
+        if processing_hint_started:
+            self._operator_cancel_streaming_chat_response()
         super()._execute_nlp_text()
+
+    def _operator_schedule_agent_plan_background(self, text: str, *, mode: str) -> bool:
+        runner = getattr(self, "_run_in_background", None)
+        if not callable(runner):
+            return False
+        if getattr(self, "_operator_agent_parse_running", False):
+            return False
+        self._operator_agent_parse_running = True
+        if mode == "parse":
+            self._set_nlp_parse_busy(True)
+        else:
+            self._set_nlp_execute_busy(True)
+
+        def work():
+            return self._operator_try_agent_orchestrator_plan(text)
+
+        def done(result) -> None:
+            self._operator_agent_parse_running = False
+            if isinstance(result, BackgroundTaskError):
+                if hasattr(self, "_append_log"):
+                    self._append_log("Agent", "后台解析", "失败", str(result))
+                result = None
+            self._operator_apply_agent_plan_background_result(result, mode=mode)
+
+        runner(work, done)
+        return True
+
+    def _operator_apply_agent_plan_background_result(self, agent_plan, *, mode: str) -> None:
+        if agent_plan is None:
+            self._operator_cancel_streaming_chat_response()
+            if mode == "parse":
+                self._set_nlp_parse_busy(False)
+                super()._parse_nlp_text()
+            else:
+                self._set_nlp_execute_busy(False)
+                super()._execute_nlp_text()
+            return
+        self._set_nlp_result_plan(agent_plan)
+        if mode == "parse":
+            first_action = agent_plan.actions[0] if agent_plan.actions else SimpleNamespace(action_type="unknown", target=None)
+            if hasattr(self, "status_label"):
+                self.status_label.setText(
+                    f"解析完成: {len(agent_plan.actions)} 步 / {first_action.action_type} / {first_action.target or '-'}"
+                )
+            if hasattr(self, "_append_log"):
+                self._append_log(
+                    "自然语言",
+                    "解析文本",
+                    "成功" if agent_plan.actions and agent_plan.actions[0].action_type != "unknown" else "失败",
+                    f"{agent_plan.source} | {len(agent_plan.actions)}步 | {agent_plan.reason}",
+                )
+            self._set_nlp_parse_busy(False)
+            return
+        self._execute_nlp_plan(agent_plan)
 
     def _operator_try_restricted_agent_plan(self, text: str):
         if not self._operator_should_try_restricted_agent(text):
@@ -1253,7 +1576,7 @@ class OperatorUiMixin:
         client = getattr(self, "_deepseek_client", None)
         if client is None:
             return None
-        return agent_cls(client=client)
+        return agent_cls(client=client, context_provider=self._operator_deepseek_runtime_context)
 
     def _operator_log_agent_orchestrator_fallback(self, result) -> None:
         if not hasattr(self, "_append_log"):
@@ -1831,9 +2154,9 @@ class OperatorUiMixin:
             text = reason or "当前流程继续执行，查询结果暂不可用。"
             result = "answered"
         else:
-            text = reason or "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请先说“小正”加具体指令。"
+            text = reason or "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请先说“小正或小兵”加具体指令。"
             if "生产指令缺少" in text:
-                text = "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请说“小正”加具体指令。"
+                text = "当前流程正在执行。闲聊不会影响流程；如需切换新命令，请说“小正或小兵”加具体指令。"
             result = "chat"
         if hasattr(self, "status_label"):
             self.status_label.setText(self._operator_footer_status_text(text))
@@ -2557,7 +2880,14 @@ class OperatorUiMixin:
         self._operator_add_chat_message("assistant", "确认收到，开始执行。")
         self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
         self._append_log("用户页面", "确认执行", "成功", getattr(plan, "reason", "已确认执行"))
-        self._execute_nlp_plan(plan)
+        confirmed_plan = replace(plan, requires_confirmation=False)
+        test_executor = self.__dict__.get("_execute_nlp_plan")
+        if callable(test_executor):
+            test_executor(confirmed_plan)
+            return
+        from .nlp_mixin import NlpMixin
+
+        NlpMixin._execute_nlp_plan(self, confirmed_plan)
 
     def _operator_prepare_current_compound_step_confirmation(self) -> bool:
         draft = getattr(self, "_operator_pending_flow_draft", None)
@@ -2887,6 +3217,8 @@ class OperatorUiMixin:
 
         if self._operator_handle_pending_interruption_command(text):
             return True
+        if self._operator_handle_running_control_text(text):
+            return True
         if self._operator_handle_emergency_text(text):
             return True
         if self._operator_handle_progress_query(text):
@@ -2897,9 +3229,13 @@ class OperatorUiMixin:
             return True
         if self._operator_handle_pending_flow_draft_edit(text):
             return True
+        if self._operator_handle_saved_flow_edit_request(text):
+            return True
         if self._operator_handle_pending_flow_draft_command(text):
             return True
         if self._operator_handle_pending_flow_draft_query(text):
+            return True
+        if self._operator_handle_flow_list_query(text):
             return True
         if self._operator_handle_context_query(text):
             return True
@@ -2988,6 +3324,36 @@ class OperatorUiMixin:
 
         return False
 
+    def _operator_handle_running_control_text(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", text or "")
+        compact = compact.strip("，。！？,.!?")
+        if not compact:
+            return False
+        if not (
+            bool(getattr(self, "flow_running", False))
+            or bool(getattr(self, "nlp_sequence_running", False))
+            or self._operator_execution_or_pause_active()
+        ):
+            return False
+        if compact in {"暂停", "暂停一下", "先暂停", "暂停当前", "暂停流程"}:
+            self._handle_system_action("sys_pause")
+            text_out = "当前任务已发送暂停指令。"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text_out)
+            if hasattr(self, "_operator_add_chat_message"):
+                self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "运行中暂停", "成功", "无唤醒词高优先级控制")
+            self._refresh_operator_view()
+            return True
+        if compact in {"停止", "停止当前", "停止当前动作", "停止当前任务", "取消", "取消当前", "取消当前动作", "取消当前任务"}:
+            self._operator_stop_current()
+            text_out = "当前任务已发送停止/取消指令。"
+            if hasattr(self, "_operator_add_chat_message"):
+                self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "运行中停止", "成功", "无唤醒词高优先级控制")
+            return True
+        return False
+
     def _operator_reply_ui_command_success(self, message: str) -> None:
         text = str(message or "").strip()
         if not text:
@@ -3047,14 +3413,29 @@ class OperatorUiMixin:
         service = self._operator_execution_plan_service()
         service.set_pending_flow_draft(draft)
         result = None
-        match = re.search(r"第\s*(\d+)\s*步.*速度.*?(\d+(?:\.\d+)?)\s*%?", compact)
+        match = re.search(r"第\s*([一二三四五六七八九十\d]+)\s*步.*(?:加速度|加速|acc).*?(\d+(?:\.\d+)?)\s*%?", compact, re.IGNORECASE)
         if match:
-            step_id = int(match.group(1))
-            speed = float(match.group(2))
-            result = service.edit_step_params(
-                step_id,
-                {"spd_pct": speed, "acc_pct": speed, "dec_pct": speed},
-            )
+            step_id = self._operator_parse_step_index_text(match.group(1))
+            acc = float(match.group(2))
+            if step_id > 0:
+                result = service.edit_step_params(step_id, {"acc_pct": acc})
+        if result is None:
+            match = re.search(r"第\s*([一二三四五六七八九十\d]+)\s*步.*(?:减速度|减速|dec).*?(\d+(?:\.\d+)?)\s*%?", compact, re.IGNORECASE)
+            if match:
+                step_id = self._operator_parse_step_index_text(match.group(1))
+                dec = float(match.group(2))
+                if step_id > 0:
+                    result = service.edit_step_params(step_id, {"dec_pct": dec})
+        if result is None:
+            match = re.search(r"第\s*([一二三四五六七八九十\d]+)\s*步.*速度.*?(\d+(?:\.\d+)?)\s*%?", compact)
+            if match:
+                step_id = self._operator_parse_step_index_text(match.group(1))
+                speed = float(match.group(2))
+                if step_id > 0:
+                    result = service.edit_step_params(
+                        step_id,
+                        {"spd_pct": speed, "acc_pct": speed, "dec_pct": speed},
+                    )
         if result is None:
             match = re.search(r"(第|步骤)\s*(\d+)\s*步?.*延时.*?(\d+(?:\.\d+)?)\s*(秒|s|毫秒|ms)?", compact, re.I)
             if match:
@@ -3067,6 +3448,10 @@ class OperatorUiMixin:
             match = re.search(r"删除.*(第|步骤)\s*(\d+)\s*步?", compact)
             if match:
                 result = service.delete_step(int(match.group(2)))
+        if result is None and re.search(r"删除.*(最后|末尾|最后一步|末尾一步)", compact):
+            steps = draft.get("expanded_steps")
+            if isinstance(steps, list) and steps:
+                result = service.delete_step(len(steps))
         if result is None:
             match = re.search(r"(整体|全部|所有).*速度.*?(\d+(?:\.\d+)?)\s*%?", compact)
             if match:
@@ -3106,6 +3491,41 @@ class OperatorUiMixin:
         self._append_log("自然语言", "流程草案编辑", "成功", message)
         self._refresh_operator_view()
         return True
+
+    @staticmethod
+    def _operator_parse_step_index_text(text: str) -> int:
+        clean = str(text or "").strip()
+        if not clean:
+            return 0
+        try:
+            return int(clean)
+        except ValueError:
+            pass
+        digits = {
+            "一": 1,
+            "二": 2,
+            "三": 3,
+            "四": 4,
+            "五": 5,
+            "六": 6,
+            "七": 7,
+            "八": 8,
+            "九": 9,
+        }
+        if clean in digits:
+            return digits[clean]
+        if clean == "十":
+            return 10
+        if clean.startswith("十") and len(clean) == 2 and clean[1] in digits:
+            return 10 + digits[clean[1]]
+        if clean.endswith("十") and len(clean) == 2 and clean[0] in digits:
+            return digits[clean[0]] * 10
+        if "十" in clean:
+            left, right = clean.split("十", 1)
+            tens = digits.get(left, 1 if left == "" else 0)
+            ones = digits.get(right, 0)
+            return tens * 10 + ones if tens else 0
+        return 0
 
     def _operator_build_append_flow_step_from_text(self, draft: dict, text: str):
         from .execution_plan import ExecutionStep
@@ -3168,6 +3588,162 @@ class OperatorUiMixin:
                     except (TypeError, ValueError):
                         continue
         return 50.0
+
+    def _operator_handle_saved_flow_edit_request(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact:
+            return False
+        if not any(keyword in compact for keyword in ("后面添加", "后面再添", "后面加", "末尾添加", "最后添加")):
+            return False
+        if not any(keyword in compact for keyword in ("流程", "这个")):
+            return False
+        flow_name = self._operator_extract_flow_name_for_edit(compact)
+        if not flow_name:
+            return False
+        draft = self._operator_flow_draft_from_saved_flow(flow_name)
+        if draft is None:
+            return False
+        step = self._operator_build_append_flow_step_from_text(draft, compact)
+        if step is None and any(keyword in compact.lower() for keyword in ("移动到位置", "到位置", "移动")):
+            step = self._operator_missing_move_step_from_text(draft, compact)
+        if step is None:
+            return False
+        service = self._operator_execution_plan_service()
+        service.set_pending_flow_draft(draft)
+        result = service.append_step(step)
+        updated = service.pending_flow_draft()
+        if updated is None:
+            return False
+        merged = dict(draft)
+        merged["expanded_steps"] = updated.get("expanded_steps", [])
+        merged["flow_name"] = updated.get("flow_name", flow_name)
+        merged["needs_precheck"] = True
+        self._operator_pending_flow_draft = merged
+        service.set_pending_flow_draft(merged)
+        clarification = service.current_clarification()
+        if clarification is not None:
+            message = f"已进入流程“{flow_name}”编辑，准备追加一步。{clarification.question}"
+        else:
+            message = f"{result.message}。当前流程草案尚未保存/执行。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(message))
+        if hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", message)
+        self._append_log("自然语言", "已保存流程编辑", "成功", message)
+        self._refresh_operator_view()
+        return True
+
+    def _operator_extract_flow_name_for_edit(self, compact: str) -> str:
+        service = getattr(self, "service", None)
+        names: list[str] = []
+        if service is not None and hasattr(service, "list_flow_names"):
+            try:
+                names = [str(name) for name in service.list_flow_names()]
+            except Exception:
+                names = []
+        for name in sorted(names, key=len, reverse=True):
+            clean = re.sub(r"\s+", "", name)
+            if clean and clean in compact:
+                return name
+        current = str(getattr(self, "current_flow_name", "") or "").strip()
+        if current and ("这个" in compact or re.sub(r"\s+", "", current) in compact):
+            return current
+        return ""
+
+    def _operator_flow_draft_from_saved_flow(self, flow_name: str) -> dict[str, Any] | None:
+        service = getattr(self, "service", None)
+        if service is None:
+            return None
+        steps: list[dict[str, Any]] = []
+        entry = None
+        if hasattr(service, "get_flow_entry"):
+            try:
+                entry = service.get_flow_entry(flow_name)
+            except Exception:
+                entry = None
+        if entry is not None and hasattr(entry, "steps"):
+            for index, step in enumerate(getattr(entry, "steps", ()) or (), start=1):
+                params = dict(getattr(step, "params", {}) or {})
+                query_key = str(params.get("query_key") or "").strip()
+                record = getattr(self, "table", {}).get(query_key) if query_key else None
+                if record is not None:
+                    params = dict(getattr(record, "params", {}) or {})
+                    action = str(getattr(record, "description", "") or query_key)
+                    func_id = int(getattr(record, "func_num", 0) or 0)
+                    description = str(getattr(record, "description", "") or query_key)
+                else:
+                    action = str(getattr(step, "action", "") or "")
+                    func_id = int(getattr(step, "func_id", 0) or 0)
+                    description = str(getattr(step, "description", "") or "")
+                steps.append(
+                    {
+                        "step_id": index,
+                        "action": action,
+                        "func_id": func_id,
+                        "position_name": str(getattr(step, "position_name", "") or ""),
+                        "description": description,
+                        "params": params,
+                    }
+                )
+        if not steps and hasattr(service, "get_flow"):
+            try:
+                flow = service.get_flow(flow_name)
+            except Exception:
+                flow = None
+            for index, key in enumerate(getattr(flow, "steps", ()) or (), start=1):
+                record = getattr(self, "table", {}).get(key)
+                if record is None:
+                    continue
+                steps.append(
+                    {
+                        "step_id": index,
+                        "action": str(getattr(record, "description", "") or key),
+                        "func_id": int(getattr(record, "func_num", 0) or 0),
+                        "description": str(getattr(record, "description", "") or key),
+                        "params": dict(getattr(record, "params", {}) or {}),
+                    }
+                )
+        if not steps:
+            return None
+        return {
+            "flow_name": flow_name,
+            "expanded_steps": steps,
+            "positions": self._operator_position_registry_draft_items(),
+        }
+
+    def _operator_position_registry_draft_items(self) -> list[dict[str, Any]]:
+        try:
+            registry = self._position_registry() if hasattr(self, "_position_registry") else None
+            entries = list(registry.list_all()) if registry is not None and hasattr(registry, "list_all") else []
+        except Exception:
+            entries = []
+        items: list[dict[str, Any]] = []
+        for entry in entries:
+            name = str(getattr(entry, "name", "") or "").strip()
+            pose = getattr(entry, "pose", None)
+            if name and isinstance(pose, (list, tuple)) and len(pose) >= 6:
+                items.append({"name": name, "pose": list(pose[:6])})
+        return items
+
+    def _operator_missing_move_step_from_text(self, draft: dict, compact: str):
+        from .execution_plan import ExecutionStep
+
+        match = re.search(r"位置([a-zA-Z0-9_\-\u4e00-\u9fff]+)", compact, re.IGNORECASE)
+        label = match.group(1) if match else "待补充位置"
+        default_speed = self._operator_flow_draft_default_speed(draft)
+        return ExecutionStep(
+            step_id=0,
+            action="move_position",
+            func_id=108,
+            params={
+                "spd_pct": default_speed,
+                "acc_pct": default_speed,
+                "dec_pct": default_speed,
+                "move_type": 0,
+            },
+            target_label=str(label).upper() if len(str(label)) == 1 else str(label),
+            description=f"移动到位置{label}",
+        )
 
     def _operator_handle_pending_flow_draft_command(self, text: str) -> bool:
         draft = getattr(self, "_operator_pending_flow_draft", None)
@@ -3244,9 +3820,11 @@ class OperatorUiMixin:
                 return True
         ok, detail, flow_name = self._operator_save_flow_draft(draft)
         if not ok:
+            if not draft.get("expanded_steps"):
+                self._operator_pending_flow_draft = None
             self.status_label.setText(detail)
-            if hasattr(self, "_show_warning"):
-                self._show_warning("流程草案保存失败", detail)
+            if hasattr(self, "_operator_add_chat_message"):
+                self._operator_add_chat_message("assistant", detail)
             self._append_log("自然语言", "流程草案保存", "失败", detail)
             self._refresh_operator_view()
             return True
@@ -3346,7 +3924,10 @@ class OperatorUiMixin:
         elif hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", answer)
         self._operator_publish_ai_answer_for_speech(answer)
-        self._append_log("自然语言", "上下文查询", "成功", answer)
+        if "缺少" in answer and "唤醒词" in answer:
+            self._append_log("自然语言", "缺少唤醒词", "提示", answer)
+        else:
+            self._append_log("自然语言", "上下文查询", "成功", answer)
         self._refresh_operator_view()
         return True
 
@@ -3354,6 +3935,9 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return ""
+        wake_required_answer = self._operator_missing_wake_word_flow_execution_answer(compact)
+        if wake_required_answer:
+            return wake_required_answer
         if self._operator_text_looks_like_existing_flow_execution_request(compact):
             return ""
         if self._operator_text_looks_like_flow_creation_request(compact):
@@ -3391,6 +3975,27 @@ class OperatorUiMixin:
         if flow is None:
             return ""
         return self._operator_flow_entry_preview_text(flow, include_params=True)
+
+    def _operator_missing_wake_word_flow_execution_answer(self, compact_text: str) -> str:
+        compact = re.sub(r"\s+", "", compact_text or "")
+        if not compact:
+            return ""
+        stripped = strip_wake_word_from_compact(compact)
+        if stripped != compact:
+            return ""
+        if not any(verb in compact for verb in ("执行", "开始", "运行", "启动", "直行")):
+            return ""
+        flow = self._operator_find_registered_flow_for_text(compact)
+        if flow is None:
+            return ""
+        name = str(getattr(flow, "name", "") or "").strip()
+        if not name:
+            return ""
+        return (
+            f"生产执行指令缺少“小正或小兵”唤醒词，未执行。"
+            f"如需执行流程，请说“小正，执行{name}流程”或“小兵，执行{name}流程”。"
+            "没有触发机械手动作。"
+        )
 
     def _operator_text_looks_like_existing_flow_execution_request(self, compact_text: str) -> bool:
         compact = re.sub(r"\s+", "", compact_text or "")
@@ -3782,6 +4387,43 @@ class OperatorUiMixin:
             lines.append(f"... 还有 {len(steps) - 8} 步未展开显示。")
         return "\n".join(lines)
 
+    def _operator_handle_flow_list_query(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact or "流程" not in compact:
+            return False
+        list_markers = (
+            "有哪些流程",
+            "有什么流程",
+            "流程有哪些",
+            "流程列表",
+            "所有流程",
+            "全部流程",
+            "保存了哪些流程",
+            "总共有多少个流程",
+            "有多少个流程",
+            "多少个流程",
+            "几个流程",
+        )
+        if not any(marker in compact for marker in list_markers):
+            return False
+        service = getattr(self, "service", None)
+        if service is None or not hasattr(service, "list_flow_names"):
+            return False
+        try:
+            names = [str(name) for name in service.list_flow_names()]
+        except Exception:
+            names = []
+        if not names:
+            answer = "当前没有已保存流程。可以说“创建流程，名字叫测试”开始创建。"
+        else:
+            lines = [f"当前共有 {len(names)} 个流程："]
+            lines.extend(f"{index}. {name}" for index, name in enumerate(names, start=1))
+            first = names[0]
+            lines.append(f"可以说“查看{first}流程”查看步骤，或说“小正，执行{first}流程”执行。")
+            answer = "\n".join(lines)
+        self._operator_publish_context_intent_reply(answer, category="流程列表查询")
+        return True
+
     def _operator_deepseek_runtime_context(self) -> str:
         scene_state = getattr(self, "_operator_scene_state", OperatorSceneState())
         current_scene = str(getattr(scene_state, "current", "") or "").strip()
@@ -4120,6 +4762,45 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return False
+        if self._operator_pending_confirm_query_requested(compact):
+            text_out = self._operator_pending_confirm_params_text(plan)
+            if not text_out:
+                return False
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self._operator_footer_status_text(text_out))
+            self._operator_add_chat_message("assistant", text_out)
+            self._operator_publish_ai_answer_for_speech(text_out)
+            self._append_log("用户页面", "确认阶段参数查询", "成功", text_out)
+            self._refresh_operator_view()
+            return True
+        acc_match = re.search(r"(?:加速度|加速|acc)(?:改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)%?", compact, re.IGNORECASE)
+        if acc_match:
+            acc = max(5.0, min(150.0, float(acc_match.group(1))))
+            changed = self._operator_update_pending_confirm_records(plan, {"acc_pct": acc})
+            if not changed:
+                return self._operator_reject_pending_confirm_param_modify("加速度")
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
+            text_out = f"已将待确认计划加速度调整为{acc:g}%。请再次确认执行。"
+            self._operator_prepare_plan_prechecks(plan)
+            self.status_label.setText(text_out)
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
+            self._refresh_operator_view()
+            return True
+        dec_match = re.search(r"(?:减速度|减速|dec)(?:改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)%?", compact, re.IGNORECASE)
+        if dec_match:
+            dec = max(5.0, min(150.0, float(dec_match.group(1))))
+            changed = self._operator_update_pending_confirm_records(plan, {"dec_pct": dec})
+            if not changed:
+                return self._operator_reject_pending_confirm_param_modify("减速度")
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
+            text_out = f"已将待确认计划减速度调整为{dec:g}%。请再次确认执行。"
+            self._operator_prepare_plan_prechecks(plan)
+            self.status_label.setText(text_out)
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
+            self._refresh_operator_view()
+            return True
         speed_match = re.search(r"(?:速度|速率|spd)(?:改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)%?", compact, re.IGNORECASE)
         if speed_match:
             speed = max(5.0, min(150.0, float(speed_match.group(1))))
@@ -4128,7 +4809,7 @@ class OperatorUiMixin:
                 {"spd_pct": speed, "acc_pct": speed, "dec_pct": speed},
             )
             if not changed:
-                return False
+                return self._operator_reject_pending_confirm_param_modify("速度")
             self._operator_sync_compound_step_params_from_confirm_plan(plan)
             text_out = f"已将待确认计划速度调整为{speed:g}%，加速度和减速度同步为{speed:g}%。请再次确认执行。"
             self._operator_prepare_plan_prechecks(plan)
@@ -4142,7 +4823,7 @@ class OperatorUiMixin:
             step = max(0.1, float(step_match.group(1)))
             changed = self._operator_update_pending_confirm_records(plan, {"pos_val": step})
             if not changed:
-                return False
+                return self._operator_reject_pending_confirm_param_modify("步长")
             self._operator_sync_compound_step_params_from_confirm_plan(plan)
             text_out = f"已将待确认计划步长调整为{step:g}。请再次确认执行。"
             self._operator_prepare_plan_prechecks(plan)
@@ -4152,6 +4833,63 @@ class OperatorUiMixin:
             self._refresh_operator_view()
             return True
         return False
+
+    def _operator_reject_pending_confirm_param_modify(self, param_label: str) -> bool:
+        label = str(param_label or "该").strip()
+        text_out = (
+            f"当前待确认步骤不包含{label}参数，未修改右侧待确认计划。"
+            "如果要修改其他步骤，请说“取消指令”后重新生成流程，或明确说“第几步参数改为多少”。"
+        )
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(text_out))
+        self._operator_add_chat_message("assistant", text_out)
+        self._append_log("用户页面", "确认阶段修改参数", "失败", text_out)
+        self._refresh_operator_view()
+        return True
+
+    @staticmethod
+    def _operator_pending_confirm_query_requested(compact: str) -> bool:
+        return any(
+            keyword in compact
+            for keyword in (
+                "当前参数",
+                "运动参数",
+                "待确认参数",
+                "现在参数",
+                "参数是哪些",
+                "参数是什么",
+                "这个计划",
+                "待确认计划",
+            )
+        ) and not any(keyword in compact for keyword in ("改为", "改成", "设为", "设置为"))
+
+    def _operator_pending_confirm_params_text(self, plan) -> str:
+        records = getattr(plan, "atomic_records", {}) or {}
+        lines = ["当前待确认计划参数："]
+        found = False
+        for key, record in records.items():
+            params = getattr(record, "params", None)
+            if not isinstance(params, dict) or not params:
+                continue
+            desc = str(getattr(record, "description", "") or key or "步骤")
+            func_id = getattr(record, "func_num", None)
+            title = f"{desc}"
+            if func_id is not None:
+                title += f" Func{func_id}"
+            lines.append(f"- {title}：{self._operator_format_params_inline(params)}")
+            found = True
+        draft = getattr(plan, "flow_draft", None)
+        if not found and isinstance(draft, dict):
+            params = draft.get("params")
+            if isinstance(params, dict) and params:
+                func_id = draft.get("func_id") or draft.get("func_num")
+                title = f"Func{func_id}" if func_id is not None else "Agent草案"
+                lines.append(f"- {title}：{self._operator_format_params_inline(params)}")
+                found = True
+        if not found:
+            return ""
+        lines.append("请确认执行、继续修改参数，或取消指令。")
+        return "\n".join(lines)
 
     def _operator_sync_compound_step_params_from_confirm_plan(self, plan) -> bool:
         draft = getattr(plan, "flow_draft", None)
@@ -4194,6 +4932,14 @@ class OperatorUiMixin:
                 if key in params:
                     params[key] = float(value)
                     changed = True
+        draft = getattr(plan, "flow_draft", None)
+        if isinstance(draft, dict):
+            params = draft.get("params")
+            if isinstance(params, dict):
+                for key, value in updates.items():
+                    if key in params:
+                        params[key] = float(value)
+                        changed = True
         return changed
 
     def _operator_handle_button_voice_command(self, text: str) -> bool:
@@ -6531,6 +7277,7 @@ class OperatorUiMixin:
         suggestion_lines = self._operator_confirm_suggestion_lines(plan)
         if suggestion_lines:
             body_parts.append(self._operator_confirm_note_html("可采纳安全建议", suggestion_lines))
+        body_parts.append(self._operator_confirm_mode_hint_html())
         return self._operator_confirm_html_shell("".join(body_parts))
 
     def _operator_plain_confirm_detail_html(self) -> str:
@@ -6539,7 +7286,9 @@ class OperatorUiMixin:
             return self._operator_confirm_html_shell("<p class='muted'>当前没有需要确认的指令。</p>")
         title = html.escape(lines[0])
         paragraphs = "".join(f"<p>{html.escape(line)}</p>" for line in lines[1:])
-        return self._operator_confirm_html_shell(f"<div class='subtitle'>{title}</div>{paragraphs}")
+        return self._operator_confirm_html_shell(
+            f"<div class='subtitle'>{title}</div>{paragraphs}{self._operator_confirm_mode_hint_html()}"
+        )
 
     def _operator_confirm_precheck_html(self, precheck: dict[str, object]) -> str:
         valid = precheck.get("valid")
@@ -6630,6 +7379,15 @@ class OperatorUiMixin:
     def _operator_confirm_note_html(title: str, lines: list[str]) -> str:
         items = "".join(f"<li>{html.escape(line)}</li>" for line in lines)
         return f"<div class='section'><div class='section-title'>{html.escape(title)}</div><ul>{items}</ul></div>"
+
+    @staticmethod
+    def _operator_confirm_mode_hint_html() -> str:
+        return (
+            "<div class='section mode-hint'>"
+            "<div class='section-title'>当前模式：等待确认</div>"
+            "<p>可以说：确认执行、取消指令、速度改为50%、加速度改为50%、现在的运动参数是哪些</p>"
+            "</div>"
+        )
 
     @staticmethod
     def _operator_confirm_html_shell(body: str) -> str:
@@ -7201,6 +7959,36 @@ class OperatorUiMixin:
         self._operator_begin_streaming_chat_response()
         return True
 
+    def _operator_maybe_begin_agent_processing_response(self, text: str) -> bool:
+        if getattr(self, "_operator_streaming_chat_active", False):
+            return True
+        try:
+            enabled = bool(self._operator_agent_llm_fallback_enabled())
+        except Exception:
+            enabled = False
+        if not enabled:
+            return False
+        self._operator_begin_agent_processing_response(text)
+        self._operator_process_pending_ui_events()
+        return True
+
+    def _operator_begin_agent_processing_response(self, text: str) -> None:
+        self._operator_begin_streaming_chat_response(
+            initial_steps=["正在理解上下文", "读取当前对话和流程状态", "等待 AI 上下文解释"],
+            final_steps=["识别上下文意图", "本地安全策略复核", "生成可执行前提示，未直接控制机械手"],
+        )
+        if hasattr(self, "status_label"):
+            self.status_label.setText("正在结合上下文理解指令，请稍候。")
+
+    @staticmethod
+    def _operator_process_pending_ui_events() -> None:
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.processEvents()
+        except Exception:
+            pass
+
     @staticmethod
     def _operator_text_looks_like_streaming_chat(text: str) -> bool:
         compact = re.sub(r"\s+", "", text or "")
@@ -7232,7 +8020,12 @@ class OperatorUiMixin:
         production_verbs = ("去", "移动", "回零", "急停", "暂停", "继续", "执行", "保存", "上升", "下降", "左移", "右移")
         return not any(verb in compact for verb in production_verbs)
 
-    def _operator_begin_streaming_chat_response(self) -> None:
+    def _operator_begin_streaming_chat_response(
+        self,
+        *,
+        initial_steps: list[str] | None = None,
+        final_steps: list[str] | None = None,
+    ) -> None:
         self._operator_streaming_chat_active = True
         self._operator_streaming_chat_text = ""
         self._operator_streaming_chat_pending_chars = []
@@ -7242,6 +8035,8 @@ class OperatorUiMixin:
         self._operator_streaming_chat_started_sec = self._operator_now_seconds()
         self._operator_streaming_chat_last_render_sec = 0.0
         self._operator_streaming_chat_render_pending = False
+        self._operator_streaming_chat_initial_steps_override = list(initial_steps) if initial_steps else None
+        self._operator_streaming_chat_final_steps_override = list(final_steps) if final_steps else None
         if not hasattr(self, "_operator_chat_messages"):
             self._operator_chat_messages = []
         if not hasattr(self, "_operator_chat_thinking_steps"):
@@ -7381,13 +8176,17 @@ class OperatorUiMixin:
     def _operator_streaming_chat_thinking_hint() -> str:
         return "正在整理资料，请稍候..."
 
-    @staticmethod
-    def _operator_streaming_chat_initial_steps() -> list[str]:
+    def _operator_streaming_chat_initial_steps(self) -> list[str]:
+        override = getattr(self, "_operator_streaming_chat_initial_steps_override", None)
+        if isinstance(override, list) and override:
+            return [str(item) for item in override]
         return ["正在思考", "识别为普通问答", "检索本地资料"]
 
-    @staticmethod
-    def _operator_streaming_chat_final_steps() -> list[str]:
-        return ["识别为普通问答", "基于本地资料整理回答", "DeepSeek 生成回答，未触发机械手动作"]
+    def _operator_streaming_chat_final_steps(self) -> list[str]:
+        override = getattr(self, "_operator_streaming_chat_final_steps_override", None)
+        if isinstance(override, list) and override:
+            return [str(item) for item in override]
+        return ["识别为普通问答", "基于本地资料整理回答", "AI 生成回答，未触发机械手动作"]
 
     @staticmethod
     def _operator_streaming_chat_render_interval_seconds() -> float:

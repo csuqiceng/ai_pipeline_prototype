@@ -71,6 +71,39 @@ class AgentPlanAdapter:
                 nlp_engine="agent_orchestrator",
             )
 
+        structured_llm_kinds = {
+            "flow_create",
+            "flow_append_step",
+            "flow_modify_step",
+            "flow_list",
+            "flow_query",
+            "confirm_modify",
+            "dashboard_query",
+            "command_candidate",
+            "suggestion",
+        }
+        if getattr(result, "kind", "") in structured_llm_kinds:
+            payload = getattr(result, "payload", {}) or {}
+            understanding = payload.get("understanding") if isinstance(payload, dict) else {}
+            raw_text = ""
+            if isinstance(understanding, dict):
+                raw_text = str(understanding.get("raw_text", "") or "")
+            reason = str(getattr(result, "message", "") or "已结合上下文识别到用户意图，请继续补充或确认。")
+            return VoiceNlpPlan(
+                actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", raw_text, reason),),
+                source="agent_orchestrator",
+                raw_text=raw_text,
+                reason=reason,
+                semantic_level=1,
+                semantic_label="上下文解释层",
+                response_deadline_ms=500,
+                requires_precheck=False,
+                requires_confirmation=False,
+                priority="normal",
+                nlp_engine="agent_orchestrator",
+                flow_draft={"llm_context_intent": payload.get("llm_context_intent", {})} if isinstance(payload, dict) else {},
+            )
+
         if getattr(result, "kind", "") == "compound_plan_draft":
             expanded_steps = _compound_expanded_steps(result)
             safe_to_execute = bool(expanded_steps) and len(expanded_steps) == len(getattr(result, "steps", ()) or ())

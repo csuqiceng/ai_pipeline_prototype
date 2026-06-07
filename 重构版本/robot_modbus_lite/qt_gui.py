@@ -239,8 +239,8 @@ class RobotQtWindow(OperatorUiMixin, GuiUiMixin, TemplateMixin, FlowManagementMi
         self._refresh_microphone_devices()
         self._load_initial_record()
         self._refresh_all()
-        self._check_connection()
-        self._start_realtime_polling()
+        QTimer.singleShot(0, self._check_connection)
+        QTimer.singleShot(0, self._start_realtime_polling)
 
     def _apply_app_icon(self) -> None:
         icon_path = _resolve_app_icon_path()

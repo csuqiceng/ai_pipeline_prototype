@@ -190,6 +190,458 @@ def test_operator_pending_clarification_answer_updates_flow_draft(tmp_path):
     assert service.current_clarification() is None
 
 
+def make_context_operator(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy.chat_messages = []
+    dummy.logs = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: dummy.chat_messages.append((role, text, kwargs))
+    dummy._append_log = lambda *args, **kwargs: dummy.logs.append(args)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prepared_plan", plan)
+    dummy._operator_publish_ai_answer_for_speech = lambda text: setattr(dummy, "spoken_answer", text)
+    return dummy
+
+
+def test_operator_pending_confirm_can_modify_acceleration_only(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    record = QueryRecord(
+        query_key="move",
+        func_num=108,
+        params={
+            "target_x": 100.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 60.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
+        },
+        description="移动",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+        atomic_records={"move": record},
+    )
+
+    handled = dummy._handle_operator_ui_command("我想把加速度改为 50%。")
+
+    assert handled is True
+    assert record.params["spd_pct"] == 60.0
+    assert record.params["acc_pct"] == 50.0
+    assert record.params["dec_pct"] == 60.0
+    assert "加速度" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_confirm_answers_current_motion_params(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    record = QueryRecord(
+        query_key="move",
+        func_num=108,
+        params={"target_x": 100.0, "target_y": 0.0, "target_z": 0.0, "spd_pct": 60.0, "acc_pct": 50.0, "dec_pct": 40.0},
+        description="移动",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+        atomic_records={"move": record},
+    )
+
+    handled = dummy._handle_operator_ui_command("现在的运动参数是哪些？")
+
+    assert handled is True
+    answer = dummy.chat_messages[-1][1]
+    assert "当前待确认计划" in answer
+    assert "target_x=100" in answer
+    assert "spd_pct=60" in answer
+    assert "acc_pct=50" in answer
+
+
+def test_operator_saved_flow_append_request_creates_edit_context_and_followup_updates_step(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.table["move_a"] = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        params={
+            "target_x": 10.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+            "move_type": 0,
+        },
+        description="移动到A",
+    )
+    dummy.service.save_flow(FlowDefinition(name="测试", steps=("move_a",), step_delay_ms=500))
+    dummy.current_flow_name = "测试"
+
+    handled = dummy._handle_operator_ui_command("我想在这个测试流程后面添加一个移动到位置 a。")
+
+    assert handled is True
+    draft = dummy._operator_pending_flow_draft
+    assert draft["flow_name"] == "测试"
+    assert len(draft["expanded_steps"]) == 2
+    assert dummy._operator_execution_plan_service().current_clarification() is not None
+
+    handled = dummy._handle_operator_ui_command("X100 Y0 Z0 RX0 RY0 RZ0")
+
+    assert handled is True
+    updated = dummy._operator_pending_flow_draft
+    params = updated["expanded_steps"][1]["params"]
+    assert params["target_x"] == 100.0
+    assert params["target_z"] == 0.0
+
+
+def test_operator_llm_flow_append_intent_enters_saved_flow_edit_context(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.table["move_a"] = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        params={
+            "target_x": 10.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+            "move_type": 0,
+        },
+        description="移动到A",
+    )
+    dummy.service.save_flow(FlowDefinition(name="测试", steps=("move_a",), step_delay_ms=500))
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "添加位置A", "我理解你要追加一步。"),),
+        source="agent_orchestrator",
+        raw_text="添加位置A",
+        reason="我理解你要追加一步。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "flow_append_step",
+                "target_flow": "测试",
+                "step_hint": "移动到位置A",
+                "missing_fields": ["target_pose"],
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    draft = dummy._operator_pending_flow_draft
+    assert draft["flow_name"] == "测试"
+    assert len(draft["expanded_steps"]) == 2
+    assert dummy._operator_execution_plan_service().current_clarification() is not None
+
+
+def test_operator_llm_confirm_modify_intent_updates_pending_confirmation(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    record = QueryRecord(
+        query_key="move",
+        func_num=108,
+        params={"target_x": 100.0, "spd_pct": 60.0, "acc_pct": 60.0, "dec_pct": 60.0},
+        description="移动",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+        atomic_records={"move": record},
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "加速度调低", "已识别为修改待确认参数。"),),
+        source="agent_orchestrator",
+        raw_text="加速度调低",
+        reason="已识别为修改待确认参数。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "confirm_modify",
+                "field": "acc_pct",
+                "value_text": "50%",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert record.params["spd_pct"] == 60.0
+    assert record.params["acc_pct"] == 50.0
+    assert record.params["dec_pct"] == 60.0
+    assert "加速度" in dummy.chat_messages[-1][1]
+
+
+def test_operator_llm_flow_query_intent_shows_saved_flow(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.table["move_a"] = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        params={"target_x": 10.0, "target_y": 0.0, "target_z": 0.0, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+        description="移动到A",
+    )
+    dummy.service.save_flow(FlowDefinition(name="测试", steps=("move_a",), step_delay_ms=500))
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "看测试流程", "已识别为流程查询。"),),
+        source="agent_orchestrator",
+        raw_text="看测试流程",
+        reason="已识别为流程查询。",
+        flow_draft={"llm_context_intent": {"kind": "flow_query", "target_flow": "测试"}},
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    answer = dummy.chat_messages[-1][1]
+    assert "流程 测试" in answer
+    assert "移动到A" in answer
+
+
+def test_operator_flow_list_query_lists_all_saved_flows(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
+    dummy.service.save_flow(FlowDefinition(name="打招呼", steps=(), step_delay_ms=500))
+
+    handled = dummy._handle_operator_ui_command("现在有哪些流程")
+
+    assert handled is True
+    answer = dummy.chat_messages[-1][1]
+    assert "当前共有 2 个流程" in answer
+    assert "点头" in answer
+    assert "打招呼" in answer
+    assert "查看" in answer
+    assert "执行" in answer
+
+
+def test_operator_flow_count_query_uses_flow_list_not_dashboard_status(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
+    dummy._operator_handle_dashboard_query = lambda text: (_ for _ in ()).throw(AssertionError("should not route to dashboard"))
+
+    handled = dummy._handle_operator_ui_command("我要你看看总共有多少个流程")
+
+    assert handled is True
+    assert "当前共有 1 个流程" in dummy.chat_messages[-1][1]
+
+
+def test_operator_llm_flow_list_intent_lists_all_saved_flows(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "有哪些流程", "已识别为流程列表查询。"),),
+        source="agent_orchestrator",
+        raw_text="有哪些流程",
+        reason="已识别为流程列表查询。",
+        flow_draft={"llm_context_intent": {"kind": "flow_list"}},
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert "当前共有 1 个流程" in dummy.chat_messages[-1][1]
+    assert "点头" in dummy.chat_messages[-1][1]
+
+
+def test_operator_llm_flow_create_intent_starts_empty_flow_draft(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "创建测试流程", "已识别为创建流程。"),),
+        source="agent_orchestrator",
+        raw_text="创建测试流程",
+        reason="已识别为创建流程。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "flow_create",
+                "flow_name": "测试流程",
+                "suggested_reply": "已开始创建测试流程，请继续添加步骤。",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    draft = dummy._operator_pending_flow_draft
+    assert draft["flow_name"] == "测试流程"
+    assert draft["expanded_steps"] == []
+    answer = dummy.chat_messages[-1][1]
+    assert "怎么添加步骤" in answer
+    assert "例如" in answer
+    assert "保存并执行" in answer
+
+
+def test_operator_llm_flow_modify_step_intent_updates_pending_flow_draft(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "第二步加速度30", "已识别为修改流程步骤。"),),
+        source="agent_orchestrator",
+        raw_text="第二步加速度30",
+        reason="已识别为修改流程步骤。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "flow_modify_step",
+                "step_index": 2,
+                "field": "acc_pct",
+                "value_text": "30%",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    params = dummy._operator_pending_flow_draft["expanded_steps"][1]["params"]
+    assert params["spd_pct"] == 50.0
+    assert params["acc_pct"] == 30.0
+    assert params["dec_pct"] == 50.0
+
+
+def test_operator_llm_dashboard_query_intent_uses_local_dashboard_query(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    called = []
+    dummy._operator_handle_dashboard_query = lambda text: called.append(text) or True
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "现在状态怎么样", "已识别为状态查询。"),),
+        source="agent_orchestrator",
+        raw_text="现在状态怎么样",
+        reason="已识别为状态查询。",
+        flow_draft={"llm_context_intent": {"kind": "dashboard_query", "query_text": "现在状态怎么样"}},
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert called == ["现在状态怎么样"]
+
+
+def test_operator_llm_suggestion_intent_is_answer_only(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "建议怎么做", "已识别为建议。"),),
+        source="agent_orchestrator",
+        raw_text="建议怎么做",
+        reason="已识别为建议。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "suggestion",
+                "suggested_reply": "建议先暂停当前流程，再修改第二步参数。",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "_operator_pending_flow_draft", None) is None
+    assert "先暂停当前流程" in dummy.chat_messages[-1][1]
+
+
+def test_operator_llm_command_candidate_reenters_local_confirmation_path(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    candidate_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "restricted_agent", "小正，X100", "等待确认"),),
+        source="restricted_agent",
+        raw_text="小正，X100",
+        reason="等待确认",
+        requires_confirmation=True,
+        atomic_records={
+            "move": QueryRecord(
+                query_key="move",
+                func_num=108,
+                params={"target_x": 100.0, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+                description="移动",
+            )
+        },
+    )
+    dummy._operator_try_agent_orchestrator_plan = lambda text: candidate_plan if text == "小正，X100" else None
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "小正，去X100", "已识别为候选运动指令。"),),
+        source="agent_orchestrator",
+        raw_text="小正，去X100",
+        reason="已识别为候选运动指令。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "command_candidate",
+                "candidate_text": "小正，X100",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert dummy._operator_pending_confirm_plan is candidate_plan
+    assert "确认执行" in dummy.chat_messages[-1][1]
+
+
+def test_operator_llm_command_candidate_without_original_wake_word_is_rejected(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_try_agent_orchestrator_plan = lambda text: (_ for _ in ()).throw(AssertionError("should not parse candidate"))
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "去X100", "已识别为候选运动指令。"),),
+        source="agent_orchestrator",
+        raw_text="去X100",
+        reason="已识别为候选运动指令。",
+        flow_draft={
+            "llm_context_intent": {
+                "kind": "command_candidate",
+                "candidate_text": "小正，X100",
+            }
+        },
+    )
+
+    dummy._execute_nlp_plan(plan)
+
+    assert getattr(dummy, "_operator_pending_confirm_plan", None) is None
+    assert "缺少“小正或小兵”唤醒词" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_flow_draft_can_edit_step_acceleration_only(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    draft = flow_draft_payload()
+    dummy._operator_pending_flow_draft = draft
+
+    handled = dummy._handle_operator_ui_command("把第二步加速度改成30%")
+
+    assert handled is True
+    params = dummy._operator_pending_flow_draft["expanded_steps"][1]["params"]
+    assert params["spd_pct"] == 50.0
+    assert params["acc_pct"] == 30.0
+    assert params["dec_pct"] == 50.0
+
+
+def test_operator_pending_flow_draft_can_delete_last_step(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    draft = flow_draft_payload()
+    dummy._operator_pending_flow_draft = draft
+
+    handled = dummy._handle_operator_ui_command("删除最后一步")
+
+    assert handled is True
+    updated = dummy._operator_pending_flow_draft
+    assert len(updated["expanded_steps"]) == 2
+    assert updated["expanded_steps"][-1]["description"] == "小臂上下点头:Ry正转"
+
+
+def test_operator_running_pause_without_wake_word_uses_local_system_action(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.flow_running = True
+    dummy.actions = []
+    dummy._handle_system_action = lambda action: dummy.actions.append(action)
+
+    handled = dummy._handle_operator_ui_command("暂停。")
+
+    assert handled is True
+    assert dummy.actions == ["sys_pause"]
+    assert "暂停" in dummy.chat_messages[-1][1]
+
+
 def test_operator_save_flow_draft_allows_operator_to_create_flow_draft(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
     dummy._authenticated_role = "operator"
@@ -298,6 +750,28 @@ def test_operator_pending_flow_draft_save_and_execute_starts_saved_flow(tmp_path
     assert handled is True
     assert started == ["打招呼"]
     assert dummy.current_flow_name == "打招呼"
+
+
+def test_operator_empty_pending_flow_draft_save_failure_clears_stale_draft(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [],
+        "positions": {"home": [1475, 0, 1545, 0, 0, 0]},
+        "needs_precheck": True,
+    }
+    warnings = []
+    chats = []
+    dummy._show_warning = lambda title, text: warnings.append((title, text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+
+    handled = dummy._operator_handle_pending_flow_draft_command("保存并执行")
+
+    assert handled is True
+    assert dummy._operator_pending_flow_draft is None
+    assert "没有可保存的展开步骤" in dummy.status_text
+    assert warnings == []
+    assert chats == [("assistant", dummy.status_text)]
 
 
 def test_operator_pending_flow_draft_short_execute_starts_saved_flow(tmp_path):
@@ -803,6 +1277,71 @@ def test_operator_context_query_does_not_intercept_wake_flow_execution_command()
 
     assert handled is False
     assert chats == []
+
+
+def test_operator_context_query_warns_when_registered_flow_execution_lacks_wake_word():
+    dummy = DummyOperator()
+    chats = []
+    spoken = []
+    logs = []
+    flow = FlowDefinition(name="点头", steps=("step_a",), step_delay_ms=300)
+    dummy.service = SimpleNamespace(flow_registry=None, flows={"点头": flow})
+    dummy.table = {
+        "step_a": QueryRecord(
+            query_key="step_a",
+            func_num=108,
+            description="移动到位置A",
+            keywords="点头 第1步",
+            params={},
+        )
+    }
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_publish_ai_answer_for_speech = lambda text: spoken.append(text)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("执行点头流程")
+
+    assert handled is True
+    assert len(chats) == 1
+    assert "生产执行指令缺少“小正或小兵”唤醒词" in chats[0][1]
+    assert "小正，执行点头流程" in chats[0][1]
+    assert "小兵，执行点头流程" in chats[0][1]
+    assert "步骤流" not in chats[0][1]
+    assert spoken == [chats[0][1]]
+    assert any(entry[0:3] == ("自然语言", "缺少唤醒词", "提示") for entry in logs)
+
+
+def test_operator_context_query_warns_when_flow_execution_asr_says_zhixing_without_wake_word():
+    dummy = DummyOperator()
+    chats = []
+    spoken = []
+    logs = []
+    flow = FlowDefinition(name="点头", steps=("step_a",), step_delay_ms=300)
+    dummy.service = SimpleNamespace(flow_registry=None, flows={"点头": flow})
+    dummy.table = {
+        "step_a": QueryRecord(
+            query_key="step_a",
+            func_num=108,
+            description="移动到位置A",
+            keywords="点头 第1步",
+            params={},
+        )
+    }
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_publish_ai_answer_for_speech = lambda text: spoken.append(text)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("我想直行点头，流程。")
+
+    assert handled is True
+    assert "生产执行指令缺少“小正或小兵”唤醒词" in chats[0][1]
+    assert "步骤流" not in chats[0][1]
+    assert spoken == [chats[0][1]]
+    assert any(entry[0:3] == ("自然语言", "缺少唤醒词", "提示") for entry in logs)
 
 
 def test_operator_plain_registered_flow_execution_uses_local_flow_agent(tmp_path):
@@ -2021,6 +2560,8 @@ def test_operator_confirm_detail_html_groups_agent_parameters():
     assert "1000.0 mm" in html_text
     assert "继承安全参数" in html_text
     assert "确认有效期：剩余 46 秒。" in html_text
+    assert "当前模式：等待确认" in html_text
+    assert "可以说：确认执行、取消指令、速度改为50%、加速度改为50%、现在的运动参数是哪些" in html_text
     assert "confirm-bottom-spacer" in html_text
 
 
@@ -3904,6 +4445,40 @@ def test_operator_confirm_stage_modify_single_motion_updates_pending_record(tmp_
     assert logs[-1][1] == "确认阶段修改参数"
 
 
+def test_operator_confirm_stage_speed_modify_on_delay_step_does_not_route_to_dashboard(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    logs = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_handle_dashboard_query = lambda text: (_ for _ in ()).throw(AssertionError("should not route to dashboard"))
+    record = QueryRecord(
+        query_key="delay_2s",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="等待2秒",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "delay_2s", "compound_step", "", "第2步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第2步",
+        requires_confirmation=True,
+        atomic_records={"delay_2s": record},
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 1},
+    )
+
+    handled = dummy._handle_operator_ui_command("速度改为30%")
+
+    assert handled is True
+    assert record.params == {"delay_sec": 2.0}
+    assert "当前待确认步骤不包含速度参数" in chats[-1][1]
+    assert getattr(dummy, "refreshed", False) is True
+    assert logs[-1][1] == "确认阶段修改参数"
+
+
 def test_operator_compound_step_machine_text_shows_blocked_reason():
     text = DummyOperator._operator_compound_step_machine_text(
         {
@@ -4037,6 +4612,136 @@ def test_operator_maybe_begin_streaming_chat_starts_immediately_for_deepseek_cha
     assert dummy._operator_chat_thinking_meta[-1]["active"] is True
 
 
+def test_operator_execute_text_shows_agent_processing_hint_before_sync_parse():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_process_pending_ui_events = lambda: setattr(dummy, "processed_ui_events", True)
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "我想在流程后面加一步", setPlainText=lambda _text: None)
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_set_pending_confirm_plan = lambda plan: None
+    dummy._operator_agent_llm_fallback_enabled = lambda: True
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._set_nlp_result_plan = lambda plan: setattr(dummy, "nlp_result_plan", plan)
+    dummy._execute_nlp_plan = lambda plan: setattr(dummy, "executed_plan", plan)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "我想在流程后面加一步", "请补充步骤。"),),
+        source="agent_orchestrator",
+        raw_text="我想在流程后面加一步",
+        reason="请补充步骤。",
+    )
+
+    def try_plan(text):
+        assert dummy._operator_streaming_chat_active is True
+        assert dummy._operator_chat_messages == [("assistant", "")]
+        assert dummy._operator_chat_thinking_steps[-1] == ["正在理解上下文", "读取当前对话和流程状态", "等待 AI 上下文解释"]
+        assert getattr(dummy, "processed_ui_events", False) is True
+        return plan
+
+    dummy._operator_try_agent_orchestrator_plan = try_plan
+
+    dummy._execute_nlp_text()
+
+    assert dummy.executed_plan is plan
+
+
+def test_operator_execute_text_schedules_agent_parse_in_background_when_deepseek_enabled():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_process_pending_ui_events = lambda: setattr(dummy, "processed_ui_events", True)
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "小正，帮我理解这个流程", setPlainText=lambda _text: None)
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_set_pending_confirm_plan = lambda plan: None
+    dummy._operator_agent_llm_fallback_enabled = lambda: True
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._set_nlp_result_plan = lambda plan: setattr(dummy, "nlp_result_plan", plan)
+    dummy._execute_nlp_plan = lambda plan: setattr(dummy, "executed_plan", plan)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("chat", None, "agent_orchestrator", "小正，帮我理解这个流程", "这是流程说明。"),),
+        source="agent_orchestrator",
+        raw_text="小正，帮我理解这个流程",
+        reason="这是流程说明。",
+    )
+    background = {}
+
+    def run_in_background(work_fn, done_fn):
+        background["work_fn"] = work_fn
+        background["done_fn"] = done_fn
+
+    dummy._run_in_background = run_in_background
+    dummy._operator_try_agent_orchestrator_plan = lambda text: plan
+
+    dummy._execute_nlp_text()
+
+    assert "work_fn" in background
+    assert getattr(dummy, "executed_plan", None) is None
+    assert dummy._operator_streaming_chat_active is True
+    assert dummy._operator_chat_messages == [("assistant", "")]
+
+    result = background["work_fn"]()
+    background["done_fn"](result)
+
+    assert dummy.executed_plan is plan
+    assert dummy.nlp_result_plan is plan
+
+
+def test_operator_parse_text_schedules_agent_parse_in_background_when_deepseek_enabled():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_process_pending_ui_events = lambda: None
+    dummy.nlp_input_edit = SimpleNamespace(toPlainText=lambda: "这个流程是什么", setPlainText=lambda _text: None)
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_agent_llm_fallback_enabled = lambda: True
+    dummy._set_nlp_parse_busy = lambda busy: setattr(dummy, "parse_busy", busy)
+    dummy._set_nlp_result_plan = lambda plan: setattr(dummy, "nlp_result_plan", plan)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._append_log = lambda *args, **kwargs: None
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("chat", None, "agent_orchestrator", "这个流程是什么", "流程说明"),),
+        source="agent_orchestrator",
+        raw_text="这个流程是什么",
+        reason="流程说明",
+    )
+    background = {}
+    dummy._run_in_background = lambda work_fn, done_fn: background.update(work_fn=work_fn, done_fn=done_fn)
+    dummy._operator_try_agent_orchestrator_plan = lambda text: plan
+
+    dummy._parse_nlp_text()
+
+    assert "work_fn" in background
+    assert getattr(dummy, "nlp_result_plan", None) is None
+    background["done_fn"](background["work_fn"]())
+
+    assert dummy.nlp_result_plan is plan
+    assert dummy.parse_busy is False
+    assert "解析完成" in dummy.status_text
+
+
+def test_operator_agent_processing_hint_is_replaced_by_final_answer():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    dummy._operator_begin_agent_processing_response("测试输入")
+    dummy._operator_finish_streaming_chat_response("已进入流程编辑，请补充坐标。")
+
+    assert dummy._operator_chat_messages == [("assistant", "已进入流程编辑，请补充坐标。")]
+    assert dummy._operator_chat_thinking_meta[-1]["active"] is False
+    assert dummy._operator_chat_thinking_steps[-1] == ["识别上下文意图", "本地安全策略复核", "生成可执行前提示，未直接控制机械手"]
+
+
 def test_operator_streaming_chat_callback_reuses_existing_thinking_bubble():
     dummy = DummyOperator()
     dummy._operator_chat_messages = []
@@ -4094,7 +4799,7 @@ def test_operator_streaming_chat_finish_keeps_collapsed_process_summary():
 
     assert dummy._operator_chat_messages == [("assistant", "我是问答助手。")]
     assert dummy._operator_chat_thinking_steps == [
-        ["识别为普通问答", "基于本地资料整理回答", "DeepSeek 生成回答，未触发机械手动作"]
+        ["识别为普通问答", "基于本地资料整理回答", "AI 生成回答，未触发机械手动作"]
     ]
     assert dummy._operator_chat_thinking_meta[-1] == {"active": False, "elapsed_sec": 4}
 
@@ -4106,7 +4811,7 @@ def test_operator_ai_chat_row_contains_collapsible_process_summary():
     row = dummy._build_operator_chat_row(
         "assistant",
         "我是问答助手。",
-        thinking_steps=["识别为普通问答", "基于本地资料整理回答", "DeepSeek 生成回答，未触发机械手动作"],
+        thinking_steps=["识别为普通问答", "基于本地资料整理回答", "AI 生成回答，未触发机械手动作"],
         thinking_meta={"active": False, "elapsed_sec": 4},
     )
 
@@ -4470,10 +5175,10 @@ def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():
     dummy._operator_archive_execution_result = lambda *args, **kwargs: None
     dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "busy", busy)
     plan = VoiceNlpPlan(
-        actions=(VoiceNlpAction("unknown", None, "rule", "位置A的参数是什么样的", "生产指令缺少“小正”唤醒词，未执行"),),
+        actions=(VoiceNlpAction("unknown", None, "rule", "位置A的参数是什么样的", "生产指令缺少“小正或小兵”唤醒词，未执行"),),
         source="rule",
         raw_text="位置A的参数是什么样的",
-        reason="生产指令缺少“小正”唤醒词，未执行",
+        reason="生产指令缺少“小正或小兵”唤醒词，未执行",
         semantic_level=3,
         semantic_label="生产指令",
     )
@@ -4481,8 +5186,8 @@ def test_operator_unknown_nlp_plan_is_shown_in_chat_without_modal_warning():
     dummy._execute_nlp_plan(plan)
 
     assert warnings == []
-    assert chats == [("assistant", "生产指令缺少“小正”唤醒词，未执行。没有触发机械手动作。")]
-    assert spoken == ["生产指令缺少“小正”唤醒词，未执行。没有触发机械手动作。"]
+    assert chats == [("assistant", "生产指令缺少“小正或小兵”唤醒词，未执行。没有触发机械手动作。")]
+    assert spoken == ["生产指令缺少“小正或小兵”唤醒词，未执行。没有触发机械手动作。"]
     assert dummy.busy is False
 
 
@@ -6727,6 +7432,43 @@ def test_operator_confirm_execute_blocks_failed_l3_process_precheck():
     assert status_messages[-1] == "L3流程预演未通过，已拒绝执行。"
     assert "目标 X 超出软限位" in chat_messages[-1][1]
     assert log_args(logs[-1])[0:3] == ("流程预演", "确认执行", "拒绝")
+
+
+def test_operator_confirm_execute_runs_confirmed_flow_without_reconfirming():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "点头", "rule", "小兵，执行点头流程", "命中流程规则"),),
+        source="rule",
+        raw_text="小兵，执行点头流程",
+        reason="命中流程规则",
+        requires_confirmation=True,
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    run_calls = []
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "unavailable", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._run_next_nlp_action = lambda: run_calls.append(tuple(dummy._nlp_pending_actions))
+
+    dummy._operator_confirm_execute()
+
+    assert getattr(dummy, "_operator_pending_confirm_plan") is None
+    assert getattr(dummy, "execute_busy") is True
+    assert run_calls
+    assert run_calls[0][0].action_type == "flow"
+    assert run_calls[0][0].target == "点头"
+    assert "确认收到" in status_messages[-1]
+    assert not any(log_args(entry)[0:3] == ("用户页面", "等待确认", "提示") for entry in logs)
 
 
 def test_operator_l3_summary_mentions_flow_midpoint_suggestion():

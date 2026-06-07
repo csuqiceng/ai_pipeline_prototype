@@ -1,5 +1,6 @@
 from robot_modbus_lite.agent.chat_explanation import ChatExplanationAgent
 from robot_modbus_lite.agent.orchestrator import AgentOrchestrator, AgentOrchestratorResult
+from robot_modbus_lite.agent.plan_adapter import AgentPlanAdapter
 
 
 def test_orchestrator_returns_unknown_for_plain_chat_when_chat_agent_disabled():
@@ -101,6 +102,40 @@ def test_orchestrator_llm_fallback_clarification_is_not_executed():
     assert result.payload["llm_fallback"]["kind"] == "clarification"
 
 
+def test_orchestrator_llm_fallback_returns_structured_context_intent_as_non_executable_answer():
+    class FakeRestrictedService:
+        def parse(self, text):
+            raise AssertionError(f"should not execute structured llm intent: {text}")
+
+    class FakeLlmFallbackAgent:
+        def apply(self, text, understanding):
+            return {
+                "kind": "flow_append_step",
+                "target_flow": "测试",
+                "step_hint": "移动到位置A",
+                "missing_fields": ["target_pose"],
+                "suggested_reply": "我理解你要给测试流程追加一步，请补充位置A坐标。",
+                "confidence": 0.88,
+            }
+
+    orchestrator = AgentOrchestrator(
+        restricted_service=FakeRestrictedService(),
+        chat_agent=None,
+        llm_fallback_agent=FakeLlmFallbackAgent(),
+        llm_fallback_enabled=True,
+    )
+
+    result = orchestrator.handle("我想在测试流程后面添加一个移动到位置A")
+
+    assert result.kind == "flow_append_step"
+    assert "补充位置A坐标" in result.message
+    assert result.payload["llm_context_intent"]["target_flow"] == "测试"
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+    assert plan.actions[0].action_type == "clarification"
+    assert plan.reason == result.message
+
+
 def test_orchestrator_llm_fallback_rejects_direct_execution_payloads():
     class FakeRestrictedService:
         def parse(self, text):
@@ -172,6 +207,46 @@ def test_orchestrator_routes_confirmation_explanation_to_chat_agent():
 
     assert result.kind == "chat_answer"
     assert "核对" in result.message
+
+
+def test_orchestrator_prefers_enabled_llm_context_for_unknown_before_local_chat():
+    class FakeLlmFallbackAgent:
+        def apply(self, text, understanding):
+            return {
+                "kind": "chat_answer",
+                "suggested_reply": "DeepSeek结合上下文回答。",
+                "confidence": 0.9,
+            }
+
+    orchestrator = AgentOrchestrator(
+        restricted_service=None,
+        chat_agent=ChatExplanationAgent(),
+        llm_fallback_agent=FakeLlmFallbackAgent(),
+        llm_fallback_enabled=True,
+    )
+
+    result = orchestrator.handle("你是谁")
+
+    assert result.kind == "chat_answer"
+    assert result.message == "DeepSeek结合上下文回答。"
+
+
+def test_orchestrator_falls_back_to_local_chat_when_early_llm_rejected():
+    class FakeLlmFallbackAgent:
+        def apply(self, text, understanding):
+            return {"kind": "rejected", "reason": "invalid_json"}
+
+    orchestrator = AgentOrchestrator(
+        restricted_service=None,
+        chat_agent=ChatExplanationAgent(),
+        llm_fallback_agent=FakeLlmFallbackAgent(),
+        llm_fallback_enabled=True,
+    )
+
+    result = orchestrator.handle("你是谁")
+
+    assert result.kind == "chat_answer"
+    assert "机械手自然语言交互助手" in result.message
 
 
 def test_orchestrator_routes_atomic_capability_question_to_chat_agent():
