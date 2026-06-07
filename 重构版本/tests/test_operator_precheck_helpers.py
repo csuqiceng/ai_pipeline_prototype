@@ -479,6 +479,135 @@ def test_operator_llm_flow_create_intent_starts_empty_flow_draft(tmp_path):
     assert "保存并执行" in answer
 
 
+def test_operator_text_new_flow_starts_local_flow_draft_without_engineer_fallback(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_handle_engineer_voice_command_spec = (
+        lambda text: (_ for _ in ()).throw(AssertionError("should not route to engineer voice command"))
+    )
+
+    handled = dummy._handle_operator_ui_command("新建一个流程")
+
+    assert handled is True
+    draft = dummy._operator_pending_flow_draft
+    assert draft["flow_name"] == "未命名流程"
+    assert draft["expanded_steps"] == []
+    answer = dummy.chat_messages[-1][1]
+    assert "已开始创建流程草案" in answer
+    assert "怎么添加步骤" in answer
+    assert "移动到位置A" in answer
+
+
+def test_operator_add_flow_phrase_starts_local_flow_draft(tmp_path):
+    dummy = make_context_operator(tmp_path)
+
+    handled = dummy._handle_operator_ui_command("我想添加流程")
+
+    assert handled is True
+    assert dummy._operator_pending_flow_draft["flow_name"] == "未命名流程"
+    assert dummy._operator_pending_flow_creation_followup is True
+    assert "已开始创建流程草案" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_flow_draft_can_rename_from_followup(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "未命名流程",
+        "expanded_steps": [],
+        "positions": [],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("新流程叫测试")
+
+    assert handled is True
+    assert dummy._operator_pending_flow_draft["flow_name"] == "测试"
+    assert "流程名称已改为“测试”" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_flow_draft_appends_missing_position_step(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [],
+        "positions": [],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("移动到位置a")
+
+    assert handled is True
+    step = dummy._operator_pending_flow_draft["expanded_steps"][0]
+    assert step["description"] == "移动到位置a"
+    assert step["func_id"] == 108
+    assert step["target_label"] == "A"
+    assert "请补充位置A的坐标" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_flow_draft_coordinate_answer_updates_missing_position_not_dashboard(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_handle_dashboard_query = (
+        lambda text: (_ for _ in ()).throw(AssertionError("should not route to dashboard"))
+    )
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "move_position",
+                "func_id": 108,
+                "target_label": "A",
+                "description": "移动到位置A",
+                "params": {
+                    "spd_pct": 50.0,
+                    "acc_pct": 50.0,
+                    "dec_pct": 50.0,
+                    "move_type": 0,
+                },
+            }
+        ],
+        "positions": [],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("那位置a x=475，y=0，z=545，rx=0，ry=0，rz=0；速度=30%")
+
+    assert handled is True
+    step = dummy._operator_pending_flow_draft["expanded_steps"][0]
+    assert step["params"]["target_x"] == 475.0
+    assert step["params"]["target_z"] == 545.0
+    assert step["params"]["target_rz"] == 0.0
+    assert step["params"]["spd_pct"] == 30.0
+    assert step["params"]["acc_pct"] == 30.0
+    assert step["params"]["dec_pct"] == 30.0
+    assert "已补齐位置A参数" in dummy.chat_messages[-1][1]
+
+
+def test_operator_flow_and_command_query_answers_both(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
+
+    handled = dummy._handle_operator_ui_command("现在有哪些命令和流程")
+
+    assert handled is True
+    answer = dummy.chat_messages[-1][1]
+    assert "当前共有 1 个流程" in answer
+    assert "可用命令示例" in answer
+    assert "小正，执行点头流程" in answer
+
+
+def test_operator_engineer_new_flow_command_returns_to_agent_route(tmp_path):
+    from robot_modbus_lite.engineer_voice_commands import EngineerVoiceCommandSpec
+
+    dummy = make_context_operator(tmp_path)
+    spec = EngineerVoiceCommandSpec("流程管理", "新增流程", "new_flow", ("新增流程", "新建流程"))
+
+    handled = dummy._operator_execute_engineer_voice_command_spec(spec, raw_text="新建流程")
+
+    assert handled is False
+    assert dummy.chat_messages == []
+    assert not any("未接入" in str(entry) for entry in dummy.logs)
+
+
 def test_operator_llm_flow_modify_step_intent_updates_pending_flow_draft(tmp_path):
     dummy = make_context_operator(tmp_path)
     dummy._operator_pending_flow_draft = flow_draft_payload()
@@ -4445,6 +4574,52 @@ def test_operator_confirm_stage_modify_single_motion_updates_pending_record(tmp_
     assert logs[-1][1] == "确认阶段修改参数"
 
 
+def test_operator_confirm_stage_modify_pose_updates_pending_motion_record(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prechecked", True)
+    record = QueryRecord(
+        query_key="agent_single_move",
+        func_num=108,
+        params={
+            "target_x": 1000.0,
+            "target_y": 200.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 45.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+        },
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_single_move", "agent", "", "单条待确认动作"),),
+        source="restricted_agent",
+        raw_text="让机械手走到X1000 Y200 Z800",
+        reason="单条待确认动作",
+        requires_confirmation=True,
+        atomic_records={"agent_single_move": record},
+        flow_draft={
+            "agent_kind": "single_command_confirmation",
+            "func_id": 108,
+            "params": dict(record.params),
+        },
+    )
+
+    handled = dummy._operator_handle_pending_confirm_modify("X改为1200，RY改为30")
+
+    assert handled is True
+    assert record.params["target_x"] == 1200.0
+    assert record.params["target_ry"] == 30.0
+    assert getattr(dummy, "prechecked", False) is True
+    assert "目标参数调整" in chats[-1][1]
+
+
 def test_operator_confirm_stage_speed_modify_on_delay_step_does_not_route_to_dashboard(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
     chats = []
@@ -4477,6 +4652,182 @@ def test_operator_confirm_stage_speed_modify_on_delay_step_does_not_route_to_das
     assert "当前待确认步骤不包含速度参数" in chats[-1][1]
     assert getattr(dummy, "refreshed", False) is True
     assert logs[-1][1] == "确认阶段修改参数"
+
+
+def test_operator_confirm_stage_modify_delay_updates_delay_record(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prechecked", True)
+    record = QueryRecord(
+        query_key="delay_2s",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="等待2秒",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "delay_2s", "compound_step", "", "第2步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第2步",
+        requires_confirmation=True,
+        atomic_records={"delay_2s": record},
+    )
+
+    handled = dummy._operator_handle_pending_confirm_modify("延时改为500毫秒")
+
+    assert handled is True
+    assert record.params["delay_sec"] == 0.5
+    assert getattr(dummy, "prechecked", False) is True
+    assert "延时调整为0.5秒" in chats[-1][1]
+
+
+def test_operator_confirm_stage_modify_io_updates_io_record(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prechecked", True)
+    record = QueryRecord(
+        query_key="io_1_off",
+        func_num=120,
+        params={"io_no": 1, "io_action": 0},
+        description="输出1关闭",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "io_1_off", "compound_step", "", "第3步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第3步",
+        requires_confirmation=True,
+        atomic_records={"io_1_off": record},
+    )
+
+    handled = dummy._operator_handle_pending_confirm_modify("改成输出2打开")
+
+    assert handled is True
+    assert record.params["io_no"] == 2.0
+    assert record.params["io_action"] == 1.0
+    assert getattr(dummy, "prechecked", False) is True
+    assert "IO2 调整为打开" in chats[-1][1]
+
+
+def test_operator_confirm_stage_incomplete_func_replacement_asks_for_full_action(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_handle_dashboard_query = lambda text: (_ for _ in ()).throw(AssertionError("should not route to dashboard"))
+    record = QueryRecord(
+        query_key="delay_2s",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="等待2秒",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "delay_2s", "compound_step", "", "第2步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第2步",
+        requires_confirmation=True,
+        atomic_records={"delay_2s": record},
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 1},
+    )
+
+    handled = dummy._handle_operator_ui_command("改成Func108")
+
+    assert handled is True
+    assert record.func_num == 109
+    assert "不能只改 Func 号" in chats[-1][1]
+    assert "移动到 X100 Y0 Z800" in chats[-1][1]
+    assert getattr(dummy, "refreshed", False) is True
+
+
+def test_operator_confirm_stage_complete_replacement_updates_compound_step(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    chats = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: setattr(dummy, "refreshed", True)
+    dummy._operator_prepare_plan_prechecks = lambda plan: setattr(dummy, "prechecked_plan", plan)
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "flow_name": "测试",
+        "raw_text": "测试流程",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "delay_blocking",
+                "func_id": 109,
+                "description": "等待2秒",
+                "params": {"delay_sec": 2.0},
+            }
+        ],
+    }
+    delay_record = QueryRecord(
+        query_key="测试_step_1",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="等待2秒",
+    )
+    dummy._operator_pending_confirm_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "测试_step_1", "compound_step", "", "第1步"),),
+        source="compound_step",
+        raw_text="",
+        reason="第1步",
+        requires_confirmation=True,
+        atomic_records={"测试_step_1": delay_record},
+        flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 0},
+    )
+    replacement_record = QueryRecord(
+        query_key="agent_single_move",
+        func_num=108,
+        params={
+            "target_x": 100.0,
+            "target_y": 0.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+            "move_type": 0,
+        },
+        description="移动到X100 Y0 Z800",
+    )
+    replacement_plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent_single_move", "agent", "", "替换步骤"),),
+        source="restricted_agent",
+        raw_text="把这一步改成移动到X100 Y0 Z800，速度50%",
+        reason="替换步骤",
+        requires_confirmation=True,
+        atomic_records={"agent_single_move": replacement_record},
+    )
+    dummy._operator_try_agent_orchestrator_plan = lambda text: replacement_plan
+
+    handled = dummy._handle_operator_ui_command("把这一步改成移动到X100 Y0 Z800，速度50%")
+
+    assert handled is True
+    step = dummy._operator_pending_flow_draft["expanded_steps"][0]
+    assert step["func_id"] == 108
+    assert step["params"]["target_x"] == 100.0
+    assert step["params"]["spd_pct"] == 50.0
+    assert step["description"] == "移动到X100 Y0 Z800"
+    pending_records = dummy._operator_pending_confirm_plan.atomic_records
+    pending_record = next(iter(pending_records.values()))
+    assert pending_record.func_num == 108
+    assert pending_record.params["target_z"] == 800.0
+    assert getattr(dummy, "prechecked_plan", None) is dummy._operator_pending_confirm_plan
+    assert "已将当前待确认步骤替换为 Func108" in chats[-1][1]
 
 
 def test_operator_compound_step_machine_text_shows_blocked_reason():

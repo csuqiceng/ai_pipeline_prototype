@@ -14,11 +14,11 @@
         "位置B",
         "flowdraft:home点头流程:01",
         "flowdraft:home点头流程:02",
+        "flowdraft:home点头流程:03",
         "flowdraft:home点头流程:04",
-        "休息姿态",
-        "flowdraft:打个招呼的小:01",
-        "flowdraft:未命名流程:01",
-        "flowdraft:未命名流程:02",
+        "flowdraft:home点头流程:05",
+        "flowdraft:home点头流程:06",
+        "flowdraft:home点头流程:07",
         "休息姿态"
       ],
       "step_delay_ms": 1000

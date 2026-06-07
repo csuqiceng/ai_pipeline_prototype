@@ -1164,21 +1164,34 @@ class OperatorUiMixin:
     def _operator_apply_llm_flow_create_intent(self, intent: dict[str, Any]) -> bool:
         flow_name = str(intent.get("flow_name") or intent.get("target_flow") or "").strip()
         if not flow_name:
-            reply = str(intent.get("suggested_reply") or "请先告诉我要创建的流程名称。").strip()
-            self._operator_publish_context_intent_reply(reply, category="流程创建理解")
-            return True
+            return self._operator_start_local_flow_create_draft(
+                flow_name="未命名流程",
+                reply=str(intent.get("suggested_reply") or "").strip(),
+                category="流程创建理解",
+            )
+        return self._operator_start_local_flow_create_draft(
+            flow_name=flow_name,
+            reply=str(intent.get("suggested_reply") or "").strip(),
+            category="流程创建理解",
+        )
+
+    def _operator_start_local_flow_create_draft(self, *, flow_name: str, reply: str = "", category: str = "流程创建") -> bool:
+        clean_name = str(flow_name or "").strip() or "未命名流程"
         draft = {
-            "flow_name": flow_name,
+            "flow_name": clean_name,
             "expanded_steps": [],
             "positions": self._operator_position_registry_draft_items(),
             "needs_precheck": True,
         }
         self._operator_pending_flow_draft = draft
-        reply = str(intent.get("suggested_reply") or "").strip()
         if not reply:
-            reply = f"已开始创建流程“{flow_name}”。"
-        reply = self._operator_flow_create_guidance_text(flow_name, reply)
-        self._operator_publish_context_intent_reply(reply, category="流程创建理解")
+            if clean_name == "未命名流程":
+                reply = "已开始创建流程草案。你可以先说流程名称，也可以直接说第一步。"
+            else:
+                reply = f"已开始创建流程“{clean_name}”。"
+        reply = self._operator_flow_create_guidance_text(clean_name, reply)
+        self._operator_pending_flow_creation_followup = True
+        self._operator_publish_context_intent_reply(reply, category=category)
         return True
 
     @staticmethod
@@ -1832,7 +1845,31 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", str(text or ""))
         if not compact:
             return False
-        return any(keyword in compact for keyword in ("创建流程", "新建流程", "创建新草案", "创建草案", "新建草案", "我要创建流程", "我要创建新草案"))
+        return any(
+            keyword in compact
+            for keyword in (
+                "创建流程",
+                "新建流程",
+                "添加流程",
+                "增加流程",
+                "创建一个流程",
+                "新建一个流程",
+                "添加一个流程",
+                "增加一个流程",
+                "创建新流程",
+                "新建新流程",
+                "创建新草案",
+                "创建草案",
+                "新建草案",
+                "我要创建流程",
+                "我要新建流程",
+                "我想添加流程",
+                "我想增加流程",
+                "我要创建一个流程",
+                "我要新建一个流程",
+                "我要创建新草案",
+            )
+        )
 
     @staticmethod
     def _operator_text_requests_flow_details(text: str) -> bool:
@@ -3237,6 +3274,8 @@ class OperatorUiMixin:
             return True
         if self._operator_handle_flow_list_query(text):
             return True
+        if self._operator_handle_local_flow_create_request(text):
+            return True
         if self._operator_handle_context_query(text):
             return True
         if self._operator_handle_dashboard_query(text):
@@ -3410,6 +3449,23 @@ class OperatorUiMixin:
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return False
+        name_match = re.search(r"(?:新)?流程(?:名字|名称)?(?:叫|为|是)([^，,。；;]+)", compact)
+        if name_match:
+            flow_name = str(name_match.group(1) or "").strip(" ，,。；;")
+            if flow_name:
+                draft["flow_name"] = flow_name
+                draft["needs_precheck"] = True
+                self._operator_pending_flow_draft = draft
+                message = f"流程名称已改为“{flow_name}”。请继续添加步骤，或说“查看流程”。"
+                if hasattr(self, "status_label"):
+                    self.status_label.setText(self._operator_footer_status_text(message))
+                if hasattr(self, "_operator_add_chat_message"):
+                    self._operator_add_chat_message("assistant", message)
+                self._append_log("自然语言", "流程草案编辑", "成功", message)
+                self._refresh_operator_view()
+                return True
+        if self._operator_pending_flow_draft_apply_coordinate_answer(draft, compact):
+            return True
         service = self._operator_execution_plan_service()
         service.set_pending_flow_draft(draft)
         result = None
@@ -3463,6 +3519,12 @@ class OperatorUiMixin:
                 if step is None:
                     return False
                 result = service.append_step(step)
+        if result is None and any(keyword in compact.lower() for keyword in ("移动到位置", "到位置", "移动")):
+            step = self._operator_build_append_flow_step_from_text(draft, compact)
+            if step is None:
+                step = self._operator_missing_move_step_from_text(draft, compact)
+            if step is not None:
+                result = service.append_step(step)
         if result is None and re.search(r"(撤销|恢复上一步|取消刚才的修改)", compact):
             result = service.undo()
         if result is None:
@@ -3484,6 +3546,9 @@ class OperatorUiMixin:
             merged["needs_precheck"] = True
             self._operator_pending_flow_draft = merged
         message = f"{result.message}。当前流程草案尚未保存/执行。"
+        appended_missing = self._operator_last_flow_step_missing_pose(self._operator_pending_flow_draft)
+        if appended_missing:
+            message = f"{message}\n请补充{appended_missing}的坐标，例如：{appended_missing} X475 Y0 Z545 RX0 RY0 RZ0，速度30%。"
         if hasattr(self, "status_label"):
             self.status_label.setText(self._operator_footer_status_text(message))
         if hasattr(self, "_operator_add_chat_message"):
@@ -3491,6 +3556,112 @@ class OperatorUiMixin:
         self._append_log("自然语言", "流程草案编辑", "成功", message)
         self._refresh_operator_view()
         return True
+
+    @staticmethod
+    def _operator_last_flow_step_missing_pose(draft: dict | None) -> str:
+        if not isinstance(draft, dict):
+            return ""
+        steps = draft.get("expanded_steps")
+        if not isinstance(steps, list) or not steps:
+            return ""
+        step = steps[-1]
+        if not isinstance(step, dict):
+            return ""
+        try:
+            func_id = int(float(step.get("func_id") or step.get("func_num") or 0))
+        except (TypeError, ValueError):
+            func_id = 0
+        params = step.get("params")
+        if func_id != 108 or not isinstance(params, dict):
+            return ""
+        if all(key in params for key in ("target_x", "target_y", "target_z")):
+            return ""
+        label = str(step.get("target_label") or step.get("position_name") or "").strip()
+        if label and len(label) == 1:
+            return f"位置{label.upper()}"
+        return label or "当前移动步骤"
+
+    def _operator_pending_flow_draft_apply_coordinate_answer(self, draft: dict, compact: str) -> bool:
+        updates = self._operator_parse_pose_and_speed_updates(compact)
+        pose_keys = {"target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz"}
+        if not any(key in updates for key in pose_keys):
+            return False
+        steps = draft.get("expanded_steps")
+        if not isinstance(steps, list):
+            return False
+        target_label = self._operator_extract_position_label_from_text(compact)
+        target_step = None
+        if target_label:
+            target_label_norm = target_label.upper()
+            for step in reversed(steps):
+                if not isinstance(step, dict):
+                    continue
+                label = str(step.get("target_label") or step.get("position_name") or "").strip().upper()
+                desc = str(step.get("description") or "").upper()
+                if label == target_label_norm or f"位置{target_label_norm}" in desc:
+                    target_step = step
+                    break
+        if target_step is None:
+            for step in reversed(steps):
+                if not isinstance(step, dict):
+                    continue
+                params = step.get("params")
+                if int(float(step.get("func_id") or step.get("func_num") or 0)) == 108 and isinstance(params, dict):
+                    if not all(key in params for key in ("target_x", "target_y", "target_z")):
+                        target_step = step
+                        break
+        if target_step is None:
+            return False
+        params = target_step.get("params")
+        if not isinstance(params, dict):
+            params = {}
+            target_step["params"] = params
+        params.update(updates)
+        if "spd_pct" in updates:
+            params["acc_pct"] = updates["spd_pct"]
+            params["dec_pct"] = updates["spd_pct"]
+        draft["needs_precheck"] = True
+        self._operator_pending_flow_draft = draft
+        label = str(target_step.get("target_label") or target_label or "").strip()
+        label_text = f"位置{label.upper()}" if label and len(label) == 1 else (label or "当前步骤")
+        message = f"已补齐{label_text}参数：{self._operator_format_params_inline(params)}。当前流程草案尚未保存/执行。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(message))
+        if hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", message)
+        self._append_log("自然语言", "流程草案编辑", "成功", message)
+        self._refresh_operator_view()
+        return True
+
+    @staticmethod
+    def _operator_extract_position_label_from_text(compact: str) -> str:
+        match = re.search(r"位置([a-zA-Z0-9_\-\u4e00-\u9fff]+)", compact, re.IGNORECASE)
+        if not match:
+            return ""
+        return str(match.group(1) or "").strip(" ，,。；;")
+
+    @staticmethod
+    def _operator_parse_pose_and_speed_updates(compact: str) -> dict[str, float]:
+        updates: dict[str, float] = {}
+        for key, label_pattern in (
+            ("target_rx", r"RX"),
+            ("target_ry", r"RY"),
+            ("target_rz", r"RZ"),
+            ("target_x", r"(?<!R)X"),
+            ("target_y", r"(?<!R)Y"),
+            ("target_z", r"(?<!R)Z"),
+        ):
+            match = re.search(
+                rf"{label_pattern}(?:=|＝|改成|改为|设为|设置为|到)?(-?\d+(?:\.\d+)?)",
+                compact,
+                re.IGNORECASE,
+            )
+            if match:
+                updates[key] = float(match.group(1))
+        speed_match = re.search(r"(?:速度|速率|spd)(?:=|＝|改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)%?", compact, re.IGNORECASE)
+        if speed_match:
+            updates["spd_pct"] = max(5.0, min(150.0, float(speed_match.group(1))))
+        return updates
 
     @staticmethod
     def _operator_parse_step_index_text(text: str) -> int:
@@ -4396,6 +4567,8 @@ class OperatorUiMixin:
             "有什么流程",
             "流程有哪些",
             "流程列表",
+            "命令和流程",
+            "流程和命令",
             "所有流程",
             "全部流程",
             "保存了哪些流程",
@@ -4420,6 +4593,13 @@ class OperatorUiMixin:
             lines.extend(f"{index}. {name}" for index, name in enumerate(names, start=1))
             first = names[0]
             lines.append(f"可以说“查看{first}流程”查看步骤，或说“小正，执行{first}流程”执行。")
+            if "命令" in compact:
+                lines.append("")
+                lines.append("可用命令示例：")
+                lines.append("- 查询流程：现在有哪些流程 / 查看点头流程")
+                lines.append("- 创建流程：新建流程 / 创建测试流程")
+                lines.append("- 添加步骤：移动到位置A，X100 Y0 Z800，速度50% / 等待2秒 / 输出1打开")
+                lines.append(f"- 执行流程：小正，执行{first}流程")
             answer = "\n".join(lines)
         self._operator_publish_context_intent_reply(answer, category="流程列表查询")
         return True
@@ -4773,6 +4953,24 @@ class OperatorUiMixin:
             self._append_log("用户页面", "确认阶段参数查询", "成功", text_out)
             self._refresh_operator_view()
             return True
+        if self._operator_pending_confirm_replacement_requested(compact):
+            return self._operator_handle_pending_confirm_replacement(text, compact, plan)
+        pose_updates = self._operator_pending_confirm_pose_updates(compact)
+        if pose_updates:
+            changed = self._operator_update_pending_confirm_records(plan, pose_updates)
+            if not changed:
+                return self._operator_reject_pending_confirm_param_modify("目标位置/姿态")
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
+            changed_text = "，".join(
+                f"{key.replace('target_', '').upper()}={value:g}" for key, value in pose_updates.items()
+            )
+            text_out = f"已将待确认计划目标参数调整为：{changed_text}。请再次确认执行。"
+            self._operator_prepare_plan_prechecks(plan)
+            self.status_label.setText(text_out)
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
+            self._refresh_operator_view()
+            return True
         acc_match = re.search(r"(?:加速度|加速|acc)(?:改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)%?", compact, re.IGNORECASE)
         if acc_match:
             acc = max(5.0, min(150.0, float(acc_match.group(1))))
@@ -4832,7 +5030,192 @@ class OperatorUiMixin:
             self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
             self._refresh_operator_view()
             return True
+        delay_match = re.search(r"(?:延时|等待|delay)(?:改成|改为|设为|设置为|到)?(\d+(?:\.\d+)?)(毫秒|ms|秒|s)?", compact, re.IGNORECASE)
+        if delay_match:
+            value = max(0.0, float(delay_match.group(1)))
+            unit = (delay_match.group(2) or "秒").lower()
+            delay_sec = value / 1000.0 if unit in {"毫秒", "ms"} else value
+            changed = self._operator_update_pending_confirm_records(plan, {"delay_sec": delay_sec})
+            if not changed:
+                return self._operator_reject_pending_confirm_param_modify("延时")
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
+            text_out = f"已将待确认计划延时调整为{delay_sec:g}秒。请再次确认执行。"
+            self._operator_prepare_plan_prechecks(plan)
+            self.status_label.setText(text_out)
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
+            self._refresh_operator_view()
+            return True
+        io_match = re.search(
+            r"(?:(?:输出|io|y)(\d+))?(?:改成|改为|设为|设置为|到)?(?:输出|io|y)?(\d+)?(打开|开启|开|关闭|关|on|off)",
+            compact,
+            re.IGNORECASE,
+        )
+        if io_match and ("输出" in compact.lower() or "io" in compact.lower() or "y" in compact.lower()):
+            io_no_text = io_match.group(1) or io_match.group(2)
+            updates: dict[str, Any] = {}
+            if io_no_text is not None:
+                updates["io_no"] = int(float(io_no_text))
+            action_text = io_match.group(3).lower()
+            updates["io_action"] = 0 if action_text in {"关闭", "关", "off"} else 1
+            changed = self._operator_update_pending_confirm_records(plan, updates)
+            if not changed:
+                return self._operator_reject_pending_confirm_param_modify("IO")
+            self._operator_sync_compound_step_params_from_confirm_plan(plan)
+            action_label = "打开" if updates.get("io_action") == 1 else "关闭"
+            io_label = f"{int(updates['io_no'])}" if "io_no" in updates else "当前"
+            text_out = f"已将待确认计划 IO{io_label} 调整为{action_label}。请再次确认执行。"
+            self._operator_prepare_plan_prechecks(plan)
+            self.status_label.setText(text_out)
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段修改参数", "成功", text_out)
+            self._refresh_operator_view()
+            return True
         return False
+
+    @staticmethod
+    def _operator_pending_confirm_pose_updates(compact: str) -> dict[str, float]:
+        updates: dict[str, float] = {}
+        for key, label_pattern in (
+            ("target_rx", r"RX"),
+            ("target_ry", r"RY"),
+            ("target_rz", r"RZ"),
+            ("target_x", r"(?<!R)X"),
+            ("target_y", r"(?<!R)Y"),
+            ("target_z", r"(?<!R)Z"),
+        ):
+            match = re.search(
+                rf"{label_pattern}(?:改成|改为|设为|设置为|到|=)?(-?\d+(?:\.\d+)?)",
+                compact,
+                re.IGNORECASE,
+            )
+            if match:
+                updates[key] = float(match.group(1))
+        return updates
+
+    @staticmethod
+    def _operator_pending_confirm_replacement_requested(compact: str) -> bool:
+        if not compact:
+            return False
+        if re.search(r"(?:改成|改为|修改成|换成|替换成)(?:func)?(?:104|106|107|108|109|110|120)\b", compact, re.IGNORECASE):
+            return True
+        return bool(
+            re.search(
+                r"(?:这一步|当前步骤|当前指令|待确认步骤|待确认指令).*(?:改成|改为|修改成|换成|替换成)"
+                r".*(?:移动|走到|直线插补|延时|等待|输出|io|暂停|急停|停止)",
+                compact,
+                re.IGNORECASE,
+            )
+        )
+
+    def _operator_handle_pending_confirm_replacement(self, text: str, compact: str, plan) -> bool:
+        replacement_plan = self._operator_parse_pending_confirm_replacement_plan(text)
+        if replacement_plan is None:
+            text_out = (
+                "这是动作类型替换，不能只改 Func 号。请告诉我完整动作，"
+                "例如：“把这一步改成移动到 X100 Y0 Z800，速度50%”。"
+            )
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self._operator_footer_status_text(text_out))
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段替换步骤", "失败", text_out)
+            self._refresh_operator_view()
+            return True
+        if not self._operator_apply_pending_confirm_replacement(plan, replacement_plan, text):
+            text_out = (
+                "已识别为动作类型替换，但没有生成可确认的新步骤。"
+                "请补充完整目标位置、速度或延时/IO参数后重试。"
+            )
+            if hasattr(self, "status_label"):
+                self.status_label.setText(self._operator_footer_status_text(text_out))
+            self._operator_add_chat_message("assistant", text_out)
+            self._append_log("用户页面", "确认阶段替换步骤", "失败", text_out)
+            self._refresh_operator_view()
+            return True
+        return True
+
+    def _operator_parse_pending_confirm_replacement_plan(self, text: str):
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+        candidate = re.sub(
+            r"^(?:把)?(?:这一步|当前步骤|当前指令|待确认步骤|待确认指令)?(?:改成|改为|修改成|换成|替换成)",
+            "",
+            raw,
+        ).strip(" ，,。")
+        if not candidate:
+            return None
+        if re.fullmatch(r"(?:func)?(?:104|106|107|108|109|110|120)", candidate, re.IGNORECASE):
+            return None
+        attempts = [candidate]
+        compact_candidate = re.sub(r"\s+", "", candidate)
+        if strip_wake_word_from_compact(compact_candidate, words=configured_wake_words()) == compact_candidate:
+            attempts.append(f"小正，{candidate}")
+        for attempt in attempts:
+            replacement_plan = self._operator_try_agent_orchestrator_plan(attempt)
+            if self._operator_first_atomic_record_from_plan(replacement_plan) is not None:
+                return replacement_plan
+        return None
+
+    @staticmethod
+    def _operator_first_atomic_record_from_plan(plan):
+        records = getattr(plan, "atomic_records", None)
+        if not isinstance(records, dict):
+            return None
+        for record in records.values():
+            if isinstance(record, QueryRecord):
+                return record
+        return None
+
+    def _operator_apply_pending_confirm_replacement(self, current_plan, replacement_plan, raw_text: str) -> bool:
+        record = self._operator_first_atomic_record_from_plan(replacement_plan)
+        if record is None:
+            return False
+        draft = getattr(current_plan, "flow_draft", None)
+        if isinstance(draft, dict) and draft.get("agent_kind") == "compound_step_confirmation":
+            if not self._operator_replace_compound_confirm_step(draft, record, raw_text):
+                return False
+        else:
+            self._operator_set_pending_confirm_plan(replacement_plan)
+            self._operator_prepare_plan_prechecks(replacement_plan)
+        text_out = f"已将当前待确认步骤替换为 Func{record.func_num}：{record.description or record.query_key}。请再次确认执行。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText(self._operator_footer_status_text(text_out))
+        self._operator_add_chat_message("assistant", text_out)
+        self._append_log("用户页面", "确认阶段替换步骤", "成功", text_out)
+        self._refresh_operator_view()
+        return True
+
+    def _operator_replace_compound_confirm_step(self, confirm_draft: dict[str, Any], record: QueryRecord, raw_text: str) -> bool:
+        compound_draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(compound_draft, dict):
+            return False
+        steps = compound_draft.get("expanded_steps")
+        if not isinstance(steps, list):
+            return False
+        try:
+            index = int(confirm_draft.get("compound_step_index") or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(steps) or not isinstance(steps[index], dict):
+            return False
+        old_step = dict(steps[index])
+        steps[index] = {
+            **old_step,
+            "action": record.description or record.query_key or old_step.get("action") or f"Func{record.func_num}",
+            "func_id": int(record.func_num),
+            "func_num": int(record.func_num),
+            "description": record.description or old_step.get("description") or f"Func{record.func_num}",
+            "params": dict(record.params),
+            "replacement_raw_text": raw_text,
+        }
+        compound_draft["needs_precheck"] = True
+        new_plan = self._operator_compound_step_confirmation_plan(compound_draft, steps[index], index)
+        if new_plan is None:
+            return False
+        self._operator_set_pending_confirm_plan(new_plan)
+        self._operator_prepare_plan_prechecks(new_plan)
+        return True
 
     def _operator_reject_pending_confirm_param_modify(self, param_label: str) -> bool:
         label = str(param_label or "该").strip()
@@ -4921,7 +5304,7 @@ class OperatorUiMixin:
         return True
 
     @staticmethod
-    def _operator_update_pending_confirm_records(plan, updates: dict[str, float]) -> bool:
+    def _operator_update_pending_confirm_records(plan, updates: dict[str, Any]) -> bool:
         records = getattr(plan, "atomic_records", {}) or {}
         changed = False
         for record in records.values():
@@ -4930,7 +5313,7 @@ class OperatorUiMixin:
                 continue
             for key, value in updates.items():
                 if key in params:
-                    params[key] = float(value)
+                    params[key] = float(value) if isinstance(value, (int, float)) else value
                     changed = True
         draft = getattr(plan, "flow_draft", None)
         if isinstance(draft, dict):
@@ -4938,7 +5321,7 @@ class OperatorUiMixin:
             if isinstance(params, dict):
                 for key, value in updates.items():
                     if key in params:
-                        params[key] = float(value)
+                        params[key] = float(value) if isinstance(value, (int, float)) else value
                         changed = True
         return changed
 
@@ -5185,6 +5568,8 @@ class OperatorUiMixin:
         return f"{spec.button_label} 属于高风险后台操作，当前未开放语音直接执行，请使用手动操作和现场确认流程。"
 
     def _operator_execute_engineer_voice_command_spec(self, spec: EngineerVoiceCommandSpec, *, raw_text: str = "") -> bool:
+        if spec.action == "new_flow":
+            return False
         allowed_actions = {
             "show_run_page",
             "show_manage_page",
@@ -5273,6 +5658,31 @@ class OperatorUiMixin:
             final_text=f"工程师语音操作已执行：{spec.button_label}。",
         )
         return True
+
+    def _operator_handle_local_flow_create_request(self, text: str) -> bool:
+        if not self._operator_text_asks_to_create_flow(text):
+            return False
+        compact = re.sub(r"\s+", "", str(text or ""))
+        flow_name = self._operator_extract_flow_create_name(compact)
+        return self._operator_start_local_flow_create_draft(
+            flow_name=flow_name or "未命名流程",
+            category="流程创建",
+        )
+
+    @staticmethod
+    def _operator_extract_flow_create_name(compact: str) -> str:
+        text = str(compact or "")
+        for pattern in (
+            r"(?:创建|新建|我要创建|我要新建)(.+?)(?:流程|草案)$",
+            r"(?:创建|新建|我要创建|我要新建)(.+?)(?:的)?(?:流程|草案)",
+        ):
+            match = re.search(pattern, text)
+            if not match:
+                continue
+            name = str(match.group(1) or "").strip(" ，,。的")
+            if name and name not in {"一个", "一条", "新", "新的", "这个"}:
+                return name
+        return ""
 
     def _operator_open_engineer_page(self, index: int, label: str) -> None:
         self._set_workspace_mode("engineer")
