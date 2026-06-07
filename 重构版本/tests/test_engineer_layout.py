@@ -1,6 +1,6 @@
 from robot_modbus_lite.qt_gui import RobotQtWindow
 from robot_modbus_lite.runtime_paths import resolve_runtime_data_file, resource_dir
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 from robot_modbus_lite.gui_ui_mixin import GuiUiMixin
 from robot_modbus_lite.system_config import AxisRangeConfig
 
@@ -42,6 +42,45 @@ def test_ui_scale_numeric_is_clamped():
     dummy = DummyGui()
     assert dummy._calculate_ui_scale(0.5, available_width=9999, available_height=9999) == 0.6
     assert dummy._calculate_ui_scale(1.5, available_width=9999, available_height=9999) == 1.2
+
+
+def test_login_health_label_formats_three_service_results():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyGui()
+    dummy.login_health_label = QLabel()
+
+    dummy._set_login_health_status("controller", True, "连接成功")
+    dummy._set_login_health_status("doubao", False, "缺少环境变量 DOUBAO_API_KEY")
+    dummy._set_login_health_status("deepseek", None, "检测中")
+
+    text = dummy.login_health_label.text()
+    assert "控制器" not in text
+    assert "语音服务: 语音服务未配置" in text
+    assert "AI服务: 检测中" in text
+    assert "DOUBAO_API_KEY" not in text
+
+
+def test_login_rejects_when_prefetched_health_failed_without_network_check():
+    app = QApplication.instance() or QApplication([])
+    dummy = DummyGui()
+    dummy._login_role = "operator"
+    dummy.login_pin_edit = type("Edit", (), {"text": lambda self: "1234", "setFocus": lambda self: None})()
+    dummy.login_operator_id_edit = type("Edit", (), {"text": lambda self: "OP-0001"})()
+    dummy.login_error_label = QLabel()
+    dummy.login_health_label = QLabel()
+    dummy._apply_login_connection_settings = lambda: True
+    dummy._login_health_checks = {
+        "controller": {"ok": True, "message": "连接成功"},
+        "doubao": {"ok": False, "message": "缺少环境变量 DOUBAO_API_KEY"},
+        "deepseek": {"ok": True, "message": "连接成功"},
+    }
+    dummy._start_login_health_checks = lambda: (_ for _ in ()).throw(AssertionError("登录按钮不应现场检测网络"))
+
+    dummy._authenticate_login()
+
+    assert "登录前自检未通过" in dummy.login_error_label.text()
+    assert "语音服务" in dummy.login_error_label.text()
+    assert not getattr(dummy, "_authenticated_role", "")
 
 
 def test_target_window_size_does_not_exceed_available_area():

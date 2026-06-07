@@ -15,6 +15,7 @@ class BroadcastMessage:
     seq: int
     kind: str
     text: str
+    speech_text: str = ""
     priority: str = "normal"
     ts: str = ""
     context_id: str | None = None
@@ -35,6 +36,7 @@ class BroadcastQueue:
         *,
         kind: str,
         text: str,
+        speech_text: str = "",
         priority: str = "normal",
         context_id: str | None = None,
     ) -> BroadcastMessage:
@@ -42,6 +44,7 @@ class BroadcastQueue:
             seq=0,
             kind=kind,
             text=text,
+            speech_text=speech_text,
             priority=priority,
             context_id=context_id,
         )
@@ -52,6 +55,7 @@ class BroadcastQueue:
             seq=self._next_seq,
             kind=message.kind,
             text=message.text,
+            speech_text=message.speech_text,
             priority=message.priority,
             ts=message.ts or datetime.now().isoformat(timespec="milliseconds"),
             context_id=message.context_id,
@@ -67,6 +71,7 @@ class BroadcastQueue:
         *,
         kind: str,
         text: str,
+        speech_text: str = "",
         priority: str = "normal",
         context_id: str | None = None,
         dedupe_key: str,
@@ -77,7 +82,7 @@ class BroadcastQueue:
         if last_seen is not None and now - last_seen < float(dedupe_window_seconds):
             return None
         self._last_dedupe_at[dedupe_key] = now
-        return self.publish(kind=kind, text=text, priority=priority, context_id=context_id)
+        return self.publish(kind=kind, text=text, speech_text=speech_text, priority=priority, context_id=context_id)
 
     def messages_since(self, last_seq: int) -> list[BroadcastMessage]:
         return [message for message in self._messages if message.seq > last_seq]

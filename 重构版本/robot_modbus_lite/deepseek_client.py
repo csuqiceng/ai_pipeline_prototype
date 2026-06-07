@@ -109,6 +109,41 @@ class DeepSeekClient:
             system_prompt=system_prompt,
         )
 
+    def check_connection(self, *, timeout: float = 8.0) -> None:
+        """Perform a minimal network check for login preflight."""
+        resolved_model, thinking_enabled = self._resolve_model_options(None)
+        payload = self._build_payload(
+            "ping",
+            resolved_model,
+            thinking_enabled,
+            system_prompt="只回复 OK。",
+        )
+        payload["max_tokens"] = 1
+        payload["temperature"] = 0
+        if self._use_proxy:
+            token = self._license_manager.get_access_token()
+            if not token:
+                raise RuntimeError("授权无效或已过期，请重新激活")
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            response = requests.post(self.base_url, headers=headers, json=payload, timeout=timeout)
+            if response.status_code == 401:
+                raise RuntimeError("授权已过期，请重新激活")
+            if response.status_code == 403:
+                raise RuntimeError("当前授权未启用 DeepSeek 功能")
+            if response.status_code == 429:
+                raise RuntimeError("本月配额已用尽")
+            response.raise_for_status()
+            return
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+        response = requests.post(self.base_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+
     def _resolve_model_options(self, model: str | None) -> tuple[str, bool]:
         """解析相关数据。"""
         requested = (model or self.model or DEFAULT_DEEPSEEK_MODEL).strip()

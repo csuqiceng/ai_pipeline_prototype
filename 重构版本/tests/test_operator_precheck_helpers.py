@@ -479,6 +479,24 @@ def test_operator_llm_flow_create_intent_starts_empty_flow_draft(tmp_path):
     assert "保存并执行" in answer
 
 
+def test_operator_clarification_plan_is_published_to_speech(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    spoken = []
+    dummy._operator_publish_ai_answer_for_speech = lambda text: spoken.append(text)
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("clarification", None, "agent_orchestrator", "创建流程", "请问新流程叫什么名字？"),),
+        source="agent_orchestrator",
+        raw_text="创建流程",
+        reason="请问新流程叫什么名字？",
+        semantic_level=1,
+    )
+
+    handled = dummy._operator_handle_flow_draft_plan(plan)
+
+    assert handled is True
+    assert spoken == ["请问新流程叫什么名字？"]
+
+
 def test_operator_text_new_flow_starts_local_flow_draft_without_engineer_fallback(tmp_path):
     dummy = make_context_operator(tmp_path)
     dummy._operator_handle_engineer_voice_command_spec = (
@@ -580,6 +598,74 @@ def test_operator_pending_flow_draft_coordinate_answer_updates_missing_position_
     assert step["params"]["acc_pct"] == 30.0
     assert step["params"]["dec_pct"] == 30.0
     assert "已补齐位置A参数" in dummy.chat_messages[-1][1]
+
+
+def test_operator_pending_flow_draft_appends_spoken_multi_step_with_inline_position(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [],
+        "positions": [
+            {"name": "home", "pose": [1475.0, 0.0, 1545.0, 0.0, 0.0, 0.0]},
+        ],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command(
+        "步骤一，移动到位置 a x 200 Y0 Z700 速度 30% 速度二，等待 2 秒。步骤三，移动到 home。"
+    )
+
+    assert handled is True
+    steps = dummy._operator_pending_flow_draft["expanded_steps"]
+    assert len(steps) == 3
+    assert steps[0]["func_id"] == 108
+    assert steps[0]["target_label"] == "A"
+    assert steps[0]["params"]["target_x"] == 200.0
+    assert steps[0]["params"]["target_y"] == 0.0
+    assert steps[0]["params"]["target_z"] == 700.0
+    assert steps[0]["params"]["spd_pct"] == 30.0
+    assert steps[1]["func_id"] == 109
+    assert steps[1]["params"]["delay_sec"] == 2.0
+    assert steps[2]["func_id"] == 108
+    assert steps[2]["target_label"] == "home"
+
+
+def test_operator_context_query_answers_position_from_pending_flow_draft(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "move_position",
+                "func_id": 108,
+                "target_label": "A",
+                "description": "移动到位置A",
+                "params": {
+                    "target_x": 200.0,
+                    "target_y": 0.0,
+                    "target_z": 700.0,
+                    "target_rx": 0.0,
+                    "target_ry": 0.0,
+                    "target_rz": 0.0,
+                    "spd_pct": 30.0,
+                    "acc_pct": 30.0,
+                    "dec_pct": 30.0,
+                    "move_type": 0,
+                },
+            }
+        ],
+        "positions": [],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("我的位置a的数据在哪里")
+
+    assert handled is True
+    answer = dummy.chat_messages[-1][1]
+    assert "当前流程草案中的位置A" in answer
+    assert "x=200" in answer
+    assert "z=700" in answer
 
 
 def test_operator_flow_and_command_query_answers_both(tmp_path):
@@ -5043,6 +5129,50 @@ def test_operator_execute_text_schedules_agent_parse_in_background_when_deepseek
     assert dummy.nlp_result_plan is plan
 
 
+def test_operator_agent_background_fallback_restores_text_before_legacy_execute():
+    class DummyOperatorWithNlp(OperatorUiMixin, NlpMixin):
+        pass
+
+    dummy = DummyOperatorWithNlp()
+    state = {"text": ""}
+    dummy.nlp_input_edit = SimpleNamespace(
+        toPlainText=lambda: state["text"],
+        setPlainText=lambda text: state.update(text=text),
+    )
+    dummy.nlp_parse_running = False
+    dummy.nlp_sequence_running = False
+    dummy.flow_running = False
+    dummy.nlp_use_deepseek_check = SimpleNamespace(isChecked=lambda: False)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._set_nlp_result_plan = lambda plan: setattr(dummy, "nlp_result_plan", plan)
+    dummy._execute_nlp_plan = lambda plan: setattr(dummy, "executed_plan", plan)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._show_warning = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("不应弹输入为空"))
+    dummy._show_info = lambda *args, **kwargs: None
+    dummy._show_critical = lambda *args, **kwargs: None
+    dummy._operator_maybe_begin_streaming_chat_for_text = lambda text, use_deepseek: False
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("chat", None, "legacy", "测试", "测试回答"),),
+        source="legacy",
+        raw_text="测试",
+        reason="测试回答",
+        semantic_level=1,
+    )
+
+    class Adapter:
+        def parse(self, text, **kwargs):
+            assert text == "测试"
+            return plan
+
+    dummy._build_voice_nlp_adapter = lambda: Adapter()
+    dummy._run_in_background = lambda work_fn, done_fn: done_fn(work_fn())
+
+    dummy._operator_apply_agent_plan_background_result(None, mode="execute", fallback_text="测试")
+
+    assert dummy.executed_plan is plan
+
+
 def test_operator_parse_text_schedules_agent_parse_in_background_when_deepseek_enabled():
     dummy = DummyOperator()
     dummy._operator_chat_messages = []
@@ -8803,6 +8933,71 @@ def test_operator_new_ai_answer_replaces_pending_speech_queue():
 
     assert result.success is True
     assert spoken == ["新回答"]
+
+
+def test_operator_ai_answer_uses_generated_speech_summary_for_long_flow_text():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    shown = []
+    dummy._operator_add_chat_message = lambda role, text: shown.append((role, text))
+    dummy.operator_speech_sink = CallableSpeechSink(lambda _text: None)
+    dummy._append_log = lambda *args, **kwargs: None
+    text = "流程“点头”共 10 步：\n01 移动到位置A\n02 移动到位置B\n03 移动到home\n"
+
+    dummy._operator_publish_ai_answer_for_speech(text)
+
+    pending = dummy.operator_broadcast_queue.messages_since(0)
+    assert shown == []
+    assert pending[-1].text == text.strip()
+    assert pending[-1].speech_text == "流程共10步，前几步是：移动到位置A；移动到位置B；移动到home。详情请看屏幕。"
+
+
+def test_operator_empty_text_hint_is_shown_in_chat_without_modal_warning():
+    dummy = DummyOperator()
+    chats = []
+    warnings = []
+    logs = []
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._show_warning = lambda *args, **kwargs: warnings.append(args)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+
+    assert dummy._operator_submit_nlp_text("", input_mode="text", add_user_message=True) is False
+
+    assert warnings == []
+    assert chats == [("assistant", "请输入自然语言文本，例如：小正，执行点头流程。")]
+    assert dummy.status_text == "请输入自然语言文本，例如：小正，执行点头流程。"
+    assert logs[-1][0:3] == ("自然语言", "输入校验", "失败")
+
+
+def test_operator_empty_text_hint_mentions_last_voice_text_without_resending():
+    dummy = DummyOperator()
+    chats = []
+    warnings = []
+    dummy._operator_last_user_text = "小正执行点头流程"
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._show_warning = lambda *args, **kwargs: warnings.append(args)
+    dummy._append_log = lambda *args, **kwargs: None
+
+    assert dummy._operator_submit_nlp_text("", input_mode="text", add_user_message=True) is False
+
+    assert warnings == []
+    assert chats == [("assistant", "当前输入框为空。上一句语音“小正执行点头流程”已收到，如需新指令请继续说或输入文本。")]
+
+
+def test_operator_ai_answer_accepts_explicit_speech_text():
+    dummy = DummyOperator()
+    dummy._authenticated_role = "operator"
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy.operator_speech_sink = CallableSpeechSink(lambda _text: None)
+    dummy._append_log = lambda *args, **kwargs: None
+
+    dummy._operator_publish_ai_answer_for_speech("完整回答文本", speech_text="短播报")
+
+    pending = dummy.operator_broadcast_queue.messages_since(0)
+    assert pending[-1].text == "完整回答文本"
+    assert pending[-1].speech_text == "短播报"
 
 
 def test_operator_new_ai_answer_stops_current_speech():

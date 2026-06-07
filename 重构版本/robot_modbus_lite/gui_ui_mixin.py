@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -178,6 +179,9 @@ class GuiUiMixin:
         self._authenticated_role = ""
         self._login_target_role = "operator"
         self._login_role = "operator"
+        self._login_health_generation = 0
+        self._login_health_checks = {}
+        self._login_health_started_at = 0.0
         self._configure_ui_scale()
         self._resize_to_fit_screen(900, 620)
 
@@ -248,6 +252,7 @@ class GuiUiMixin:
         self.app_pages.setCurrentIndex(0)
         self.setWindowTitle(" ")
         self._center_window_on_screen()
+        QTimer.singleShot(100, self._start_login_health_checks)
 
     def _center_window_on_screen(self) -> None:
         screen = self.screen()
@@ -317,6 +322,7 @@ class GuiUiMixin:
         self.login_host_edit.setPlaceholderText("192.168.1.11")
         self.login_host_edit.setText(self.host_edit.text().strip() if hasattr(self, "host_edit") else "192.168.1.11")
         self.login_host_edit.returnPressed.connect(self._login_check_connection)
+        self.login_host_edit.textChanged.connect(self._schedule_login_health_checks)
         card_layout.addWidget(self.login_host_edit)
 
         connection_row = QHBoxLayout()
@@ -326,6 +332,7 @@ class GuiUiMixin:
         self.login_controller_combo.addItems(["真实控制器", "模拟控制器"])
         if hasattr(self, "controller_combo"):
             self.login_controller_combo.setCurrentText(self.controller_combo.currentText())
+        self.login_controller_combo.currentTextChanged.connect(self._schedule_login_health_checks)
         connection_row.addWidget(self.login_controller_combo, 1)
         self.login_check_btn = QPushButton("检测连接")
         self.login_check_btn.setObjectName("loginCheckButton")
@@ -377,9 +384,12 @@ class GuiUiMixin:
 
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
+        self.login_health_label = QLabel("语音服务: 等待检测  |  AI服务: 等待检测")
+        self.login_health_label.setObjectName("loginServiceStatus")
+        self.login_health_label.setWordWrap(True)
+        footer.addWidget(self.login_health_label, 1)
         version = QLabel("V1.0")
         version.setObjectName("loginVersion")
-        footer.addStretch(1)
         footer.addWidget(version)
         layout.addLayout(footer)
 
@@ -401,6 +411,7 @@ class GuiUiMixin:
             self.login_pin_edit.setPlaceholderText("请输入密码")
         if hasattr(self, "login_error_label"):
             self.login_error_label.setText("")
+        QTimer.singleShot(100, self._start_login_health_checks)
 
     def _show_login_page(self, target_role: str | None = None) -> None:
         self._sync_login_connection_from_main()
@@ -432,6 +443,177 @@ class GuiUiMixin:
             self.login_controller_combo.setCurrentText(self.controller_combo.currentText())
         if hasattr(self, "login_connection_label") and hasattr(self, "connection_label"):
             self.login_connection_label.setText(f"连接状态: {self.connection_label.text()}")
+
+    def _schedule_login_health_checks(self) -> None:
+        if not hasattr(self, "app_pages") or self.app_pages.currentIndex() != 0:
+            return
+        if hasattr(self, "login_health_label"):
+            self.login_health_label.setText("语音服务: 等待检测  |  AI服务: 等待检测")
+        QTimer.singleShot(500, self._start_login_health_checks)
+
+    def _set_login_health_status(self, key: str, ok: bool | None, message: str) -> None:
+        checks = dict(getattr(self, "_login_health_checks", {}) or {})
+        checks[key] = {
+            "ok": ok,
+            "message": self._format_login_health_message(key, ok, str(message or "")),
+            "checked_at": time.time() if ok is not None else 0.0,
+        }
+        self._login_health_checks = checks
+        self._refresh_login_health_label()
+
+    @staticmethod
+    def _format_login_health_message(key: str, ok: bool | None, message: str) -> str:
+        raw = " ".join(str(message or "").split())
+        if ok is True:
+            return "正常"
+        if ok is None:
+            return "检测中"
+        if key == "controller":
+            if "地址为空" in raw:
+                return "请输入控制器地址"
+            return "连接失败，请检查 IP、网线或控制器状态"
+        if key == "doubao":
+            if "DOUBAO_API_KEY" in raw or "api_key" in raw.lower():
+                return "语音服务未配置"
+            if "timeout" in raw.lower() or "超时" in raw:
+                return "语音服务响应超时"
+            return "语音服务不可用"
+        if key == "deepseek":
+            if "DEEPSEEK_API_KEY" in raw or "api_key" in raw.lower():
+                return "AI服务未配置"
+            if "配额" in raw or "quota" in raw.lower() or "429" in raw:
+                return "AI服务配额不足"
+            if "timeout" in raw.lower() or "超时" in raw:
+                return "AI服务响应超时"
+            return "AI服务不可用"
+        return raw or "异常"
+
+    def _refresh_login_health_label(self) -> None:
+        if not hasattr(self, "login_health_label"):
+            return
+        checks = getattr(self, "_login_health_checks", {}) or {}
+
+        def item(label: str, key: str) -> str:
+            status = checks.get(key, {})
+            ok = status.get("ok")
+            msg = str(status.get("message", "") or "")
+            if ok is True:
+                return f"✓ {label}：正常"
+            if ok is False:
+                return f"{label}: {msg or '异常'}"
+            return f"{label}: 检测中"
+
+        self.login_health_label.setText(
+            "  |  ".join(
+                (
+                    item("语音服务", "doubao"),
+                    item("AI服务", "deepseek"),
+                )
+            )
+        )
+
+    def _start_login_health_checks(self) -> None:
+        if not hasattr(self, "login_host_edit") or not hasattr(self, "login_controller_combo"):
+            return
+        if hasattr(self, "app_pages") and self.app_pages.currentIndex() != 0:
+            return
+        host = self.login_host_edit.text().strip()
+        controller_mode = self.login_controller_combo.currentText()
+        generation = int(getattr(self, "_login_health_generation", 0) or 0) + 1
+        self._login_health_generation = generation
+        self._login_health_started_at = time.time()
+        self._login_health_checks = {
+            "controller": {"ok": None, "message": "检测中", "checked_at": 0.0},
+            "doubao": {"ok": None, "message": "检测中", "checked_at": 0.0},
+            "deepseek": {"ok": None, "message": "检测中", "checked_at": 0.0},
+        }
+        self._refresh_login_health_label()
+
+        def work() -> dict[str, tuple[bool, str]]:
+            return {
+                "controller": self._probe_login_controller_connection(host, controller_mode),
+                "doubao": self._probe_doubao_service(),
+                "deepseek": self._probe_deepseek_service(),
+            }
+
+        def done(results) -> None:
+            if generation != getattr(self, "_login_health_generation", 0):
+                return
+            if not isinstance(results, dict):
+                return
+            for key, value in results.items():
+                ok, message = value if isinstance(value, tuple) and len(value) == 2 else (False, str(value))
+                self._set_login_health_status(key, bool(ok), str(message))
+
+        runner = getattr(self, "_run_in_background", None)
+        if callable(runner):
+            runner(work, done)
+        else:
+            done(work())
+
+    def _probe_login_controller_connection(self, host: str, controller_mode: str) -> tuple[bool, str]:
+        if not host:
+            return False, "地址为空"
+        client = None
+        try:
+            if controller_mode == "模拟控制器":
+                try:
+                    from mock_controller import MockZMotionVrClient
+                except ModuleNotFoundError:
+                    from ..mock_controller import MockZMotionVrClient
+                client = MockZMotionVrClient(host=host, axis_ranges=self.axis_ranges.to_dict())
+            else:
+                client = self._client_factory(host, self.resource_root)
+            client.connect()
+            return True, "连接成功"
+        except Exception as exc:
+            return False, str(exc)
+        finally:
+            if client is not None:
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+
+    def _probe_doubao_service(self) -> tuple[bool, str]:
+        try:
+            from .doubao_voice_client import DoubaoVoiceClient
+
+            client = getattr(self, "_doubao_voice_client", None) or DoubaoVoiceClient()
+            checker = getattr(client, "check_connection", None)
+            if callable(checker):
+                checker()
+            return True, "连接成功"
+        except Exception as exc:
+            return False, str(exc)
+
+    def _probe_deepseek_service(self) -> tuple[bool, str]:
+        try:
+            client = getattr(self, "_deepseek_client", None)
+            if client is None:
+                from .deepseek_client import DeepSeekClient
+
+                client = DeepSeekClient.from_env()
+            checker = getattr(client, "check_connection", None)
+            if callable(checker):
+                checker()
+            else:
+                client.generate_chat("ping", system_prompt="只回复 OK。")
+            return True, "连接成功"
+        except Exception as exc:
+            return False, str(exc)
+
+    def _login_health_failure_text(self) -> str:
+        checks = getattr(self, "_login_health_checks", {}) or {}
+        failed: list[str] = []
+        for label, key in (("控制器", "controller"), ("语音服务", "doubao"), ("AI服务", "deepseek")):
+            status = checks.get(key, {})
+            if status.get("ok") is False:
+                message = str(status.get("message", "") or "")
+                failed.append(f"{label}: {message}" if message else label)
+        if not failed:
+            return ""
+        return "登录前自检未通过：" + "；".join(failed)
 
     def _apply_login_connection_settings(self) -> bool:
         host = self.login_host_edit.text().strip() if hasattr(self, "login_host_edit") else ""
@@ -473,6 +655,12 @@ class GuiUiMixin:
                 self.login_error_label.setText("认证失败，请检查账号或密码")
             return
         if not self._apply_login_connection_settings():
+            return
+        health_error = self._login_health_failure_text()
+        if health_error:
+            if hasattr(self, "login_error_label"):
+                self.login_error_label.setText(health_error)
+            self._refresh_login_health_label()
             return
         self._authenticated_role = role
         self._authenticated_operator_id = operator_id or ("ENG-0001" if role == "engineer" else "OP-0001")
@@ -1600,6 +1788,11 @@ class GuiUiMixin:
                 color: #475569;
                 font-size: 13px;
                 font-weight: 700;
+            }
+            QLabel#loginServiceStatus {
+                color: #64748b;
+                font-size: 12px;
+                font-weight: 600;
             }
             QLabel#loginError {
                 min-height: 20px;

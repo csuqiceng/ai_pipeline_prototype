@@ -37,14 +37,15 @@ class LlmFallbackAgent:
             "、"
             '{"kind":"clarification","text":"向操作者反问的问题"}'
             "、"
-            '{"kind":"chat_answer","suggested_reply":"回答内容","confidence":0.0}'
+            '{"kind":"chat_answer","suggested_reply":"界面完整回答","speech_reply":"30字以内语音摘要","confidence":0.0}'
             "、"
             '{"kind":"flow_create|flow_append_step|flow_modify_step|flow_list|flow_query|confirm_modify|dashboard_query|command_candidate|suggestion",'
             '"flow_name":"流程名","target_flow":"流程名","step_index":1,"step_hint":"步骤描述",'
             '"field":"参数名","value_text":"参数值","query_text":"状态问题","candidate_text":"候选自然语言指令",'
-            '"missing_fields":["字段"],"suggested_reply":"给操作者的建议","confidence":0.0}。'
+            '"missing_fields":["字段"],"suggested_reply":"给操作者看的完整建议","speech_reply":"30字以内语音摘要","confidence":0.0}。'
             "candidate_text 只能是明确方向/坐标/延时/IO/系统动作的自然语言改写。"
             "结构化意图只能表达用户意图、缺失信息和建议，不允许携带可直接执行的参数。"
+            "speech_reply 只能是短自然语言摘要，不得包含长参数表或完整流程步骤。"
         )
 
     def _build_prompt(self, text: str, understanding: Any) -> str:
@@ -138,6 +139,9 @@ class LlmFallbackAgent:
             if reply:
                 result["suggested_reply"] = reply
                 result["text"] = reply
+            speech_reply = str(payload.get("speech_reply", "") or "").strip()
+            if speech_reply:
+                result["speech_reply"] = speech_reply
             try:
                 result["confidence"] = float(payload.get("confidence", 0.0) or 0.0)
             except (TypeError, ValueError):

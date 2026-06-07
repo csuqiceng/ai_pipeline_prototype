@@ -80,6 +80,20 @@ def test_llm_fallback_agent_accepts_structured_context_intent_without_execution_
     assert "追加一步" in result["suggested_reply"]
 
 
+def test_llm_fallback_agent_preserves_speech_reply_for_structured_intent():
+    client = FakeClient(
+        '{"kind":"chat_answer","suggested_reply":"完整回答会显示在界面。","speech_reply":"已显示完整回答。","confidence":0.9}'
+    )
+    agent = LlmFallbackAgent(client=client)
+
+    result = agent.apply("解释一下流程", _understanding())
+
+    assert result["kind"] == "chat_answer"
+    assert result["suggested_reply"] == "完整回答会显示在界面。"
+    assert result["speech_reply"] == "已显示完整回答。"
+    assert "speech_reply" in client.prompts[0][1]
+
+
 def test_llm_fallback_agent_rejects_structured_intent_with_direct_params():
     client = FakeClient('{"kind":"confirm_modify","params":{"acc_pct":50},"suggested_reply":"已修改"}')
     agent = LlmFallbackAgent(client=client)

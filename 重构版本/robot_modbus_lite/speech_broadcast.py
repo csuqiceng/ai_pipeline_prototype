@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
@@ -139,6 +140,18 @@ class WindowsSapiSpeechSink:
 class DoubaoSpeechSink:
     """Doubao TTS sink backed by realtime dialogue TTS audio."""
 
+    _FIXED_CACHE_TEXTS = {
+        "请确认执行。",
+        "已取消。",
+        "执行完成。",
+        "正在处理。",
+        "请补充目标位置。",
+        "当前正在执行，请稍候。",
+        "安全检查未通过，请查看屏幕。",
+        "缺少唤醒词，请说小正或小兵。",
+        "详情已显示在屏幕上。",
+    }
+
     def __init__(
         self,
         client: object | None = None,
@@ -148,12 +161,15 @@ class DoubaoSpeechSink:
         stream_player_factory: Callable[[int], object] | None = None,
     ) -> None:
         self._client = client
-        self._player = player or self._default_player
+        self._player = player
         self._stop_player = stop_player or self._default_stop_player
-        self._stream_player_factory = stream_player_factory or self._default_stream_player_factory
+        self._stream_player_factory = stream_player_factory
         self._sample_rate = int(sample_rate)
         self._is_speaking = False
         self._cancel_requested = False
+        self._pcm_cache: OrderedDict[tuple[str, str, int, str, int], bytes] = OrderedDict()
+        self._pcm_cache_max_items = 32
+        self.usage_events: list[dict[str, object]] = []
 
     @property
     def is_speaking(self) -> bool:
@@ -172,13 +188,21 @@ class DoubaoSpeechSink:
 
                 client = DoubaoVoiceClient()
                 self._client = client
+            if self._can_use_pcm_cache(clean, client):
+                pcm, cache_hit = self._cached_or_synthesize_pcm(clean, client)
+                if pcm and not self._cancel_requested:
+                    self._play_pcm(client, pcm)
+                self._record_usage(clean, client, pcm_bytes=len(pcm or b""), cache_hit=cache_hit)
+                return
             stream_synthesize = getattr(client, "stream_synthesize_text", None)
             if callable(stream_synthesize):
-                self._stream_play_text(client, clean)
+                pcm_bytes = self._stream_play_text(client, clean)
+                self._record_usage(clean, client, pcm_bytes=pcm_bytes, cache_hit=False)
                 return
             pcm = client.synthesize_text(clean)
             if pcm and not self._cancel_requested:
-                self._player(pcm, self._sample_rate)
+                self._play_pcm(client, pcm)
+            self._record_usage(clean, client, pcm_bytes=len(pcm or b""), cache_hit=False)
         finally:
             self._is_speaking = False
 
@@ -190,21 +214,81 @@ class DoubaoSpeechSink:
         except Exception:
             pass
 
-    def _stream_play_text(self, client: object, text: str) -> None:
+    def _stream_play_text(self, client: object, text: str) -> int:
         stream_synthesize = getattr(client, "stream_synthesize_text")
-        with self._stream_player_factory(self._sample_rate) as stream_player:
+        total_bytes = 0
+        with self._open_stream_player(client) as stream_player:
             write = getattr(stream_player, "write", None)
             if not callable(write):
                 raise RuntimeError("豆包流式播放器缺少 write(pcm) 方法。")
 
             def play_chunk(pcm: bytes) -> None:
+                nonlocal total_bytes
                 if pcm and not self._cancel_requested:
+                    total_bytes += len(pcm)
                     write(pcm)
 
             stream_synthesize(text, play_chunk)
+        return total_bytes
+
+    def _can_use_pcm_cache(self, text: str, client: object) -> bool:
+        return text in self._FIXED_CACHE_TEXTS and callable(getattr(client, "synthesize_text", None))
+
+    def _cached_or_synthesize_pcm(self, text: str, client: object) -> tuple[bytes, bool]:
+        key = self._pcm_cache_key(text, client)
+        cached = self._pcm_cache.get(key)
+        if cached is not None:
+            self._pcm_cache.move_to_end(key)
+            return cached, True
+        pcm = client.synthesize_text(text)
+        if pcm:
+            self._pcm_cache[key] = bytes(pcm)
+            self._pcm_cache.move_to_end(key)
+            while len(self._pcm_cache) > self._pcm_cache_max_items:
+                self._pcm_cache.popitem(last=False)
+        return bytes(pcm or b""), False
+
+    def _pcm_cache_key(self, text: str, client: object) -> tuple[str, str, int, str, int]:
+        config = getattr(client, "config", None)
+        speaker = str(getattr(config, "speaker", "") or "")
+        sample_rate = int(getattr(config, "tts_sample_rate", self._sample_rate) or self._sample_rate)
+        return (text, speaker, sample_rate, self._audio_format(client), 1)
+
+    def _record_usage(self, text: str, client: object, *, pcm_bytes: int, cache_hit: bool) -> None:
+        config = getattr(client, "config", None)
+        self.usage_events.append(
+            {
+                "type": "tts",
+                "text_len": len(text),
+                "text_utf8_bytes": len(text.encode("utf-8")),
+                "pcm_bytes": int(pcm_bytes),
+                "speaker": str(getattr(config, "speaker", "") or ""),
+                "sample_rate": int(getattr(config, "tts_sample_rate", self._sample_rate) or self._sample_rate),
+                "audio_format": self._audio_format(client),
+                "session_count": 0 if cache_hit else 1,
+                "cache_hit": bool(cache_hit),
+                "interrupted": bool(self._cancel_requested),
+            }
+        )
+
+    def _play_pcm(self, client: object, pcm: bytes) -> None:
+        if self._player is not None:
+            self._player(pcm, self._sample_rate)
+            return
+        self._default_player(pcm, self._sample_rate, self._audio_format(client))
+
+    def _open_stream_player(self, client: object):
+        if self._stream_player_factory is not None:
+            return self._stream_player_factory(self._sample_rate)
+        return self._default_stream_player_factory(self._sample_rate, self._audio_format(client))
 
     @staticmethod
-    def _default_player(pcm: bytes, sample_rate: int) -> None:
+    def _audio_format(client: object) -> str:
+        config = getattr(client, "config", None)
+        return str(getattr(config, "tts_audio_format", "pcm") or "pcm").strip() or "pcm"
+
+    @staticmethod
+    def _default_player(pcm: bytes, sample_rate: int, audio_format: str = "pcm") -> None:
         try:
             import numpy as np
         except ImportError as exc:
@@ -213,12 +297,14 @@ class DoubaoSpeechSink:
             import sounddevice as sd
         except ImportError as exc:
             raise RuntimeError("未安装 sounddevice，无法播放豆包 TTS 音频。") from exc
-        audio = np.frombuffer(pcm, dtype=np.float32)
+        dtype = np.int16 if str(audio_format).lower() == "pcm_s16le" else np.float32
+        audio = np.frombuffer(pcm, dtype=dtype)
         sd.play(audio, samplerate=sample_rate, blocking=True)
 
     @staticmethod
-    def _default_stream_player_factory(sample_rate: int):
-        return _SoundDeviceRawOutput(sample_rate)
+    def _default_stream_player_factory(sample_rate: int, audio_format: str = "pcm"):
+        dtype = "int16" if str(audio_format).lower() == "pcm_s16le" else "float32"
+        return _SoundDeviceRawOutput(sample_rate, dtype=dtype)
 
     @staticmethod
     def _default_stop_player() -> None:
@@ -230,8 +316,9 @@ class DoubaoSpeechSink:
 
 
 class _SoundDeviceRawOutput:
-    def __init__(self, sample_rate: int) -> None:
+    def __init__(self, sample_rate: int, *, dtype: str = "float32") -> None:
         self._sample_rate = int(sample_rate)
+        self._dtype = str(dtype or "float32")
         self._stream = None
 
     def __enter__(self):
@@ -239,7 +326,7 @@ class _SoundDeviceRawOutput:
             import sounddevice as sd
         except ImportError as exc:
             raise RuntimeError("未安装 sounddevice，无法流式播放豆包 TTS 音频。") from exc
-        self._stream = sd.RawOutputStream(samplerate=self._sample_rate, channels=1, dtype="float32")
+        self._stream = sd.RawOutputStream(samplerate=self._sample_rate, channels=1, dtype=self._dtype)
         self._stream.start()
         return self
 
@@ -276,12 +363,46 @@ class SpeechBroadcastDeliveryService:
         if self.sink is None:
             return SpeechDeliveryResult(success=False, error="未配置语音播报输出接口。")
         delivered: list[int] = []
-        for message in messages:
+        for group in self._mergeable_groups(tuple(messages)):
             if should_continue is not None and not should_continue():
                 return SpeechDeliveryResult(success=True, delivered_seq=tuple(delivered))
+            message = group[0]
             try:
-                self.sink.speak(message.text)
+                speech_text = self._group_speech_text(group)
+                self.sink.speak(speech_text)
             except Exception as exc:
                 return SpeechDeliveryResult(success=False, delivered_seq=tuple(delivered), error=str(exc))
-            delivered.append(int(message.seq))
+            delivered.extend(int(item.seq) for item in group)
         return SpeechDeliveryResult(success=True, delivered_seq=tuple(delivered))
+
+    @staticmethod
+    def _can_merge(message: BroadcastMessage) -> bool:
+        context = str(getattr(message, "context_id", "") or "")
+        priority = str(getattr(message, "priority", "normal") or "normal").lower()
+        return context == "chat:ai_answer" and priority in {"normal", "low"}
+
+    @classmethod
+    def _mergeable_groups(cls, messages: tuple[BroadcastMessage, ...]) -> list[tuple[BroadcastMessage, ...]]:
+        groups: list[tuple[BroadcastMessage, ...]] = []
+        pending: list[BroadcastMessage] = []
+        for message in messages:
+            if cls._can_merge(message):
+                pending.append(message)
+                continue
+            if pending:
+                groups.append(tuple(pending))
+                pending = []
+            groups.append((message,))
+        if pending:
+            groups.append(tuple(pending))
+        return groups
+
+    @staticmethod
+    def _group_speech_text(messages: tuple[BroadcastMessage, ...]) -> str:
+        parts = [str(getattr(message, "speech_text", "") or message.text).strip() for message in messages]
+        parts = [part for part in parts if part]
+        if not parts:
+            return ""
+        if len(parts) == 1:
+            return parts[0]
+        return " ".join(parts)

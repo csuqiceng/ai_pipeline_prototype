@@ -12,11 +12,14 @@ import time
 import threading
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 import websockets
 
 from . import doubao_realtime_protocol as protocol
+from .nlp_standard_words import load_standard_words
+from .voice_wake_words import configured_wake_words
 
 
 class DoubaoVoiceError(RuntimeError):
@@ -35,6 +38,11 @@ class DoubaoVoiceConfig:
     recv_timeout: int = 10
     end_smooth_window_ms: int = 1500
     stream_queue_max_chunks: int = 20
+    dialog_model: str = "1.2.1.1"
+    tts_audio_format: str = "pcm"
+    tts_minimal_session: bool = False
+    tts_use_chat_tts_text: bool = False
+    enable_asr_twopass: bool = True
 
     @classmethod
     def from_env(cls) -> "DoubaoVoiceConfig":
@@ -55,6 +63,12 @@ class DoubaoVoiceConfig:
             recv_timeout=int(os.environ.get("DOUBAO_RECV_TIMEOUT", "10")),
             end_smooth_window_ms=int(os.environ.get("DOUBAO_END_SMOOTH_WINDOW_MS", "1500")),
             stream_queue_max_chunks=int(os.environ.get("DOUBAO_STREAM_QUEUE_MAX_CHUNKS", "20")),
+            dialog_model=os.environ.get("DOUBAO_DIALOG_MODEL", cls.dialog_model).strip() or cls.dialog_model,
+            tts_audio_format=os.environ.get("DOUBAO_TTS_AUDIO_FORMAT", cls.tts_audio_format).strip() or cls.tts_audio_format,
+            tts_minimal_session=os.environ.get("DOUBAO_TTS_MINIMAL_SESSION", "").strip().lower() in {"1", "true", "yes", "on"},
+            tts_use_chat_tts_text=os.environ.get("DOUBAO_TTS_USE_CHAT_TTS_TEXT", "").strip().lower() in {"1", "true", "yes", "on"},
+            enable_asr_twopass=os.environ.get("DOUBAO_ENABLE_ASR_TWOPASS", "1").strip().lower()
+            not in {"0", "false", "no", "off"},
         )
 
     def headers(self, connect_id: str) -> dict[str, str]:
@@ -98,6 +112,60 @@ def connect_websocket(url: str, *, headers: dict[str, str]):
     connect_params = inspect.signature(websockets.connect).parameters
     header_key = "additional_headers" if "additional_headers" in connect_params else "extra_headers"
     return websockets.connect(url, **{header_key: headers}, ping_interval=None)
+
+
+def _encode_json_payload(data: Any, *, compress_threshold: int = 100) -> tuple[bytes, int]:
+    raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    if len(raw) < int(compress_threshold):
+        return raw, protocol.NO_COMPRESSION
+    return gzip.compress(raw), protocol.GZIP
+
+
+@lru_cache(maxsize=1)
+def _doubao_asr_context() -> dict[str, Any]:
+    words: list[str] = []
+    seen: set[str] = set()
+
+    def add_word(value: str) -> None:
+        word = str(value or "").strip()
+        if not word or len(word) > 24:
+            return
+        if word in seen:
+            return
+        seen.add(word)
+        words.append(word)
+
+    for wake_word in configured_wake_words():
+        add_word(wake_word)
+
+    for index in range(1, 11):
+        chinese = ("一", "二", "三", "四", "五", "六", "七", "八", "九", "十")[index - 1]
+        add_word(f"步骤{chinese}")
+        add_word(f"第{chinese}步")
+        add_word(f"步骤{index}")
+        add_word(f"第{index}步")
+    for label in ("A", "B", "C", "D", "home", "Home", "HOME"):
+        add_word(f"位置{label}")
+    for func_id in (104, 108, 109, 110, 120):
+        add_word(f"Func{func_id}")
+
+    for word in load_standard_words().values():
+        add_word(word.standard)
+        for alias in word.homophones[:6]:
+            add_word(alias)
+        for alias in word.sichuan_variants[:3]:
+            add_word(alias)
+
+    correct_words = {
+        "速度二(?=，?等待|,?等待|，?延时|,?延时|，?移动|,?移动|，?输出|,?输出)": "步骤二",
+        "速度三(?=，?等待|,?等待|，?延时|,?延时|，?移动|,?移动|，?输出|,?输出)": "步骤三",
+        "速度四(?=，?等待|,?等待|，?延时|,?延时|，?移动|,?移动|，?输出|,?输出)": "步骤四",
+        "速度五(?=，?等待|,?等待|，?延时|,?延时|，?移动|,?移动|，?输出|,?输出)": "步骤五",
+    }
+    return {
+        "hotwords": [{"word": word} for word in words[:80]],
+        "correct_words": correct_words,
+    }
 
 
 class DoubaoStreamingAsrSession:
@@ -201,7 +269,7 @@ class DoubaoStreamingAsrSession:
             self._ws = ws
             await client._send_start_connection(ws)
             await client._recv_checked(ws)
-            await client._send_start_session(ws, session_id, input_mod="audio")
+            await client._send_start_session(ws, session_id, input_mod="audio", include_tts=False)
             await client._recv_checked(ws)
             self._ready_event.set()
             send_task = asyncio.create_task(self._send_loop(client, ws, session_id))
@@ -292,6 +360,10 @@ class DoubaoVoiceClient:
     def stream_synthesize_text(self, text: str, chunk_callback) -> None:
         self._run_async(self._stream_synthesize_text_async(text, chunk_callback))
 
+    def check_connection(self) -> None:
+        """Perform a minimal websocket handshake for login preflight."""
+        self._run_async(self._check_connection_async())
+
     async def _transcribe_pcm_async(self, pcm_data: bytes, *, partial_callback=None) -> dict[str, object]:
         started = time.perf_counter()
         if not pcm_data:
@@ -302,7 +374,7 @@ class DoubaoVoiceClient:
         async with connect_websocket(self.config.ws_url, headers=self.config.headers(connect_id)) as ws:
             await self._send_start_connection(ws)
             await self._recv_checked(ws)
-            await self._send_start_session(ws, session_id, input_mod="audio_file")
+            await self._send_start_session(ws, session_id, input_mod="audio_file", include_tts=False)
             await self._recv_checked(ws)
             await self._send_audio(ws, session_id, pcm_data)
             while True:
@@ -322,29 +394,59 @@ class DoubaoVoiceClient:
         return {"text": final_text.strip(), "timing": {"voice_mode": "doubao_asr", "voice_total_ms": total_ms}}
 
     async def _send_start_connection(self, ws) -> None:
-        payload = gzip.compress(b"{}")
-        request = bytearray(protocol.generate_header())
+        payload, compression = _encode_json_payload({})
+        request = bytearray(protocol.generate_header(compression_type=compression))
         request.extend(protocol.START_CONNECTION.to_bytes(4, "big"))
         request.extend(len(payload).to_bytes(4, "big"))
         request.extend(payload)
         await ws.send(bytes(request))
 
-    async def _send_start_session(self, ws, session_id: str, *, input_mod: str) -> None:
-        request_params = {
-            "asr": {"extra": {"end_smooth_window_ms": self.config.end_smooth_window_ms}},
-            "tts": {
-                "speaker": self.config.speaker,
-                "audio_config": {"channel": 1, "format": "pcm", "sample_rate": self.config.tts_sample_rate},
-            },
-            "dialog": {
-                "bot_name": "豆包",
-                "system_role": "你是机械手系统的语音接口。只做简短确认，不直接生成机械手控制动作。",
-                "speaking_style": "回答简洁。",
-                "extra": {"strict_audit": False, "recv_timeout": self.config.recv_timeout, "input_mod": input_mod},
+    async def _send_start_session(
+        self,
+        ws,
+        session_id: str,
+        *,
+        input_mod: str,
+        include_tts: bool = True,
+        minimal_dialog: bool = False,
+    ) -> None:
+        dialog: dict[str, Any] = {
+            "bot_name": "豆包",
+            "extra": {
+                "strict_audit": False,
+                "recv_timeout": self.config.recv_timeout,
+                "input_mod": input_mod,
+                "model": self.config.dialog_model,
             },
         }
-        payload = gzip.compress(json.dumps(request_params, ensure_ascii=False).encode("utf-8"))
-        request = bytearray(protocol.generate_header())
+        if not minimal_dialog:
+            dialog.update(
+                {
+                    "system_role": "你是机械手系统的语音接口。只做简短确认，不直接生成机械手控制动作。",
+                    "speaking_style": "回答简洁。",
+                }
+            )
+        request_params: dict[str, Any] = {
+            "asr": {
+                "extra": {
+                    "end_smooth_window_ms": self.config.end_smooth_window_ms,
+                    "enable_asr_twopass": bool(self.config.enable_asr_twopass),
+                    "context": _doubao_asr_context(),
+                }
+            },
+            "dialog": dialog,
+        }
+        if include_tts:
+            request_params["tts"] = {
+                "speaker": self.config.speaker,
+                "audio_config": {
+                    "channel": 1,
+                    "format": self.config.tts_audio_format,
+                    "sample_rate": self.config.tts_sample_rate,
+                },
+            }
+        payload, compression = _encode_json_payload(request_params)
+        request = bytearray(protocol.generate_header(compression_type=compression))
         request.extend(protocol.START_SESSION.to_bytes(4, "big"))
         request.extend(len(session_id).to_bytes(4, "big"))
         request.extend(session_id.encode("utf-8"))
@@ -368,8 +470,8 @@ class DoubaoVoiceClient:
         await ws.send(bytes(request))
 
     async def _send_finish_session(self, ws, session_id: str) -> None:
-        payload = gzip.compress(b"{}")
-        request = bytearray(protocol.generate_header())
+        payload, compression = _encode_json_payload({})
+        request = bytearray(protocol.generate_header(compression_type=compression))
         request.extend(protocol.FINISH_SESSION.to_bytes(4, "big"))
         request.extend(len(session_id).to_bytes(4, "big"))
         request.extend(session_id.encode("utf-8"))
@@ -378,12 +480,19 @@ class DoubaoVoiceClient:
         await ws.send(bytes(request))
 
     async def _send_finish_connection(self, ws) -> None:
-        payload = gzip.compress(b"{}")
-        request = bytearray(protocol.generate_header())
+        payload, compression = _encode_json_payload({})
+        request = bytearray(protocol.generate_header(compression_type=compression))
         request.extend(protocol.FINISH_CONNECTION.to_bytes(4, "big"))
         request.extend(len(payload).to_bytes(4, "big"))
         request.extend(payload)
         await ws.send(bytes(request))
+
+    async def _check_connection_async(self) -> None:
+        connect_id = str(uuid.uuid4())
+        async with connect_websocket(self.config.ws_url, headers=self.config.headers(connect_id)) as ws:
+            await self._send_start_connection(ws)
+            await self._recv_checked(ws, timeout=min(float(self.config.recv_timeout), 8.0))
+            await self._send_finish_connection(ws)
 
     async def _recv_checked(self, ws, *, timeout: float | None = "default") -> dict[str, Any]:
         try:
@@ -417,9 +526,17 @@ class DoubaoVoiceClient:
         async with connect_websocket(self.config.ws_url, headers=self.config.headers(connect_id)) as ws:
             await self._send_start_connection(ws)
             await self._recv_checked(ws)
-            await self._send_start_session(ws, session_id, input_mod="text")
+            await self._send_start_session(
+                ws,
+                session_id,
+                input_mod="text",
+                minimal_dialog=self.config.tts_minimal_session,
+            )
             await self._recv_checked(ws)
-            await self._send_say_hello_text(ws, session_id, clean)
+            if self.config.tts_use_chat_tts_text:
+                await self._send_chat_tts_text(ws, session_id, clean)
+            else:
+                await self._send_say_hello_text(ws, session_id, clean)
             while True:
                 response = await self._recv_checked(ws)
                 if response.get("message_type") == "SERVER_ACK" and isinstance(response.get("payload_msg"), bytes):
@@ -431,8 +548,8 @@ class DoubaoVoiceClient:
         return None
 
     async def _send_say_hello_text(self, ws, session_id: str, text: str) -> None:
-        payload = gzip.compress(json.dumps({"content": text}, ensure_ascii=False).encode("utf-8"))
-        request = bytearray(protocol.generate_header())
+        payload, compression = _encode_json_payload({"content": text})
+        request = bytearray(protocol.generate_header(compression_type=compression))
         request.extend(protocol.SAY_HELLO.to_bytes(4, "big"))
         request.extend(len(session_id).to_bytes(4, "big"))
         request.extend(session_id.encode("utf-8"))
@@ -442,8 +559,8 @@ class DoubaoVoiceClient:
 
     async def _send_chat_tts_text(self, ws, session_id: str, text: str) -> None:
         for start, end, content in ((True, False, text), (False, True, "")):
-            payload = gzip.compress(json.dumps({"start": start, "end": end, "content": content}, ensure_ascii=False).encode("utf-8"))
-            request = bytearray(protocol.generate_header())
+            payload, compression = _encode_json_payload({"start": start, "end": end, "content": content})
+            request = bytearray(protocol.generate_header(compression_type=compression))
             request.extend(protocol.CHAT_TTS_TEXT.to_bytes(4, "big"))
             request.extend(len(session_id).to_bytes(4, "big"))
             request.extend(session_id.encode("utf-8"))

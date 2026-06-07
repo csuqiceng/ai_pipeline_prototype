@@ -1070,6 +1070,7 @@ class OperatorUiMixin:
                 self._operator_finish_streaming_chat_response(text)
             elif hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", text)
+            self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "澄清提示", "提示", text)
             if hasattr(self, "_operator_archive_execution_result"):
                 self._operator_archive_execution_result(result="clarification", final_text=text)
@@ -1099,6 +1100,7 @@ class OperatorUiMixin:
                         self._operator_finish_streaming_chat_response(text)
                     elif hasattr(self, "_operator_add_chat_message"):
                         self._operator_add_chat_message("assistant", text)
+                    self._operator_publish_ai_answer_for_speech(text)
                     self._append_log("自然语言", "流程草案追问", "提示", text)
                     if hasattr(self, "_operator_archive_execution_result"):
                         self._operator_archive_execution_result(result="clarification", final_text=text)
@@ -1121,6 +1123,7 @@ class OperatorUiMixin:
                 self._operator_finish_streaming_chat_response(text)
             elif hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", text)
+            self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "流程草案", "提示", text)
             if hasattr(self, "_operator_archive_execution_result"):
                 self._operator_archive_execution_result(result="flow_draft", final_text=text)
@@ -1223,7 +1226,11 @@ class OperatorUiMixin:
             return True
         reply = str(intent.get("suggested_reply") or "").strip()
         if reply:
-            self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+            self._operator_publish_context_intent_reply(
+                reply,
+                category="流程编辑理解",
+                speech_text=self._operator_intent_speech_reply(intent),
+            )
             return True
         return False
 
@@ -1231,7 +1238,11 @@ class OperatorUiMixin:
         draft = getattr(self, "_operator_pending_flow_draft", None)
         if not isinstance(draft, dict) or not draft:
             reply = str(intent.get("suggested_reply") or "当前没有正在编辑的流程草案，请先创建或选择流程。").strip()
-            self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+            self._operator_publish_context_intent_reply(
+                reply,
+                category="流程编辑理解",
+                speech_text=self._operator_intent_speech_reply(intent),
+            )
             return True
         step_index = self._operator_llm_step_index(intent)
         field = str(intent.get("field") or intent.get("param") or "").strip().lower()
@@ -1240,7 +1251,11 @@ class OperatorUiMixin:
         if text and self._operator_handle_pending_flow_draft_edit(text):
             return True
         reply = str(intent.get("suggested_reply") or "已理解为流程修改，但还缺少步骤编号、参数名或参数值。").strip()
-        self._operator_publish_context_intent_reply(reply, category="流程编辑理解")
+        self._operator_publish_context_intent_reply(
+            reply,
+            category="流程编辑理解",
+            speech_text=self._operator_intent_speech_reply(intent),
+        )
         return True
 
     def _operator_apply_llm_flow_query_intent(self, intent: dict[str, Any]) -> bool:
@@ -1276,7 +1291,11 @@ class OperatorUiMixin:
             return True
         reply = str(intent.get("suggested_reply") or "").strip()
         if reply:
-            self._operator_publish_context_intent_reply(reply, category="确认阶段理解")
+            self._operator_publish_context_intent_reply(
+                reply,
+                category="确认阶段理解",
+                speech_text=self._operator_intent_speech_reply(intent),
+            )
             return True
         return False
 
@@ -1287,14 +1306,22 @@ class OperatorUiMixin:
         if query_text and self._operator_handle_dashboard_query(query_text):
             return True
         reply = str(intent.get("suggested_reply") or "当前状态查询无法直接匹配，请换一种问法，例如“现在急停状态怎么样”。").strip()
-        self._operator_publish_context_intent_reply(reply, category="状态查询理解")
+        self._operator_publish_context_intent_reply(
+            reply,
+            category="状态查询理解",
+            speech_text=self._operator_intent_speech_reply(intent),
+        )
         return True
 
     def _operator_apply_llm_command_candidate_intent(self, intent: dict[str, Any], source_plan) -> bool:
         candidate_text = str(intent.get("candidate_text") or intent.get("text") or "").strip()
         if not candidate_text:
             reply = str(intent.get("suggested_reply") or "已识别为候选控制指令，但缺少可重新解析的命令文本。").strip()
-            self._operator_publish_context_intent_reply(reply, category="候选指令理解")
+            self._operator_publish_context_intent_reply(
+                reply,
+                category="候选指令理解",
+                speech_text=self._operator_intent_speech_reply(intent),
+            )
             return True
         raw_text = str(getattr(source_plan, "raw_text", "") or "").strip()
         if not raw_text:
@@ -1308,7 +1335,11 @@ class OperatorUiMixin:
         candidate_plan = self._operator_try_agent_orchestrator_plan(candidate_text)
         if candidate_plan is None:
             reply = str(intent.get("suggested_reply") or "已识别为候选控制指令，但本地安全解析未通过，请补充目标和参数。").strip()
-            self._operator_publish_context_intent_reply(reply, category="候选指令解析")
+            self._operator_publish_context_intent_reply(
+                reply,
+                category="候选指令解析",
+                speech_text=self._operator_intent_speech_reply(intent),
+            )
             return True
         self._execute_nlp_plan(candidate_plan)
         return True
@@ -1317,8 +1348,16 @@ class OperatorUiMixin:
         reply = str(intent.get("suggested_reply") or intent.get("text") or "").strip()
         if not reply:
             reply = "已收到你的需求。建议先明确要查询、修改流程，还是执行控制指令。"
-        self._operator_publish_context_intent_reply(reply, category="上下文建议")
+        self._operator_publish_context_intent_reply(
+            reply,
+            category="上下文建议",
+            speech_text=self._operator_intent_speech_reply(intent),
+        )
         return True
+
+    @staticmethod
+    def _operator_intent_speech_reply(intent: dict[str, Any]) -> str:
+        return str((intent or {}).get("speech_reply") or "").strip()
 
     @staticmethod
     def _operator_confirm_modify_text_from_llm_field(field: str, value_text: str) -> str:
@@ -1377,7 +1416,7 @@ class OperatorUiMixin:
             return ""
         return f"第{step_index}步{label}改成{value_text}"
 
-    def _operator_publish_context_intent_reply(self, text: str, *, category: str) -> None:
+    def _operator_publish_context_intent_reply(self, text: str, *, category: str, speech_text: str = "") -> None:
         clean = str(text or "").strip()
         if not clean:
             return
@@ -1389,7 +1428,13 @@ class OperatorUiMixin:
         elif hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", clean)
         if hasattr(self, "_operator_publish_ai_answer_for_speech"):
-            self._operator_publish_ai_answer_for_speech(clean)
+            if speech_text:
+                try:
+                    self._operator_publish_ai_answer_for_speech(clean, speech_text=speech_text)
+                except TypeError:
+                    self._operator_publish_ai_answer_for_speech(clean)
+            else:
+                self._operator_publish_ai_answer_for_speech(clean)
         if hasattr(self, "_append_log"):
             self._append_log("Agent", category, "成功", clean)
         if hasattr(self, "_operator_archive_execution_result"):
@@ -1485,14 +1530,17 @@ class OperatorUiMixin:
                 if hasattr(self, "_append_log"):
                     self._append_log("Agent", "后台解析", "失败", str(result))
                 result = None
-            self._operator_apply_agent_plan_background_result(result, mode=mode)
+            self._operator_apply_agent_plan_background_result(result, mode=mode, fallback_text=text)
 
         runner(work, done)
         return True
 
-    def _operator_apply_agent_plan_background_result(self, agent_plan, *, mode: str) -> None:
+    def _operator_apply_agent_plan_background_result(self, agent_plan, *, mode: str, fallback_text: str = "") -> None:
         if agent_plan is None:
             self._operator_cancel_streaming_chat_response()
+            fallback = str(fallback_text or "").strip()
+            if fallback and hasattr(self, "nlp_input_edit") and hasattr(self.nlp_input_edit, "setPlainText"):
+                self.nlp_input_edit.setPlainText(fallback)
             if mode == "parse":
                 self._set_nlp_parse_busy(False)
                 super()._parse_nlp_text()
@@ -1947,7 +1995,7 @@ class OperatorUiMixin:
     def _operator_submit_nlp_text(self, text: str, *, input_mode: str, add_user_message: bool) -> bool:
         command = str(text or "").strip()
         if not command:
-            self._show_warning("输入为空", "请输入自然语言文本。")
+            self._operator_show_empty_input_hint()
             return False
         interrupter = getattr(self, "_operator_interrupt_current_speech_for_user_input", None)
         if callable(interrupter):
@@ -2082,7 +2130,7 @@ class OperatorUiMixin:
         if not text and hasattr(self, "nlp_input_edit"):
             text = self.nlp_input_edit.toPlainText().strip()
         if not text:
-            self._show_warning("输入为空", "请输入自然语言文本。")
+            self._operator_show_empty_input_hint()
             return False
         self.nlp_input_edit.setPlainText(text)
         if hasattr(self, "operator_voice_label"):
@@ -2092,11 +2140,35 @@ class OperatorUiMixin:
         self._operator_archive_text_input(text)
         return True
 
+    def _operator_show_empty_input_hint(self) -> None:
+        last_user_text = str(getattr(self, "_operator_last_user_text", "") or "").strip()
+        if last_user_text:
+            text = f"当前输入框为空。上一句语音“{last_user_text}”已收到，如需新指令请继续说或输入文本。"
+        else:
+            text = "请输入自然语言文本，例如：小正，执行点头流程。"
+        if hasattr(self, "_operator_add_chat_message"):
+            try:
+                self._operator_add_chat_message("assistant", text, kind="warn")
+            except TypeError:
+                self._operator_add_chat_message("assistant", text)
+        if hasattr(self, "status_label"):
+            try:
+                self.status_label.setText(text)
+            except Exception:
+                pass
+        append_log = getattr(self, "_append_log", None)
+        if callable(append_log):
+            append_log("自然语言", "输入校验", "失败", "输入为空")
+
     def _operator_reject_new_action_while_busy(self, text: str) -> bool:
         if getattr(self, "_operator_executing_interruption_text", False):
             return False
         if not self._operator_execution_or_pause_active():
             return False
+        if self._operator_handle_pending_flow_draft_query(text):
+            return True
+        if self._operator_handle_context_query(text):
+            return True
         if self._operator_is_wake_command(text):
             return self._operator_begin_busy_interruption(text)
         if getattr(self, "flow_running", False) and self._operator_handle_busy_chat_text(text):
@@ -3513,6 +3585,13 @@ class OperatorUiMixin:
             if match:
                 result = service.edit_all_speed(float(match.group(2)))
         if result is None:
+            steps = self._operator_build_append_flow_steps_from_text(draft, compact)
+            if len(steps) > 1:
+                for step in steps:
+                    result = service.append_step(step)
+                    if not result.ok:
+                        break
+        if result is None:
             match = re.search(r"(最后|末尾|后面).*加.*步(.+)", compact)
             if match:
                 step = self._operator_build_append_flow_step_from_text(draft, match.group(2))
@@ -3544,6 +3623,7 @@ class OperatorUiMixin:
             merged["expanded_steps"] = updated.get("expanded_steps", [])
             merged["flow_name"] = updated.get("flow_name", merged.get("flow_name", ""))
             merged["needs_precheck"] = True
+            self._operator_sync_flow_draft_positions_from_steps(merged)
             self._operator_pending_flow_draft = merged
         message = f"{result.message}。当前流程草案尚未保存/执行。"
         appended_missing = self._operator_last_flow_step_missing_pose(self._operator_pending_flow_draft)
@@ -3620,6 +3700,7 @@ class OperatorUiMixin:
         if "spd_pct" in updates:
             params["acc_pct"] = updates["spd_pct"]
             params["dec_pct"] = updates["spd_pct"]
+        self._operator_sync_flow_draft_positions_from_steps(draft)
         draft["needs_precheck"] = True
         self._operator_pending_flow_draft = draft
         label = str(target_step.get("target_label") or target_label or "").strip()
@@ -3635,7 +3716,17 @@ class OperatorUiMixin:
 
     @staticmethod
     def _operator_extract_position_label_from_text(compact: str) -> str:
-        match = re.search(r"位置([a-zA-Z0-9_\-\u4e00-\u9fff]+)", compact, re.IGNORECASE)
+        text = str(compact or "").strip()
+        if not text:
+            return ""
+        single_letter = re.search(r"位置([a-zA-Z])(?=(?:[xXyYzZ]|R[xXyYzZ]|r[xXyYzZ]|速度|加速度|减速度|$))", text)
+        if single_letter:
+            return str(single_letter.group(1) or "").strip()
+        match = re.search(
+            r"位置([^xXyYzZrR速度加减等待延时移动到，,。；;\s]+)",
+            text,
+            re.IGNORECASE,
+        )
         if not match:
             return ""
         return str(match.group(1) or "").strip(" ，,。；;")
@@ -3698,12 +3789,80 @@ class OperatorUiMixin:
             return tens * 10 + ones if tens else 0
         return 0
 
+    def _operator_build_append_flow_steps_from_text(self, draft: dict, text: str) -> list[Any]:
+        compact = re.sub(r"\s+", "", text or "")
+        if not compact:
+            return []
+        normalized = re.sub(
+            r"速度([二三四五六七八九十\d]+)(?=(?:[，,。；;])?(?:等待|延时|停留|停顿|移动|到|输出|打开|关闭|home|Home|HOME))",
+            r"步骤\1",
+            compact,
+        )
+        markers = list(re.finditer(r"(?:步骤|第)([一二三四五六七八九十\d]+)步?", normalized))
+        if len(markers) < 2:
+            return []
+        segments: list[str] = []
+        for index, marker in enumerate(markers):
+            start = marker.end()
+            end = markers[index + 1].start() if index + 1 < len(markers) else len(normalized)
+            segment = normalized[start:end].strip("，,。；;")
+            if segment:
+                segments.append(segment)
+        steps = []
+        for segment in segments:
+            step = self._operator_build_append_flow_step_from_text(draft, segment)
+            if step is None and any(keyword in segment.lower() for keyword in ("移动到位置", "到位置", "移动")):
+                step = self._operator_missing_move_step_from_text(draft, segment)
+            if step is not None:
+                steps.append(step)
+        return steps
+
     def _operator_build_append_flow_step_from_text(self, draft: dict, text: str):
         from .execution_plan import ExecutionStep
 
         compact = re.sub(r"\s+", "", text or "").lower()
         if not compact:
             return None
+        delay_match = re.search(r"(?:等待|延时|停留|停顿)(\d+(?:\.\d+)?)(秒|s|毫秒|ms)?", compact, re.IGNORECASE)
+        if delay_match:
+            value = float(delay_match.group(1))
+            unit = (delay_match.group(2) or "秒").lower()
+            delay_sec = value / 1000.0 if unit in ("毫秒", "ms") else value
+            return ExecutionStep(
+                step_id=0,
+                action="delay",
+                func_id=109,
+                params={"delay_sec": delay_sec},
+                description=f"等待{self._operator_compact_number(delay_sec)}秒",
+            )
+        updates = self._operator_parse_pose_and_speed_updates(compact)
+        has_inline_pose = all(key in updates for key in ("target_x", "target_y", "target_z"))
+        if has_inline_pose and any(keyword in compact for keyword in ("移动", "到位置", "位置")):
+            default_speed = self._operator_flow_draft_default_speed(draft)
+            speed = float(updates.get("spd_pct", default_speed))
+            params = {
+                "target_x": float(updates["target_x"]),
+                "target_y": float(updates["target_y"]),
+                "target_z": float(updates["target_z"]),
+                "target_rx": float(updates.get("target_rx", 0.0)),
+                "target_ry": float(updates.get("target_ry", 0.0)),
+                "target_rz": float(updates.get("target_rz", 0.0)),
+                "spd_pct": speed,
+                "acc_pct": float(updates.get("acc_pct", speed)),
+                "dec_pct": float(updates.get("dec_pct", speed)),
+                "move_type": 0,
+            }
+            label = self._operator_extract_position_label_from_text(compact)
+            target_label = label.upper() if label and len(label) == 1 else label
+            description = f"移动到位置{target_label}" if target_label else "移动到目标位置"
+            return ExecutionStep(
+                step_id=0,
+                action="move_position",
+                func_id=108,
+                params=params,
+                target_label=target_label,
+                description=description,
+            )
         positions = draft.get("positions")
         if not isinstance(positions, list):
             positions = []
@@ -3744,6 +3903,45 @@ class OperatorUiMixin:
             target_label=name,
             description=f"移动到{name}",
         )
+
+    def _operator_sync_flow_draft_positions_from_steps(self, draft: dict) -> None:
+        steps = draft.get("expanded_steps")
+        if not isinstance(steps, list):
+            return
+        positions = draft.get("positions")
+        if not isinstance(positions, list):
+            positions = []
+            draft["positions"] = positions
+        by_name: dict[str, dict[str, Any]] = {}
+        for item in positions:
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                if name:
+                    by_name[name.lower()] = item
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            try:
+                func_id = int(float(step.get("func_id") or step.get("func_num") or 0))
+            except (TypeError, ValueError):
+                continue
+            if func_id != 108:
+                continue
+            label = str(step.get("target_label") or step.get("position_name") or "").strip()
+            params = step.get("params")
+            if not label or not isinstance(params, dict):
+                continue
+            required = ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")
+            if any(key not in params for key in required):
+                continue
+            pose = [float(params[key]) for key in required]
+            entry = by_name.get(label.lower())
+            if entry is None:
+                entry = {"name": label, "pose": pose}
+                positions.append(entry)
+                by_name[label.lower()] = entry
+            else:
+                entry["pose"] = pose
 
     @staticmethod
     def _operator_flow_draft_default_speed(draft: dict) -> float:
@@ -4125,6 +4323,9 @@ class OperatorUiMixin:
         if flow_answer:
             return flow_answer
         if self._operator_text_looks_like_position_context_query(compact):
+            draft_position_answer = self._operator_pending_flow_position_context_answer(compact)
+            if draft_position_answer:
+                return draft_position_answer
             position_answer = self._operator_position_context_answer(compact)
             if position_answer:
                 return position_answer
@@ -4284,6 +4485,10 @@ class OperatorUiMixin:
             "是多少",
             "我问",
             "问的",
+            "数据",
+            "哪里",
+            "去哪",
+            "去哪里",
             "看下",
             "看一下",
             "查询",
@@ -4399,6 +4604,41 @@ class OperatorUiMixin:
             f"z={self._operator_compact_number(z)}，rx={self._operator_compact_number(rx)}，"
             f"ry={self._operator_compact_number(ry)}，rz={self._operator_compact_number(rz)}；"
             f"速度={spd}%，move_type={move_type}，locked={locked}。"
+        )
+
+    def _operator_pending_flow_position_context_answer(self, compact_text: str) -> str:
+        draft = getattr(self, "_operator_pending_flow_draft", None)
+        if not isinstance(draft, dict) or not draft:
+            return ""
+        positions = draft.get("positions")
+        if not isinstance(positions, list) or not positions:
+            self._operator_sync_flow_draft_positions_from_steps(draft)
+            positions = draft.get("positions")
+        if not isinstance(positions, list) or not positions:
+            return ""
+        normalized = str(compact_text or "").lower()
+        selected = None
+        for item in positions:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if name and (name.lower() in normalized or f"位置{name.lower()}" in normalized):
+                selected = item
+                break
+        if selected is None:
+            return ""
+        pose = selected.get("pose")
+        if not isinstance(pose, (list, tuple)) or len(pose) < 6:
+            return ""
+        name = str(selected.get("name") or "未知位置").strip()
+        return (
+            f"当前流程草案中的位置{name}："
+            f"x={self._operator_compact_number(pose[0])}，"
+            f"y={self._operator_compact_number(pose[1])}，"
+            f"z={self._operator_compact_number(pose[2])}，"
+            f"rx={self._operator_compact_number(pose[3])}，"
+            f"ry={self._operator_compact_number(pose[4])}，"
+            f"rz={self._operator_compact_number(pose[5])}。"
         )
 
     def _operator_table_position_context_answer(self, compact_text: str) -> str:
@@ -6654,10 +6894,13 @@ class OperatorUiMixin:
             self._operator_archive_response_ack(published.text)
         return published
 
-    def _operator_publish_ai_answer_for_speech(self, text: str) -> BroadcastMessage | None:
-        spoken_text = str(text or "").strip()
-        if not spoken_text:
+    def _operator_publish_ai_answer_for_speech(self, text: str, *, speech_text: str = "") -> BroadcastMessage | None:
+        display_text = str(text or "").strip()
+        if not display_text:
             return None
+        spoken_text = str(speech_text or self._operator_generate_speech_summary(display_text, context_id="chat:ai_answer")).strip()
+        if not spoken_text:
+            spoken_text = display_text
         self._operator_replace_pending_speech()
         self._operator_stop_current_speech_best_effort()
         self._operator_current_spoken_text = spoken_text
@@ -6669,15 +6912,72 @@ class OperatorUiMixin:
             self.operator_broadcast_queue = queue
         published = queue.publish_once(
             kind="result",
-            text=spoken_text,
+            text=display_text,
+            speech_text=spoken_text,
             priority="normal",
             context_id="chat:ai_answer",
-            dedupe_key=f"chat:ai_answer:{spoken_text}",
+            dedupe_key=f"chat:ai_answer:{display_text}:{spoken_text}",
             dedupe_window_seconds=self._operator_broadcast_dedupe_window_seconds(),
         )
         if published is not None:
             self._operator_last_broadcast_seq = published.seq
         return published
+
+    @staticmethod
+    def _operator_generate_speech_summary(text: str, *, context_id: str = "") -> str:
+        raw = str(text or "")
+        clean = " ".join(raw.split())
+        if not clean:
+            return ""
+        context = str(context_id or "")
+        if "安全" in clean and any(word in clean for word in ("未通过", "失败", "阻断", "拒绝")):
+            return "安全检查未通过，请查看屏幕。"
+        if "缺少唤醒词" in clean or "小正" in clean and "小兵" in clean and "唤醒词" in clean:
+            return "缺少唤醒词，请说小正或小兵。"
+        if any(word in clean for word in ("等待确认", "确认执行", "请确认")):
+            return "请确认执行。"
+        if any(word in clean for word in ("执行完成", "流程完成", "动作序列完成")):
+            return "执行完成。"
+        if any(word in clean for word in ("已取消", "取消指令", "取消等待")):
+            return "已取消。"
+        if any(word in clean for word in ("正在处理", "正在理解", "正在整理")):
+            return "正在处理。"
+        if any(word in clean for word in ("请补充目标位置", "请补充位置", "补充坐标")):
+            return "请补充目标位置。"
+        if any(word in clean for word in ("当前正在执行", "当前设备运动中", "正在执行")):
+            return "当前正在执行，请稍候。"
+        if "流程" in clean:
+            match = re.search(r"共\s*(\d+)\s*步", clean)
+            steps: list[str] = []
+            for line in raw.splitlines():
+                step_match = re.match(r"\s*\d{1,2}\s+(.+)", line.strip())
+                if not step_match:
+                    continue
+                title = " ".join(step_match.group(1).split())
+                title = re.split(r"\s+(?:目标|运动|标志|参数|说明)\b", title, maxsplit=1)[0].strip()
+                if title:
+                    steps.append(title[:22])
+                if len(steps) >= 3:
+                    break
+            if match:
+                if steps:
+                    return f"流程共{match.group(1)}步，前几步是：{'；'.join(steps)}。详情请看屏幕。"
+                return f"流程共{match.group(1)}步，详情请看屏幕。"
+            if steps:
+                return f"流程前几步是：{'；'.join(steps)}。详情请看屏幕。"
+            max_flow_len = 90
+            if len(clean) <= max_flow_len:
+                return clean
+            return clean[:max_flow_len].rstrip("，,。；; ") + "。详情请看屏幕。"
+        if any(word in clean for word in ("参数", "Func", "函数", "命令列表", "可用命令", "模板")):
+            max_detail_len = 80
+            if len(clean) <= max_detail_len:
+                return clean
+            return clean[:max_detail_len].rstrip("，,。；; ") + "。详情请看屏幕。"
+        max_len = 60
+        if len(clean) <= max_len:
+            return clean
+        return clean[:max_len].rstrip("，,。；; ") + "。"
 
     def _operator_replace_pending_speech(self) -> int:
         generation = int(getattr(self, "_operator_speech_generation", 0) or 0) + 1

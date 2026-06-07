@@ -6,15 +6,48 @@ import threading
 
 import pytest
 
+import robot_modbus_lite.doubao_voice_client as doubao_voice_client
 from robot_modbus_lite import doubao_realtime_protocol as protocol
 from robot_modbus_lite.doubao_voice_client import (
     DoubaoStreamingAsrSession,
     DoubaoVoiceClient,
     DoubaoVoiceConfig,
+    _encode_json_payload,
     extract_final_asr_text,
     extract_interim_asr_text,
 )
 from robot_modbus_lite.env_loader import load_local_env_file
+
+
+class FakeWebSocket:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, data):
+        self.sent.append(bytes(data))
+
+
+def _decode_start_session_payload(packet: bytes) -> dict:
+    header_size = packet[0] & 0x0F
+    compression = packet[2] & 0x0F
+    payload = packet[header_size * 4 :]
+    event = int.from_bytes(payload[:4], "big", signed=False)
+    assert event == protocol.START_SESSION
+    start = 4
+    session_id_size = int.from_bytes(payload[start : start + 4], "big", signed=False)
+    start += 4 + session_id_size
+    payload_size = int.from_bytes(payload[start : start + 4], "big", signed=False)
+    encoded = payload[start + 4 : start + 4 + payload_size]
+    if compression == protocol.GZIP:
+        encoded = gzip.decompress(encoded)
+    return json.loads(encoded.decode("utf-8"))
+
+
+def test_encode_json_payload_does_not_gzip_small_json():
+    payload, compression = _encode_json_payload({})
+
+    assert payload == b"{}"
+    assert compression == protocol.NO_COMPRESSION
 
 
 def test_doubao_config_loads_from_env(monkeypatch):
@@ -49,6 +82,21 @@ def test_doubao_config_defaults_to_reference_end_smooth_window(monkeypatch):
     config = DoubaoVoiceConfig.from_env()
 
     assert config.end_smooth_window_ms == 1500
+
+
+def test_config_from_env_reads_dialog_and_tts_options(monkeypatch):
+    monkeypatch.setenv("DOUBAO_API_KEY", "key")
+    monkeypatch.setenv("DOUBAO_DIALOG_MODEL", "2.2.0.0")
+    monkeypatch.setenv("DOUBAO_TTS_AUDIO_FORMAT", "pcm_s16le")
+    monkeypatch.setenv("DOUBAO_TTS_MINIMAL_SESSION", "1")
+    monkeypatch.setenv("DOUBAO_TTS_USE_CHAT_TTS_TEXT", "true")
+
+    config = DoubaoVoiceConfig.from_env()
+
+    assert config.dialog_model == "2.2.0.0"
+    assert config.tts_audio_format == "pcm_s16le"
+    assert config.tts_minimal_session is True
+    assert config.tts_use_chat_tts_text is True
 
 
 def test_shared_env_loader_reads_project_env_file(tmp_path, monkeypatch):
@@ -138,6 +186,98 @@ def test_doubao_voice_client_stream_synthesize_invokes_chunk_callback(monkeypatc
     assert chunks == [b"chunk-1", b"chunk-2"]
 
 
+def test_start_session_always_includes_dialog_model():
+    client = DoubaoVoiceClient(DoubaoVoiceConfig(api_key="key", dialog_model="1.2.1.1"))
+    ws = FakeWebSocket()
+
+    asyncio.run(client._send_start_session(ws, "session-id", input_mod="text"))
+
+    payload = _decode_start_session_payload(ws.sent[-1])
+    assert payload["dialog"]["extra"]["model"] == "1.2.1.1"
+    assert payload["tts"]["speaker"] == client.config.speaker
+
+
+def test_asr_only_start_session_omits_tts_key():
+    client = DoubaoVoiceClient(DoubaoVoiceConfig(api_key="key", dialog_model="1.2.1.1"))
+    ws = FakeWebSocket()
+
+    asyncio.run(client._send_start_session(ws, "session-id", input_mod="audio", include_tts=False))
+
+    payload = _decode_start_session_payload(ws.sent[-1])
+    assert "tts" not in payload
+    assert payload["dialog"]["extra"]["model"] == "1.2.1.1"
+
+
+def test_asr_start_session_includes_local_hotwords_and_corrections():
+    client = DoubaoVoiceClient(DoubaoVoiceConfig(api_key="key", dialog_model="1.2.1.1"))
+    ws = FakeWebSocket()
+
+    asyncio.run(client._send_start_session(ws, "session-id", input_mod="audio", include_tts=False))
+
+    payload = _decode_start_session_payload(ws.sent[-1])
+    assert payload["asr"]["extra"]["enable_asr_twopass"] is True
+    context = payload["asr"]["extra"]["context"]
+    hotwords = {item["word"] for item in context["hotwords"]}
+    assert {"小正", "小兵", "步骤一", "步骤二", "位置A", "Func108"}.issubset(hotwords)
+    assert context["correct_words"]["速度二(?=，?等待|,?等待|，?延时|,?延时|，?移动|,?移动|，?输出|,?输出)"] == "步骤二"
+
+
+def test_start_session_uses_configured_tts_audio_format():
+    client = DoubaoVoiceClient(DoubaoVoiceConfig(api_key="key", tts_audio_format="pcm_s16le"))
+    ws = FakeWebSocket()
+
+    asyncio.run(client._send_start_session(ws, "session-id", input_mod="text"))
+
+    payload = _decode_start_session_payload(ws.sent[-1])
+    assert payload["tts"]["audio_config"]["format"] == "pcm_s16le"
+
+
+def test_stream_synthesize_uses_chat_tts_text_when_enabled(monkeypatch):
+    calls = []
+
+    class FakeConnection:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class FakeClient(DoubaoVoiceClient):
+        async def _send_start_connection(self, ws):
+            calls.append("start_connection")
+
+        async def _send_start_session(self, ws, session_id, *, input_mod, include_tts=True, minimal_dialog=False):
+            calls.append(("start_session", input_mod, minimal_dialog))
+
+        async def _send_say_hello_text(self, ws, session_id, text):
+            calls.append(("say_hello", text))
+
+        async def _send_chat_tts_text(self, ws, session_id, text):
+            calls.append(("chat_tts_text", text))
+
+        async def _send_finish_session(self, ws, session_id):
+            calls.append("finish_session")
+
+        async def _send_finish_connection(self, ws):
+            calls.append("finish_connection")
+
+        async def _recv_checked(self, ws, *, timeout="default"):
+            recv_calls = sum(1 for item in calls if item == "recv")
+            calls.append("recv")
+            if recv_calls < 2:
+                return {}
+            return {"event": 359}
+
+    monkeypatch.setattr(doubao_voice_client, "connect_websocket", lambda *args, **kwargs: FakeConnection())
+    client = FakeClient(DoubaoVoiceConfig(api_key="key", tts_use_chat_tts_text=True, tts_minimal_session=True))
+
+    asyncio.run(client._stream_synthesize_text_async("请确认执行。", lambda _chunk: None))
+
+    assert ("start_session", "text", True) in calls
+    assert ("chat_tts_text", "请确认执行。") in calls
+    assert not any(isinstance(item, tuple) and item[0] == "say_hello" for item in calls)
+
+
 def test_transcribe_returns_after_final_asr_text_without_waiting_for_terminal_event(monkeypatch):
     client = DoubaoVoiceClient(DoubaoVoiceConfig(api_key="key", recv_timeout=1))
     events = iter(
@@ -153,7 +293,7 @@ def test_transcribe_returns_after_final_asr_text_without_waiting_for_terminal_ev
     )
     sent = []
 
-    class FakeWebSocket:
+    class FakeConnection:
         async def __aenter__(self):
             return self
 
@@ -169,7 +309,7 @@ def test_transcribe_returns_after_final_asr_text_without_waiting_for_terminal_ev
         except StopIteration:
             pytest.fail("client waited for another event after final ASR text")
 
-    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeWebSocket())
+    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeConnection())
     monkeypatch.setattr(client, "_recv_checked", fake_recv)
 
     result = client.transcribe_pcm(b"pcm")
@@ -196,7 +336,7 @@ def test_streaming_asr_session_sends_audio_and_emits_final_text(monkeypatch):
     audio_sent = threading.Event()
     close_requested = threading.Event()
 
-    class FakeWebSocket:
+    class FakeConnection:
         def __init__(self):
             self._recv_count = 0
 
@@ -230,7 +370,7 @@ def test_streaming_asr_session_sends_audio_and_emits_final_text(monkeypatch):
         async def close(self):
             close_requested.set()
 
-    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeWebSocket())
+    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeConnection())
     session = DoubaoStreamingAsrSession(
         DoubaoVoiceConfig(api_key="key", recv_timeout=2),
         on_final_text=final_texts.append,
@@ -255,7 +395,7 @@ def test_streaming_asr_session_emits_partial_text(monkeypatch):
     audio_sent = threading.Event()
     close_requested = threading.Event()
 
-    class FakeWebSocket:
+    class FakeConnection:
         def __init__(self):
             self._recv_count = 0
 
@@ -293,7 +433,7 @@ def test_streaming_asr_session_emits_partial_text(monkeypatch):
         async def close(self):
             close_requested.set()
 
-    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeWebSocket())
+    monkeypatch.setattr("robot_modbus_lite.doubao_voice_client.connect_websocket", lambda *_args, **_kwargs: FakeConnection())
     session = DoubaoStreamingAsrSession(
         DoubaoVoiceConfig(api_key="key", recv_timeout=2),
         on_final_text=final_texts.append,
