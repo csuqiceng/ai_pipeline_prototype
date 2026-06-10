@@ -56,6 +56,38 @@ def test_understands_absolute_cartesian_move_marks_position_increment_zero():
     assert result.extracted_params["position_increment"] == 0
 
 
+def test_understands_chinese_numbers_in_cartesian_parameters_without_model():
+    raw_text = "我觉得坐标是 X 一百 Y零 Z一百 速度 五十"
+    result = CommandUnderstandingAgent().understand(raw_text)
+
+    assert result.intent == "move_linear"
+    assert result.func_id == 108
+    assert result.raw_text == raw_text
+    assert result.normalized_text == "我觉得坐标是 X100 Y0 Z100 速度50"
+    assert result.extracted_params == {
+        "target_x": 100.0,
+        "target_y": 0.0,
+        "target_z": 100.0,
+        "spd_pct": 50.0,
+        "position_increment": 0,
+    }
+    assert result.needs_model is False
+
+
+def test_understands_asr_axis_aliases_before_chinese_number_parsing():
+    raw_text = "我觉得坐标是 艾克斯 一百，歪 零，Z一百，速度 五十"
+    result = CommandUnderstandingAgent().understand(raw_text)
+
+    assert result.intent == "move_linear"
+    assert result.func_id == 108
+    assert result.raw_text == raw_text
+    assert result.normalized_text == "我觉得坐标是 X100，Y0，Z100，速度50"
+    assert result.extracted_params["target_x"] == 100.0
+    assert result.extracted_params["target_y"] == 0.0
+    assert result.extracted_params["target_z"] == 100.0
+    assert result.extracted_params["spd_pct"] == 50.0
+
+
 def test_understands_continuous_path_motion_as_func112_executable_candidate():
     result = CommandUnderstandingAgent().understand("规划路径走到X1000 Y200 Z300")
 
@@ -74,6 +106,16 @@ def test_understands_emergency_fast_path_intent():
     assert result.intent == "sys_estop"
     assert result.func_id == 104
     assert result.needs_model is False
+    assert result.bypass_completion is True
+
+
+def test_understands_asr_phonetic_system_action_alias():
+    result = CommandUnderstandingAgent().understand("夫位")
+
+    assert result.intent == "alarm_reset"
+    assert result.func_id == 104
+    assert result.raw_text == "夫位"
+    assert result.normalized_text == "复位"
     assert result.bypass_completion is True
 
 
@@ -160,6 +202,17 @@ def test_unclear_control_text_requires_model_or_clarification():
 
     assert result.intent == "unknown"
     assert result.func_id is None
+    assert result.raw_text == "往那边去一点"
+    assert result.normalized_text == "往那边去一点"
     assert result.confidence < 0.5
     assert result.needs_model is True
     assert "请补充" in result.clarification
+
+
+def test_unknown_control_text_keeps_normalized_parameter_trace():
+    result = CommandUnderstandingAgent().understand("走到 X一百 然后 IO1开")
+
+    assert result.intent == "unknown"
+    assert result.raw_text == "走到 X一百 然后 IO1开"
+    assert result.normalized_text == "移动 X100 然后 IO1打开"
+    assert "复合指令" in result.clarification

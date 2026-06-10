@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -145,6 +146,16 @@ class AgentOrchestrator:
                     message=str(chat_answer.get("text", "")),
                     payload=chat_answer,
                 )
+        if self._should_keep_legacy_atomic_step(text, understanding):
+            return AgentOrchestratorResult(
+                kind="fallback_legacy",
+                message="交回旧 NLP 路径。",
+                payload={
+                    "reason": "legacy_vertical_atomic_step",
+                    "needs_model": False,
+                    "understanding": self._serialize_understanding(understanding, text),
+                },
+            )
         if self._should_route_to_restricted_agent(understanding) and self.restricted_service is not None:
             return AgentOrchestratorResult(
                 kind="restricted_agent",
@@ -277,6 +288,18 @@ class AgentOrchestrator:
             "sys_cancel",
             "alarm_reset",
         }
+
+    @staticmethod
+    def _should_keep_legacy_atomic_step(text: str, understanding: Any) -> bool:
+        if str(getattr(understanding, "intent", "") or "") != "move_linear":
+            return False
+        params = dict(getattr(understanding, "extracted_params", {}) or {})
+        if set(params) - {"delta_z", "position_increment"}:
+            return False
+        if "delta_z" not in params:
+            return False
+        compact = re.sub(r"\s+", "", str(getattr(understanding, "normalized_text", "") or text or ""))
+        return bool(re.search(r"Z(?:上升|升高|下降|降低)-?\d", compact, flags=re.IGNORECASE))
 
     @staticmethod
     def _serialize_understanding(understanding: Any, text: str) -> dict[str, Any]:

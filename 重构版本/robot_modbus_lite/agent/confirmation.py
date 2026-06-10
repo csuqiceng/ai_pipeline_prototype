@@ -129,6 +129,11 @@ class ConfirmationAgent:
         self._ensure_waiting(session)
         self._set_status(draft_id, DraftStatus.REJECTED)
 
+    def expire(self, draft_id: str) -> None:
+        session = self._require_session(draft_id)
+        self._ensure_waiting(session)
+        self._set_status(draft_id, DraftStatus.EXPIRED)
+
     def mark_precheck_failed(self, draft_id: str, precheck_result: dict[str, Any]) -> None:
         session = self._require_session(draft_id)
         self._ensure_waiting(session)
@@ -141,6 +146,9 @@ class ConfirmationAgent:
     def get_status(self, draft_id: str) -> DraftStatus | None:
         session = self._sessions.get(draft_id)
         return None if session is None else session.status
+
+    def get_session(self, draft_id: str) -> DraftSession | None:
+        return self._sessions.get(str(draft_id))
 
     def _require_session(self, draft_id: str) -> DraftSession:
         session = self._sessions.get(draft_id)

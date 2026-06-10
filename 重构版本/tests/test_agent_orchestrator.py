@@ -175,6 +175,34 @@ def test_orchestrator_routes_supported_motion_to_restricted_service():
     assert service.text == "走到 X1000 Z300"
 
 
+def test_orchestrator_keeps_short_vertical_step_on_legacy_atomic_path():
+    class FakeRestrictedService:
+        def parse(self, text):
+            raise AssertionError(f"short vertical atomic step should stay legacy: {text}")
+
+    orchestrator = AgentOrchestrator(restricted_service=FakeRestrictedService(), chat_agent=None)
+
+    result = orchestrator.handle("小正，Z上升50")
+
+    assert result.kind == "fallback_legacy"
+
+
+def test_orchestrator_still_routes_forward_step_to_restricted_service():
+    class FakeRestrictedService:
+        def parse(self, text):
+            self.text = text
+            return "restricted-result"
+
+    service = FakeRestrictedService()
+    orchestrator = AgentOrchestrator(restricted_service=service, chat_agent=None)
+
+    result = orchestrator.handle("小正，X前进50")
+
+    assert result.kind == "restricted_agent"
+    assert result.payload == "restricted-result"
+    assert service.text == "小正，X前进50"
+
+
 def test_orchestrator_routes_supported_joint_jog_to_restricted_service():
     class FakeRestrictedService:
         def parse(self, text):

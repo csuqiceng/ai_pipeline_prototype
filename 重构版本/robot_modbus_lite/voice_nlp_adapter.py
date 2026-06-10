@@ -60,6 +60,7 @@ class VoiceNlpPlan:
     source: str
     raw_text: str
     reason: str
+    normalized_text: str = ""
     semantic_level: int = 0
     semantic_label: str = "未识别层"
     response_deadline_ms: int = 500
@@ -77,6 +78,7 @@ class VoiceNlpPlan:
             "source": self.source,
             "engine": self.nlp_engine,
             "rawText": self.raw_text,
+            "normalizedText": self.normalized_text or self.raw_text,
             "reason": self.reason,
             "semanticLevel": self.semantic_level,
             "semanticLabel": self.semantic_label,

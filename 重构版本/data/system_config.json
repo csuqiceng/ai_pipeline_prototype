@@ -32,7 +32,7 @@
   "emergency_codes": [
     "A1B2"
   ],
-  "operator_tts_enabled": true,
+  "operator_tts_enabled": false,
   "broadcast_dedupe_window_sec": 5.0,
   "tts_retry_delay_sec": 5.0,
   "tts_max_failures": 3,

@@ -120,6 +120,24 @@ def test_service_set_pending_flow_draft_creates_delay_clarification():
     assert "延时" in current.question
 
 
+def test_service_apply_delay_clarification_accepts_chinese_duration():
+    service = ExecutionPlanService()
+    service.set_pending_flow_draft(
+        {
+            "flow_name": "缺延时流程",
+            "expanded_steps": [
+                {"step_id": 1, "action": "等待", "func_id": 110, "params": {}},
+            ],
+        }
+    )
+
+    result = service.apply_clarification_answer("两秒")
+
+    assert result.applied is True
+    assert service.pending_plan.steps[0].params["delay_sec"] == 2.0
+    assert service.current_clarification() is None
+
+
 def test_service_set_pending_flow_draft_creates_io_clarifications():
     service = ExecutionPlanService()
     service.set_pending_flow_draft(

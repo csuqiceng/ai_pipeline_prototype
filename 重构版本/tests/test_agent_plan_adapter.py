@@ -45,6 +45,39 @@ def test_plan_adapter_converts_chat_answer():
     assert plan.source == "agent_orchestrator"
 
 
+def test_plan_adapter_converts_tool_flow_draft_result():
+    result = AgentOrchestratorResult(
+        kind="flow_draft",
+        message="请问新流程的名称是什么？",
+        payload={
+            "raw_text": "创建流程",
+            "tool_name": "start_flow_draft",
+            "tool_result": {
+                "ok": False,
+                "state": "flow_draft_needs_name",
+                "message": "请问新流程的名称是什么？",
+                "data": {
+                    "intent": "create_flow",
+                    "draft": {"flow_name": "", "expanded_steps": []},
+                    "missing_fields": ["flow_name"],
+                },
+                "errors": [],
+            },
+            "draft": {"flow_name": "", "expanded_steps": []},
+            "generates_command": False,
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "flow_draft"
+    assert plan.actions[0].reason == "请问新流程的名称是什么？"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+    assert plan.flow_draft["agent_kind"] == "flow_draft"
+    assert plan.flow_draft["missing_fields"] == ["flow_name"]
+
+
 def test_plan_adapter_converts_position_query_answer():
     result = type(
         "Result",
@@ -301,6 +334,159 @@ def test_adapter_converts_waiting_confirmation_without_query_record():
     assert plan.flow_draft["confirmation_text"] == "【复述确认】Func108 直线插补"
 
 
+def test_adapter_converts_tool_confirm_plan_to_agent_draft_confirmation():
+    draft = {
+        "draft_id": "draft-tool",
+        "func_id": 108,
+        "intent": "move_linear",
+        "params": {"target_x": 100.0, "target_y": 0.0, "target_z": 100.0},
+        "param_sources": {"target_x": "specified"},
+        "raw_text": "移动到X100",
+        "confidence": 0.9,
+        "precheck_result": {"valid": True, "summary": "L1通过。"},
+    }
+    result = AgentOrchestratorResult(
+        kind="confirm_plan",
+        message="已创建待确认计划。",
+        payload={
+            "draft": draft,
+            "precheck": {"valid": True, "summary": "L1通过。"},
+            "tool_result": {
+                "data": {
+                    "draft_id": "draft-tool",
+                    "confirmation_text": "【复述确认】Func108 直线插补",
+                    "expires_at": 70.0,
+                }
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.actions[0].target == "draft-tool"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is True
+    assert plan.requires_precheck is True
+    assert plan.flow_draft["agent_kind"] == "waiting_confirmation"
+    assert plan.flow_draft["draft_id"] == "draft-tool"
+    assert plan.flow_draft["confirmation_text"] == "【复述确认】Func108 直线插补"
+    assert plan.flow_draft["precheck_result"]["valid"] is True
+
+
+def test_adapter_converts_tool_confirm_result_to_nonexecuting_ack():
+    result = AgentOrchestratorResult(
+        kind="confirm_result",
+        message="确认已通过，已生成执行记录。",
+        payload={
+            "raw_text": "确认执行",
+            "tool_name": "confirm_pending_plan",
+            "tool_result": {
+                "ok": True,
+                "state": "confirmed",
+                "message": "确认已通过，已生成执行记录。",
+                "data": {
+                    "draft_id": "draft-1",
+                    "query_record": {
+                        "query_key": "agent:draft-1",
+                        "func_num": 109,
+                        "params": {"delay_sec": 2.0},
+                        "description": "等待2秒",
+                    },
+                },
+                "errors": [],
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "agent_confirmed"
+    assert plan.actions[0].target == "draft-1"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+    assert plan.requires_precheck is False
+    assert plan.flow_draft["agent_kind"] == "confirmed"
+    assert plan.flow_draft["query_record"]["func_num"] == 109
+
+
+def test_adapter_converts_confirm_rejected_to_clarification():
+    result = AgentOrchestratorResult(
+        kind="confirm_rejected",
+        message="当前没有待确认计划，不能确认执行。",
+        payload={
+            "raw_text": "确认执行",
+            "tool_name": "query_pending_confirm",
+            "tool_result": {
+                "ok": False,
+                "state": "confirm_not_found",
+                "message": "当前没有待确认计划，不能确认执行。",
+                "data": {},
+                "errors": [{"code": "CONFIRM_NOT_FOUND", "message": "当前没有待确认计划，不能确认执行。"}],
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "clarification"
+    assert plan.source == "agent_orchestrator"
+    assert plan.reason == "当前没有待确认计划，不能确认执行。"
+    assert plan.requires_confirmation is False
+    assert plan.flow_draft["agent_kind"] == "confirm_rejected"
+
+
+def test_adapter_converts_confirm_cancelled_to_nonexecuting_ack():
+    result = AgentOrchestratorResult(
+        kind="confirm_cancelled",
+        message="已取消待确认计划。",
+        payload={
+            "raw_text": "取消执行",
+            "tool_name": "cancel_pending_plan",
+            "tool_result": {
+                "ok": True,
+                "state": "cancelled",
+                "message": "已取消待确认计划。",
+                "data": {"draft_id": "draft-1"},
+                "errors": [],
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "agent_cancelled"
+    assert plan.actions[0].target == "draft-1"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+    assert plan.flow_draft["agent_kind"] == "cancelled"
+
+
+def test_adapter_converts_feedback_vote_recorded_to_chat_ack():
+    result = AgentOrchestratorResult(
+        kind="feedback_vote_recorded",
+        message="用户反馈已记录。",
+        payload={
+            "raw_text": "这个回答没用",
+            "tool_name": "record_feedback_vote",
+            "tool_result": {
+                "ok": True,
+                "state": "feedback_vote_recorded",
+                "message": "用户反馈已记录。",
+                "data": {"vote": {"vote_id": "vote-1", "vote": "down"}},
+                "errors": [],
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "chat"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+    assert plan.flow_draft["agent_kind"] == "feedback_vote_recorded"
+
+
 def test_adapter_converts_func112_waiting_confirmation_to_executable_agent_draft():
     draft = CommandDraft(
         draft_id="path1",
@@ -402,6 +588,34 @@ def test_adapter_converts_precheck_failed_with_draft_metadata():
     assert plan.actions[0].action_type == "agent_blocked"
     assert plan.requires_confirmation is False
     assert plan.flow_draft["draft_id"] == "draft1"
+    assert plan.flow_draft["precheck_result"]["valid"] is False
+
+
+def test_adapter_converts_tool_precheck_failed_to_agent_blocked_plan():
+    result = AgentOrchestratorResult(
+        kind="precheck_failed",
+        message="L1预检未通过。",
+        payload={
+            "draft": {
+                "draft_id": "draft-tool",
+                "func_id": 108,
+                "intent": "move_linear",
+                "params": {"target_x": 100.0},
+                "param_sources": {"target_x": "specified"},
+                "raw_text": "移动到X100",
+                "confidence": 0.9,
+            },
+            "precheck": {"valid": False, "summary": "L1预检未通过。"},
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "agent_blocked"
+    assert plan.actions[0].target == "draft-tool"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is False
+    assert plan.flow_draft["agent_kind"] == "precheck_failed"
     assert plan.flow_draft["precheck_result"]["valid"] is False
 
 

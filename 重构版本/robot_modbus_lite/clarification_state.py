@@ -217,7 +217,8 @@ class ClarificationManager:
 
     @staticmethod
     def _parse_duration_answer(text: str) -> float | None:
-        match = re.search(r"(-?\d+(?:\.\d+)?)\s*(毫秒|ms|秒|s)", text or "", flags=re.IGNORECASE)
+        normalized = _normalize_chinese_duration_numbers(text or "")
+        match = re.search(r"(-?\d+(?:\.\d+)?)\s*(毫秒|ms|秒|s)", normalized, flags=re.IGNORECASE)
         if not match:
             return None
         value = float(match.group(1))
@@ -246,3 +247,66 @@ class ClarificationManager:
         if compact in {"关", "关闭", "off", "0"}:
             return 0
         return None
+
+
+def _normalize_chinese_duration_numbers(text: str) -> str:
+    digits = {
+        "零": 0,
+        "〇": 0,
+        "一": 1,
+        "二": 2,
+        "两": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+    }
+
+    def parse_cn_number(value: str) -> float | None:
+        raw = str(value or "")
+        if not raw:
+            return None
+        if "点" in raw:
+            left, right = raw.split("点", 1)
+            left_value = parse_cn_number(left) if left else 0
+            if left_value is None:
+                return None
+            decimals: list[str] = []
+            for char in right:
+                if char not in digits:
+                    return None
+                decimals.append(str(digits[char]))
+            return float(f"{int(left_value)}.{''.join(decimals) or '0'}")
+        if raw == "十":
+            return 10.0
+        if "十" in raw:
+            left, right = raw.split("十", 1)
+            tens = digits.get(left, 1) if left else 1
+            ones = digits.get(right, 0) if right else 0
+            return float(tens * 10 + ones)
+        if "百" in raw:
+            left, right = raw.split("百", 1)
+            hundreds = digits.get(left, 1) if left else 1
+            tail = parse_cn_number(right) if right else 0
+            if tail is None:
+                return None
+            return float(hundreds * 100 + tail)
+        if raw in digits:
+            return float(digits[raw])
+        return None
+
+    def replace_match(match: re.Match[str]) -> str:
+        value = parse_cn_number(match.group("number"))
+        if value is None:
+            return match.group(0)
+        formatted = f"{value:g}"
+        return f"{formatted}{match.group('unit')}"
+
+    return re.sub(
+        r"(?P<number>[零〇一二两三四五六七八九十百点]+)\s*(?P<unit>毫秒|秒)",
+        replace_match,
+        str(text or ""),
+    )

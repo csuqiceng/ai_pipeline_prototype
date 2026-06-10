@@ -37,6 +37,13 @@ class ChatExplanationAgent:
                 "generates_command": False,
             }
 
+        if any(phrase in compact for phrase in ("你好", "您好", "hello", "hi")):
+            return {
+                "kind": "chat_answer",
+                "text": "你好，我是机械手自然语言交互助手。可以帮你解释状态、整理流程草案和生成待确认的安全指令；这类问候不会触发机械手动作。",
+                "generates_command": False,
+            }
+
         if "L2" in compact or "运动规划" in compact or "规划预演" in compact or "预演" in compact:
             return {
                 "kind": "chat_answer",

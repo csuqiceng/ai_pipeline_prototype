@@ -424,6 +424,25 @@
       }
     },
     {
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "keywords": "测试 流程草案 第1步",
+      "description": "移动到位置b",
+      "safety_level": 5,
+      "params": {
+        "spd_pct": 30.0,
+        "acc_pct": 30.0,
+        "dec_pct": 30.0,
+        "move_type": 0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "target_x": 475.0,
+        "target_y": 0.0,
+        "target_z": 545.0
+      }
+    },
+    {
       "query_key": "home",
       "func_num": 108,
       "keywords": "home 回零 原点",

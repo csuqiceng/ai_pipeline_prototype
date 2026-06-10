@@ -34,12 +34,18 @@ class InteractionArchiveWriter:
         *,
         source: str,
         raw_text: str,
+        normalized_text: str | None = None,
         device_snapshot: dict[str, Any] | None = None,
         asr_confidence: float | None = None,
         scene_state: dict[str, Any] | None = None,
     ) -> InteractionRecord:
         timestamp = self.clock()
-        input_payload = {"source": source, "raw_text": raw_text, "asr_confidence": asr_confidence}
+        input_payload = {
+            "source": source,
+            "raw_text": raw_text,
+            "normalized_text": str(normalized_text if normalized_text is not None else raw_text),
+            "asr_confidence": asr_confidence,
+        }
         if scene_state is not None:
             input_payload["scene_state"] = dict(scene_state)
         record = InteractionRecord(

@@ -15,6 +15,7 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -24,7 +25,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTextEdit,
     QTextBrowser,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
     QStackedWidget,
@@ -32,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from .atomic_capabilities import atomic_capability_summary, atomic_capability_rows
 from .agent.context_builder import AgentContextBuilder
+from .agent_runtime.session_state import SessionState
 from .alarm_monitor import AlarmMonitor
 from .broadcast_queue import BroadcastMessage, BroadcastQueue
 from .command_intent_adapter import command_intent_from_plan
@@ -337,7 +342,73 @@ class OperatorUiMixin:
         self.operator_tts_check.toggled.connect(self._operator_on_tts_toggled)
         quick_layout.addWidget(self.operator_tts_check, 2, 0, 1, 2)
         layout.addWidget(quick_card)
+        layout.addWidget(self._build_operator_memory_review_card())
         return sidebar
+
+    def _build_operator_memory_review_card(self) -> QWidget:
+        card = QFrame()
+        card.setObjectName("operatorStatusCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        title = QLabel("经验审核")
+        title.setObjectName("operatorSidebarTitle")
+        layout.addWidget(title)
+
+        filters = QHBoxLayout()
+        filters.setSpacing(6)
+        self.operator_memory_status_filter = QComboBox()
+        self.operator_memory_status_filter.setObjectName("operatorToolCombo")
+        self.operator_memory_kind_filter = QComboBox()
+        self.operator_memory_kind_filter.setObjectName("operatorToolCombo")
+        self._operator_populate_memory_filter(
+            self.operator_memory_status_filter,
+            ("candidate", "active", "disabled", "rolled_back"),
+        )
+        self._operator_populate_memory_filter(
+            self.operator_memory_kind_filter,
+            ("asr_alias", "flow_preference", "user_preference", "position_alias", "command_alias"),
+        )
+        self.operator_memory_status_filter.currentTextChanged.connect(self._operator_refresh_memory_review_from_filters)
+        self.operator_memory_kind_filter.currentTextChanged.connect(self._operator_refresh_memory_review_from_filters)
+        filters.addWidget(self.operator_memory_status_filter, 1)
+        filters.addWidget(self.operator_memory_kind_filter, 1)
+        layout.addLayout(filters)
+
+        self.operator_memory_review_table = QTableWidget(0, 7)
+        self.operator_memory_review_table.setObjectName("operatorMemoryReviewTable")
+        self.operator_memory_review_table.setHorizontalHeaderLabels(["ID", "类型", "键", "值", "状态", "来源", "审计"])
+        self.operator_memory_review_table.setMinimumHeight(self._scaled(92))
+        self.operator_memory_review_table.setMaximumHeight(self._scaled(132))
+        self.operator_memory_review_table.setAlternatingRowColors(True)
+        self.operator_memory_review_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.operator_memory_review_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.operator_memory_review_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.operator_memory_review_table.currentCellChanged.connect(self._operator_on_memory_review_row_selected)
+        layout.addWidget(self.operator_memory_review_table)
+
+        self.operator_memory_review_detail = QTextEdit()
+        self.operator_memory_review_detail.setObjectName("operatorMemoryReviewDetail")
+        self.operator_memory_review_detail.setReadOnly(True)
+        self.operator_memory_review_detail.setPlaceholderText("查看经验后显示详情")
+        self.operator_memory_review_detail.setMinimumHeight(self._scaled(72))
+        self.operator_memory_review_detail.setMaximumHeight(self._scaled(112))
+        layout.addWidget(self.operator_memory_review_detail)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        for text, slot in [
+            ("批准", self._operator_approve_selected_memory),
+            ("停用", self._operator_disable_selected_memory),
+            ("回滚", self._operator_rollback_selected_memory),
+        ]:
+            btn = QPushButton(text)
+            btn.setObjectName("operatorActionButton")
+            btn.clicked.connect(slot)
+            actions.addWidget(btn)
+        layout.addLayout(actions)
+        return card
 
     def _build_operator_idle_scene(self) -> QWidget:
         scene = QFrame()
@@ -959,8 +1030,8 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "未识别动作", "失败", text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="unknown", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="unknown", final_text=text)
             self._refresh_operator_view()
             return True
         first_type = str(getattr(actions[0], "action_type", "") or "")
@@ -975,7 +1046,7 @@ class OperatorUiMixin:
             reason = str(getattr(plan, "reason", "") or f"已生成复合指令草案：{len(steps)} 步。")
             safe_to_execute = bool(draft.get("safe_to_execute")) if isinstance(draft, dict) else False
             if safe_to_execute:
-                self._operator_pending_flow_draft = dict(draft)
+                self._operator_set_pending_flow_draft(draft)
             text = reason
             if step_machine_text:
                 text = f"{text}\n{step_machine_text}"
@@ -994,8 +1065,8 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             if hasattr(self, "_operator_publish_ai_answer_for_speech"):
                 self._operator_publish_ai_answer_for_speech(text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="compound_plan_draft", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="compound_plan_draft", final_text=text)
             if hasattr(self, "_append_log"):
                 self._append_log("Agent", "复合指令草案", "提示", text)
             self._refresh_operator_view()
@@ -1039,8 +1110,8 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "闲聊咨询", "成功", text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="chat", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="chat", final_text=text)
             self._refresh_operator_view()
             return True
         if first_type == "unknown":
@@ -1055,14 +1126,14 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "未识别动作", "失败", text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="unknown", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="unknown", final_text=text)
             self._refresh_operator_view()
             return True
         if first_type == "clarification":
             draft = getattr(plan, "flow_draft", {}) or {}
             if isinstance(draft, dict) and draft:
-                self._operator_pending_flow_draft = dict(draft)
+                self._operator_set_pending_flow_draft(draft)
             text = str(getattr(plan, "reason", "") or "需要补充信息后才能生成流程草案。")
             self._set_nlp_execute_busy(False)
             self.status_label.setText(text)
@@ -1072,14 +1143,14 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "澄清提示", "提示", text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="clarification", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="clarification", final_text=text)
             self._refresh_operator_view()
             return True
         if first_type == "flow_draft":
             draft = getattr(plan, "flow_draft", {}) or {}
             if isinstance(draft, dict) and draft:
-                self._operator_pending_flow_draft = dict(draft)
+                self._operator_set_pending_flow_draft(draft)
                 service = self._operator_execution_plan_service()
                 service.set_pending_flow_draft(draft)
                 updated = service.pending_flow_draft()
@@ -1087,11 +1158,12 @@ class OperatorUiMixin:
                     merged = dict(draft)
                     merged["expanded_steps"] = updated.get("expanded_steps", [])
                     merged["flow_name"] = updated.get("flow_name", merged.get("flow_name", ""))
-                    self._operator_pending_flow_draft = merged
+                    self._operator_set_pending_flow_draft(merged)
                 clarification = service.current_clarification()
                 if clarification is not None:
                     if isinstance(self._operator_pending_flow_draft, dict):
                         self._operator_pending_flow_draft["needs_precheck"] = True
+                        self._operator_set_pending_flow_draft(self._operator_pending_flow_draft)
                     question = str(clarification.question or "请补充流程参数。")
                     text = f"已生成流程草案，但还缺少关键参数。请补充：{question}"
                     self._set_nlp_execute_busy(False)
@@ -1102,8 +1174,8 @@ class OperatorUiMixin:
                         self._operator_add_chat_message("assistant", text)
                     self._operator_publish_ai_answer_for_speech(text)
                     self._append_log("自然语言", "流程草案追问", "提示", text)
-                    if hasattr(self, "_operator_archive_execution_result"):
-                        self._operator_archive_execution_result(result="clarification", final_text=text)
+                    if hasattr(self, "_archive_non_execution_result"):
+                        self._archive_non_execution_result(result="clarification", final_text=text)
                     self._refresh_operator_view()
                     return True
             steps = draft.get("expanded_steps") if isinstance(draft, dict) else None
@@ -1125,8 +1197,8 @@ class OperatorUiMixin:
                 self._operator_add_chat_message("assistant", text)
             self._operator_publish_ai_answer_for_speech(text)
             self._append_log("自然语言", "流程草案", "提示", text)
-            if hasattr(self, "_operator_archive_execution_result"):
-                self._operator_archive_execution_result(result="flow_draft", final_text=text)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="flow_draft", final_text=text)
             self._refresh_operator_view()
             return True
         return False
@@ -1186,7 +1258,7 @@ class OperatorUiMixin:
             "positions": self._operator_position_registry_draft_items(),
             "needs_precheck": True,
         }
-        self._operator_pending_flow_draft = draft
+        self._operator_set_pending_flow_draft(draft)
         if not reply:
             if clean_name == "未命名流程":
                 reply = "已开始创建流程草案。你可以先说流程名称，也可以直接说第一步。"
@@ -1437,8 +1509,8 @@ class OperatorUiMixin:
                 self._operator_publish_ai_answer_for_speech(clean)
         if hasattr(self, "_append_log"):
             self._append_log("Agent", category, "成功", clean)
-        if hasattr(self, "_operator_archive_execution_result"):
-            self._operator_archive_execution_result(result="context_intent", final_text=clean)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="context_intent", final_text=clean)
         self._refresh_operator_view()
 
     @staticmethod
@@ -1582,44 +1654,148 @@ class OperatorUiMixin:
 
     def _operator_try_agent_orchestrator_plan(self, text: str):
         try:
-            from .agent.atomic_template import AtomicTemplateAgent
-            from .agent.chat_explanation import ChatExplanationAgent
-            from .agent.dashboard_query import DashboardQueryAgent
-            from .agent.flow_draft import FlowDraftAgent
-            from .agent.llm_fallback import LlmFallbackAgent
-            from .agent.memory_setting import MemorySettingAgent
-            from .agent.orchestrator import AgentOrchestrator
-            from .agent.plan_adapter import AgentPlanAdapter
-            from .agent.position_memory import PositionMemoryAgent
-            from .agent.position_query import PositionQueryAgent
-            from .agent.registered_flow import RegisteredFlowAgent
+            from .agent_runtime.voice_plan_bridge import voice_plan_from_agent_result
 
-            restricted_service = None
-            if self._operator_restricted_agent_enabled():
-                restricted_service = self._operator_restricted_agent_service()
-            result = AgentOrchestrator(
-                restricted_service=restricted_service,
-                chat_agent=ChatExplanationAgent(),
-                position_query_agent=PositionQueryAgent(lookup=self._operator_agent_position_lookup),
-                memory_setting_agent=self._operator_agent_memory_setting_agent(MemorySettingAgent),
-                position_memory_agent=PositionMemoryAgent(),
-                atomic_template_agent=self._operator_agent_atomic_template_agent(AtomicTemplateAgent),
-                dashboard_query_agent=DashboardQueryAgent(),
-                flow_draft_agent=self._operator_agent_flow_draft_agent(FlowDraftAgent),
-                registered_flow_agent=self._operator_agent_registered_flow_agent(RegisteredFlowAgent),
-                llm_fallback_agent=self._operator_agent_llm_fallback_agent(LlmFallbackAgent),
-                llm_fallback_enabled=self._operator_agent_llm_fallback_enabled(),
-            ).handle(text)
+            result = self._operator_agent_runtime_bridge().handle_text(
+                text,
+                thread_id=self._operator_session_thread_id(),
+                legacy_fallback=lambda normalized_text: self._operator_agent_orchestrator().handle(normalized_text),
+            )
             if result.kind == "fallback_legacy":
                 self._operator_log_agent_orchestrator_fallback(result)
                 return None
-            if result.kind in {"restricted_agent", "compound_plan_draft", "unsupported_compound"}:
-                return AgentPlanAdapter().to_voice_plan(result.payload)
-            return AgentPlanAdapter().to_voice_plan(result)
+            return voice_plan_from_agent_result(result)
         except Exception as exc:
             if hasattr(self, "_append_log"):
                 self._append_log("Agent", "统一Agent解析", "失败", str(exc))
             return None
+
+    @staticmethod
+    def _operator_compound_plan_adapter_payload(payload):
+        from .agent_runtime.voice_plan_bridge import compound_plan_adapter_payload
+
+        return compound_plan_adapter_payload(payload)
+
+    @staticmethod
+    def _operator_agent_result_requires_legacy_fallback(result) -> bool:
+        from .agent_runtime.operator_bridge import OperatorAgentRuntimeBridge
+
+        return OperatorAgentRuntimeBridge.result_requires_legacy_fallback(result)
+
+    def _operator_tool_calling_agent_runtime(self):
+        return self._operator_agent_runtime_bridge().tool_calling_runtime()
+
+    def _operator_agent_memory_store(self):
+        return self._operator_agent_runtime_bridge().memory_store()
+
+    def _operator_apply_active_memory_to_text(self, text: str) -> str:
+        return self._operator_agent_runtime_bridge().apply_active_memory_to_text(
+            text,
+            thread_id=self._operator_session_thread_id(),
+        )
+
+    def _operator_record_feedback_vote(
+        self,
+        *,
+        vote: str,
+        target_type: str = "interaction",
+        target_id: str | None = None,
+        note: str = "",
+    ):
+        interaction_id = str(
+            getattr(self, "_operator_current_interaction_record_id", "")
+            or getattr(self, "_operator_last_interaction_record_id", "")
+            or ""
+        )
+        resolved_target_id = str(target_id or interaction_id or "")
+        return self._operator_agent_runtime_bridge().record_feedback_vote(
+            interaction_id=interaction_id,
+            target_type=target_type,
+            target_id=resolved_target_id,
+            vote=vote,
+            note=note,
+        )
+
+    def _operator_learn_memory_candidates_from_feedback(self):
+        return self._operator_agent_runtime_bridge().learn_memory_candidates_from_feedback()
+
+    def _operator_agent_runtime_bridge(self):
+        runtime_root = getattr(self, "runtime_root", None)
+        cache_key = self._operator_agent_runtime_bridge_cache_signature(runtime_root)
+        cached = getattr(self, "_operator_agent_runtime_bridge_instance", None)
+        if cached is not None and getattr(self, "_operator_agent_runtime_bridge_cache_key", None) == cache_key:
+            return cached
+        from .agent_runtime.operator_bridge_factory import build_operator_runtime_bridge
+
+        bridge = build_operator_runtime_bridge(self, runtime_root=runtime_root)
+        self._operator_agent_runtime_bridge_instance = bridge
+        self._operator_agent_runtime_bridge_cache_key = cache_key
+        return bridge
+
+    def _operator_agent_runtime_bridge_cache_signature(self, runtime_root) -> tuple[object, ...]:
+        from .agent_runtime.operator_bridge_factory import build_operator_bridge_cache_signature
+
+        return build_operator_bridge_cache_signature(self, runtime_root)
+
+    def _operator_deepseek_tool_decider(self):
+        from .agent_runtime.operator_bridge_factory import build_operator_tool_decider
+
+        return build_operator_tool_decider(self)
+
+    def _operator_flow_draft_parse_func(self):
+        parse_func = getattr(self, "_operator_agent_flow_draft_parse", None)
+        if callable(parse_func):
+            return parse_func
+        build_adapter = getattr(self, "_build_voice_nlp_adapter", None)
+        if not callable(build_adapter):
+            return None
+
+        def parse(text: str):
+            return build_adapter().parse(text, use_deepseek=False)
+
+        return parse
+
+    def _operator_agent_orchestrator(self):
+        cache_key = self._operator_agent_orchestrator_cache_key()
+        cached = getattr(self, "_operator_agent_orchestrator_instance", None)
+        if cached is not None and getattr(self, "_operator_agent_orchestrator_cache_key_value", None) == cache_key:
+            return cached
+
+        from .agent_runtime.orchestrator_factory import build_legacy_orchestrator
+
+        orchestrator = build_legacy_orchestrator(self)
+        self._operator_agent_orchestrator_instance = orchestrator
+        self._operator_agent_orchestrator_cache_key_value = cache_key
+        return orchestrator
+
+    def _operator_agent_orchestrator_cache_key(self) -> tuple[object, ...]:
+        from .agent_runtime.orchestrator_factory import build_legacy_orchestrator_cache_signature
+
+        return build_legacy_orchestrator_cache_signature(self)
+
+    def _operator_session_state(self) -> SessionState:
+        return self._operator_agent_runtime_bridge().session_state(self._operator_session_thread_id())
+
+    def _operator_set_session_state(self, state: SessionState) -> SessionState:
+        return self._operator_agent_runtime_bridge().set_session_state(state)
+
+    def _operator_session_thread_id(self) -> str:
+        return str(getattr(self, "session_id", "") or "operator-ui")
+
+    def _operator_pending_confirm_state_payload(self, plan) -> dict[str, Any]:
+        return self._operator_agent_runtime_bridge().pending_confirm_payload(
+            plan,
+            expires_at=float(getattr(self, "_operator_pending_confirm_deadline_sec", 0.0) or 0.0),
+        )
+
+    def _operator_set_pending_flow_draft(self, draft) -> None:
+        from .agent_runtime.flow_state_sync import sync_pending_flow_draft
+
+        self._operator_pending_flow_draft = sync_pending_flow_draft(
+            self._operator_agent_runtime_bridge(),
+            thread_id=self._operator_session_thread_id(),
+            draft=draft,
+        )
 
     def _operator_restricted_agent_enabled(self) -> bool:
         return bool(getattr(getattr(self, "axis_ranges", None), "restricted_agent_enabled", False))
@@ -1689,6 +1865,9 @@ class OperatorUiMixin:
             memory.position_registry = self._position_registry()
         except Exception:
             pass
+        template_lookup = getattr(agent_cls, "query_table_position_template_lookup", None)
+        if callable(template_lookup):
+            return agent_cls(memory=memory, template_lookup=template_lookup(getattr(self, "table", None)))
         return agent_cls(memory=memory)
 
     def _operator_agent_flow_draft_agent(self, agent_cls):
@@ -1764,40 +1943,12 @@ class OperatorUiMixin:
         service = getattr(self, "_restricted_agent_service", None)
         if service is not None:
             return service
-        from .agent.parameter_completion import ControllerSnapshot
-        from .agent.pose_angle import PoseAngleSafetyChecker
-        from .agent.safety_review import SafetyReviewAgent
         from .agent.service import RestrictedAgentService
 
-        def controller_snapshot_provider() -> ControllerSnapshot:
-            pose = self._operator_current_pose_tuple()
-            axis_ranges = getattr(self, "axis_ranges", None)
-            return ControllerSnapshot(
-                current_pose={
-                    "target_x": float(pose[0]),
-                    "target_y": float(pose[1]),
-                    "target_z": float(pose[2]),
-                    "target_rx": float(pose[3]),
-                    "target_ry": float(pose[4]),
-                    "target_rz": float(pose[5]),
-                },
-                safety_params={
-                    "spd_pct": float(getattr(axis_ranges, "safe_speed_max", 50.0) or 50.0),
-                    "acc_pct": float(getattr(axis_ranges, "safe_acc_max", 50.0) or 50.0),
-                    "dec_pct": float(getattr(axis_ranges, "safe_dec_max", 50.0) or 50.0),
-                },
-                is_moving=self._operator_restricted_agent_is_moving(),
-                read_ok=True,
-            )
-
         service = RestrictedAgentService(
-            controller_snapshot_provider=controller_snapshot_provider,
+            controller_snapshot_provider=self._operator_controller_snapshot_provider,
             runtime_snapshot_provider=lambda: self._operator_dashboard_snapshot_dict(refresh=True),
-            safety_review_agent=SafetyReviewAgent(
-                l1_service=SafetyPrecheckService(self.axis_ranges, max_sphere_radius=0.0),
-                motion_plan_service=self._operator_agent_motion_plan_service(),
-                pose_angle_checker=PoseAngleSafetyChecker(self._operator_agent_pose_angle_limits()),
-            ),
+            safety_review_agent=self._operator_safety_review_agent(),
             status_signature_provider=self._operator_restricted_agent_status_signature,
             safety_signature_provider=self._operator_restricted_agent_safety_signature,
             clock=self._operator_now_seconds,
@@ -1806,6 +1957,42 @@ class OperatorUiMixin:
         )
         self._restricted_agent_service = service
         return service
+
+    def _operator_confirmation_agent(self):
+        return self._operator_restricted_agent_service().confirmation_agent
+
+    def _operator_controller_snapshot_provider(self):
+        from .agent.parameter_completion import ControllerSnapshot
+
+        pose = self._operator_current_pose_tuple()
+        axis_ranges = getattr(self, "axis_ranges", None)
+        return ControllerSnapshot(
+            current_pose={
+                "target_x": float(pose[0]),
+                "target_y": float(pose[1]),
+                "target_z": float(pose[2]),
+                "target_rx": float(pose[3]),
+                "target_ry": float(pose[4]),
+                "target_rz": float(pose[5]),
+            },
+            safety_params={
+                "spd_pct": float(getattr(axis_ranges, "safe_speed_max", 50.0) or 50.0),
+                "acc_pct": float(getattr(axis_ranges, "safe_acc_max", 50.0) or 50.0),
+                "dec_pct": float(getattr(axis_ranges, "safe_dec_max", 50.0) or 50.0),
+            },
+            is_moving=self._operator_restricted_agent_is_moving(),
+            read_ok=True,
+        )
+
+    def _operator_safety_review_agent(self):
+        from .agent.pose_angle import PoseAngleSafetyChecker
+        from .agent.safety_review import SafetyReviewAgent
+
+        return SafetyReviewAgent(
+            l1_service=SafetyPrecheckService(self.axis_ranges, max_sphere_radius=0.0),
+            motion_plan_service=self._operator_agent_motion_plan_service(),
+            pose_angle_checker=PoseAngleSafetyChecker(self._operator_agent_pose_angle_limits()),
+        )
 
     def _operator_agent_motion_plan_service(self) -> MotionPlanService:
         return MotionPlanService(
@@ -2474,6 +2661,7 @@ class OperatorUiMixin:
             record = writer.append_input_record(
                 source="text",
                 raw_text=text,
+                normalized_text=self._operator_normalized_text_for_archive(text),
                 device_snapshot=self._operator_device_snapshot_for_archive(refresh_dashboard=False),
                 scene_state=self._operator_scene_state_payload(),
             )
@@ -2496,6 +2684,7 @@ class OperatorUiMixin:
             record = writer.append_input_record(
                 source="voice",
                 raw_text=text,
+                normalized_text=self._operator_normalized_text_for_archive(text),
                 asr_confidence=asr_confidence,
                 device_snapshot=self._operator_device_snapshot_for_archive(),
                 scene_state=self._operator_scene_state_payload(),
@@ -2507,6 +2696,15 @@ class OperatorUiMixin:
             if hasattr(self, "_append_log"):
                 self._append_log("归档", "语音交互记录归档", "失败", str(exc))
             return None
+
+    @staticmethod
+    def _operator_normalized_text_for_archive(text: str) -> str:
+        try:
+            from .agent.command_understanding import CommandUnderstandingAgent
+
+            return CommandUnderstandingAgent().understand(str(text or "")).normalized_text
+        except Exception:
+            return str(text or "")
 
     @staticmethod
     def _operator_asr_confidence_from_log(entry: dict[str, Any]) -> float | None:
@@ -2586,6 +2784,10 @@ class OperatorUiMixin:
         func_id = getattr(record, "func_num", None) if record is not None else None
         intent = "command" if action_type in {"template", "atomic_template", "flow", "system"} else "unknown"
         semantic_policy = policy_for_plan(plan)
+        raw_text = str(getattr(plan, "raw_text", "") or getattr(first, "raw_text", "") or "")
+        normalized_text = str(getattr(plan, "normalized_text", "") or "")
+        if not normalized_text:
+            normalized_text = self._operator_normalized_text_for_archive(raw_text)
         return {
             "semantic_level": semantic_policy.semantic_level,
             "semantic_label": semantic_policy.semantic_label,
@@ -2595,6 +2797,8 @@ class OperatorUiMixin:
             "requires_confirmation": semantic_policy.requires_confirmation,
             "priority": semantic_policy.priority,
             "intent": intent,
+            "raw_text": raw_text,
+            "normalized_text": normalized_text,
             "func_id": func_id,
             "params": params,
             "risk_level": params.get("atomic_risk_level"),
@@ -2670,6 +2874,20 @@ class OperatorUiMixin:
         state_after = dict(detail.get("state_after") or self._operator_device_snapshot_for_archive())
         existing_duration_ms = int(current_execution.get("exec_duration_ms", 0) or 0)
         effective_exec_duration_ms = int(exec_duration_ms) if int(exec_duration_ms) > 0 else existing_duration_ms
+        execution_payload = {
+            key: value
+            for key, value in detail.items()
+            if key not in {"modbus_write", "state_before", "state_after", "exec_duration_ms"}
+        }
+        execution_payload.update(
+            {
+                "modbus_write": modbus_write,
+                "state_before": state_before,
+                "state_after": state_after,
+                "result": result,
+                "exec_duration_ms": effective_exec_duration_ms,
+            }
+        )
         response = self._operator_current_interaction_response()
         if not response.get("ack"):
             response["ack"] = "收到，正在处理。"
@@ -2678,23 +2896,65 @@ class OperatorUiMixin:
         response["final_delay_ms"] = self._operator_interaction_elapsed_ms(fallback_ms=int(exec_duration_ms))
         try:
             writer = self._operator_interaction_writer()
-            return writer.update_record(
+            updated = writer.update_record(
                 msg_id,
                 {
-                    "execution": {
-                        "modbus_write": modbus_write,
-                        "state_before": state_before,
-                        "state_after": state_after,
-                        "result": result,
-                        "exec_duration_ms": effective_exec_duration_ms,
-                    },
+                    "execution": execution_payload,
                     "response": response,
                 },
             )
+            if updated and self._operator_result_needs_non_execution_nlp_finalize(result):
+                current_nlp = self._operator_current_interaction_nlp_result()
+                if self._operator_should_finalize_pending_nlp(current_nlp):
+                    writer.update_nlp_result(msg_id, self._operator_non_execution_nlp_payload(result))
+            return updated
         except Exception as exc:
             if hasattr(self, "_append_log"):
                 self._append_log("归档", "执行结果归档", "失败", str(exc))
             return False
+
+    @staticmethod
+    def _operator_result_needs_non_execution_nlp_finalize(result: str) -> bool:
+        return str(result or "") in {"answered"}
+
+    def _archive_non_execution_result(self, *, result: str, final_text: str) -> bool:
+        from .agent_runtime.archive_finalizer import build_non_execution_detail, finalize_non_execution_nlp
+
+        updated = self._operator_archive_execution_result(
+            result="skipped",
+            final_text=final_text,
+            execution_detail=build_non_execution_detail(result),
+        )
+        if not updated:
+            return False
+        current_nlp = self._operator_current_interaction_nlp_result()
+        msg_id = getattr(self, "_operator_last_interaction_record_id", "")
+        try:
+            finalize_non_execution_nlp(
+                self._operator_interaction_writer(),
+                msg_id=msg_id,
+                result=result,
+                current_nlp=current_nlp,
+            )
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("归档", "非执行NLP归档", "失败", str(exc))
+        return True
+
+    def _operator_current_interaction_nlp_result(self) -> dict[str, Any]:
+        payload = self._operator_current_interaction_payload()
+        nlp_result = payload.get("nlp_result", {}) if isinstance(payload, dict) else {}
+        return dict(nlp_result) if isinstance(nlp_result, dict) else {}
+
+    def _operator_should_finalize_pending_nlp(self, nlp_result: dict[str, Any]) -> bool:
+        from .agent_runtime.archive_finalizer import should_finalize_pending_nlp
+
+        return should_finalize_pending_nlp(nlp_result)
+
+    def _operator_non_execution_nlp_payload(self, result: str) -> dict[str, Any]:
+        from .agent_runtime.archive_finalizer import build_non_execution_nlp_payload
+
+        return build_non_execution_nlp_payload(result)
 
     def _operator_archive_engineer_voice_command(
         self,
@@ -2899,11 +3159,17 @@ class OperatorUiMixin:
         self._refresh_operator_view()
 
     def _operator_set_pending_confirm_plan(self, plan) -> None:
-        self._operator_pending_confirm_plan = plan
-        if plan is None:
-            self._operator_pending_confirm_deadline_sec = 0.0
-            return
-        self._operator_pending_confirm_deadline_sec = self._operator_now_seconds() + self._operator_confirm_timeout_seconds()
+        from .agent_runtime.confirm_state_sync import sync_pending_confirm_plan
+
+        result = sync_pending_confirm_plan(
+            self._operator_agent_runtime_bridge(),
+            thread_id=self._operator_session_thread_id(),
+            plan=plan,
+            now_seconds=self._operator_now_seconds,
+            timeout_seconds=self._operator_confirm_timeout_seconds,
+        )
+        self._operator_pending_confirm_plan = result.plan
+        self._operator_pending_confirm_deadline_sec = result.deadline_sec
 
     def _operator_confirm_timeout_seconds(self) -> float:
         configured = getattr(getattr(self, "axis_ranges", None), "operator_confirm_timeout_sec", 60.0)
@@ -2911,6 +3177,51 @@ class OperatorUiMixin:
             return max(1.0, float(configured))
         except (TypeError, ValueError):
             return 60.0
+
+    def _operator_confirm_execution_gate_result(self, plan):
+        from .execution_gate.gate import ExecutionGateInput, evaluate_execution_gate
+
+        try:
+            actions = tuple(getattr(plan, "actions", ()) or ())
+            action_type = str(getattr(actions[0], "action_type", "") or "unknown") if actions else "unknown"
+            precheck = getattr(self, "_operator_last_precheck_result", None)
+            motion_plan = getattr(self, "_operator_last_motion_plan_result", None)
+            process_precheck = getattr(self, "_operator_last_process_precheck_result", None)
+            bounds_ok = not (isinstance(precheck, dict) and precheck.get("status") == "fail")
+            safety_ok = not self._operator_l2_should_block(motion_plan) and not self._operator_l3_should_block(process_precheck)
+            return evaluate_execution_gate(
+                ExecutionGateInput(
+                    action_type=action_type,
+                    is_execution=True,
+                    has_wake_word=True,
+                    permission_ok=True,
+                    missing_fields=(),
+                    bounds_ok=bounds_ok,
+                    safety_ok=safety_ok,
+                    requires_confirmation=bool(getattr(plan, "requires_confirmation", False)),
+                    has_pending_confirm=getattr(self, "_operator_pending_confirm_plan", None) is plan,
+                    confirmed=True,
+                )
+            )
+        except Exception as exc:
+            from .agent_tools.tool_result import ToolResult
+
+            return ToolResult.failure(
+                state="execution_gate_failed",
+                message=f"执行门禁异常，已拒绝执行：{exc}",
+                code="EXECUTION_GATE_FAILED",
+                data={"error": str(exc)},
+            )
+
+    def _operator_reject_execution_gate_exception(self, *, stage: str, exc: Exception) -> None:
+        detail = str(exc) or exc.__class__.__name__
+        text = f"执行门禁异常，已拒绝执行：{detail}"
+        if hasattr(self, "status_label"):
+            self.status_label.setText("执行门禁异常，已拒绝执行。")
+        self._operator_add_chat_message("assistant", text, kind="warn")
+        self._operator_archive_execution_result(result="blocked", final_text=text)
+        self._append_log("执行门禁", stage, "拒绝", text)
+        self._refresh_operator_view()
 
     def _operator_reject_expired_pending_confirm(self) -> bool:
         plan = getattr(self, "_operator_pending_confirm_plan", None)
@@ -2924,6 +3235,7 @@ class OperatorUiMixin:
 
     def _operator_expire_pending_confirm(self, *, refresh: bool = True) -> None:
         self._operator_set_pending_confirm_plan(None)
+        self._operator_agent_runtime_bridge().expire_pending_confirm(thread_id=self._operator_session_thread_id())
         self._operator_scene_override = None
         text = "安全确认已超时，已取消待执行计划。请重新输入指令。"
         if hasattr(self, "status_label"):
@@ -2952,6 +3264,16 @@ class OperatorUiMixin:
             self._operator_no_pending_confirm()
             return
         if self._operator_plan_is_agent_draft(plan):
+            gate = self._operator_confirm_execution_gate_result(plan)
+            if not getattr(gate, "ok", False):
+                text = str(getattr(gate, "message", "") or "执行门禁未通过。")
+                status_text = "执行门禁未通过，已拒绝执行。"
+                self.status_label.setText(status_text)
+                self._operator_add_chat_message("assistant", text)
+                self._operator_archive_execution_result(result="blocked", final_text=text)
+                self._append_log("执行门禁", "确认执行", "拒绝", text)
+                self._refresh_operator_view()
+                return
             self._operator_confirm_agent_draft(plan)
             return
         precheck = getattr(self, "_operator_last_precheck_result", None)
@@ -2964,7 +3286,12 @@ class OperatorUiMixin:
             self._refresh_operator_view()
             return
         motion_plan = getattr(self, "_operator_last_motion_plan_result", None)
-        if self._operator_l2_should_block(motion_plan):
+        try:
+            l2_blocked = self._operator_l2_should_block(motion_plan)
+        except Exception as exc:
+            self._operator_reject_execution_gate_exception(stage="L2运动预演异常", exc=exc)
+            return
+        if l2_blocked:
             text = self._operator_l2_summary(motion_plan)
             self.status_label.setText("L2运动规划预演未通过，已拒绝执行。")
             self._operator_add_chat_message("assistant", text)
@@ -2973,12 +3300,27 @@ class OperatorUiMixin:
             self._refresh_operator_view()
             return
         process_precheck = getattr(self, "_operator_last_process_precheck_result", None)
-        if self._operator_l3_should_block(process_precheck):
+        try:
+            l3_blocked = self._operator_l3_should_block(process_precheck)
+        except Exception as exc:
+            self._operator_reject_execution_gate_exception(stage="L3流程预演异常", exc=exc)
+            return
+        if l3_blocked:
             text = self._operator_l3_summary(process_precheck)
             self.status_label.setText("L3流程预演未通过，已拒绝执行。")
             self._operator_add_chat_message("assistant", text)
             self._operator_archive_execution_result(result="blocked", final_text=text)
             self._append_log("流程预演", "确认执行", "拒绝", text)
+            self._refresh_operator_view()
+            return
+        gate = self._operator_confirm_execution_gate_result(plan)
+        if not getattr(gate, "ok", False):
+            text = str(getattr(gate, "message", "") or "执行门禁未通过。")
+            status_text = "执行门禁未通过，已拒绝执行。"
+            self.status_label.setText(status_text)
+            self._operator_add_chat_message("assistant", text)
+            self._operator_archive_execution_result(result="blocked", final_text=text)
+            self._append_log("执行门禁", "确认执行", "拒绝", text)
             self._refresh_operator_view()
             return
         self._operator_set_pending_confirm_plan(None)
@@ -2990,13 +3332,16 @@ class OperatorUiMixin:
         self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
         self._append_log("用户页面", "确认执行", "成功", getattr(plan, "reason", "已确认执行"))
         confirmed_plan = replace(plan, requires_confirmation=False)
-        test_executor = self.__dict__.get("_execute_nlp_plan")
-        if callable(test_executor):
-            test_executor(confirmed_plan)
-            return
-        from .nlp_mixin import NlpMixin
+        try:
+            test_executor = self.__dict__.get("_execute_nlp_plan")
+            if callable(test_executor):
+                test_executor(confirmed_plan)
+                return
+            from .nlp_mixin import NlpMixin
 
-        NlpMixin._execute_nlp_plan(self, confirmed_plan)
+            NlpMixin._execute_nlp_plan(self, confirmed_plan)
+        except Exception as exc:
+            self._operator_record_confirmed_plan_execution_failure(confirmed_plan, exc)
 
     def _operator_prepare_current_compound_step_confirmation(self) -> bool:
         draft = getattr(self, "_operator_pending_flow_draft", None)
@@ -3116,6 +3461,8 @@ class OperatorUiMixin:
                 }
             )
             text = f"复合指令停止在第 {index + 1}/{total} 步：{updated_steps[index].get('text') or '-'}。原因：{updated_steps[index]['reason']}"
+            self._operator_record_compound_step_result(ok=False, reason=updated_steps[index]["reason"])
+            self._operator_sync_compound_terminal_state(draft)
             if hasattr(self, "status_label"):
                 self.status_label.setText(text)
             self._operator_add_chat_message("assistant", text, kind="warn")
@@ -3137,6 +3484,8 @@ class OperatorUiMixin:
                 }
             )
             text = f"复合指令执行完成：共完成 {total} 步。"
+            self._operator_record_compound_step_result(ok=True, reason=detail or f"第{index + 1}步完成")
+            self._operator_sync_compound_terminal_state(draft)
             if hasattr(self, "status_label"):
                 self.status_label.setText(text)
             self._operator_add_chat_message("assistant", text)
@@ -3155,6 +3504,7 @@ class OperatorUiMixin:
                 "steps": updated_steps,
             }
         )
+        self._operator_record_compound_step_result(ok=True, reason=detail or f"第{index + 1}步完成")
         text = f"复合指令第 {index + 1}/{total} 步已完成。当前等待确认第 {next_index + 1}/{total} 步：{updated_steps[next_index].get('text') or '-'}。"
         if hasattr(self, "status_label"):
             self.status_label.setText(text)
@@ -3163,6 +3513,27 @@ class OperatorUiMixin:
         self._append_log("Agent", "复合指令步骤执行", "成功", text)
         self._refresh_operator_view()
         return True
+
+    def _operator_record_compound_step_result(self, *, ok: bool, reason: str = "") -> None:
+        try:
+            bridge = self._operator_agent_runtime_bridge()
+            recorder = getattr(bridge, "record_compound_step_result", None)
+            if callable(recorder):
+                recorder(thread_id=self._operator_session_thread_id(), ok=bool(ok), reason=str(reason or ""))
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "复合指令步骤 runtime 同步", "失败", str(exc))
+
+    def _operator_sync_compound_terminal_state(self, draft: dict[str, Any] | None) -> None:
+        try:
+            state = self._operator_session_state()
+            if isinstance(draft, dict):
+                state = state.with_flow_draft(draft)
+            state = state.with_pending_confirm(None).with_compound_plan(None)
+            self._operator_set_session_state(state)
+        except Exception as exc:
+            if hasattr(self, "_append_log"):
+                self._append_log("Agent", "复合指令状态同步", "失败", str(exc))
 
     def _operator_mark_compound_step_confirmed(self, plan) -> bool:
         draft = getattr(plan, "flow_draft", None)
@@ -3200,6 +3571,35 @@ class OperatorUiMixin:
 
     def _operator_confirm_agent_draft(self, plan) -> None:
         draft_id = self._operator_agent_draft_id(plan)
+        if str(getattr(plan, "source", "") or "") == "agent_orchestrator":
+            result = self._operator_agent_runtime_bridge().confirm_pending_plan(
+                draft_id,
+                thread_id=self._operator_session_thread_id(),
+            )
+            if result.ok:
+                record_payload = dict(result.data.get("query_record", {}) or {})
+                record = self._operator_query_record_from_payload(record_payload)
+                self._operator_set_pending_confirm_plan(None)
+                self._operator_scene_override = None
+                self._set_nlp_execute_busy(True)
+                self.status_label.setText("确认收到，开始执行。")
+                self._operator_add_chat_message("assistant", "确认收到，开始执行。")
+                self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
+                self._append_log("用户页面", "Agent确认执行", "成功", getattr(plan, "reason", "已确认执行"))
+                execution_plan = self._operator_agent_record_to_execution_plan(plan, record)
+                try:
+                    self._execute_nlp_plan(execution_plan)
+                except Exception as exc:
+                    self._operator_record_agent_execution_failure(record_payload, exc)
+                return
+            text = f"Agent 草稿确认失败：{result.message}"
+            if hasattr(self, "status_label"):
+                self.status_label.setText(text)
+            self._operator_add_chat_message("assistant", text)
+            self._operator_archive_execution_result(result="blocked", final_text=text)
+            self._append_log("用户页面", "Agent确认执行", "拒绝", text)
+            self._refresh_operator_view()
+            return
         service = getattr(self, "_restricted_agent_service", None)
         if not draft_id or service is None or not hasattr(service, "confirm"):
             text = "Agent 待确认草稿不可用，未执行。请重新输入指令。"
@@ -3230,6 +3630,73 @@ class OperatorUiMixin:
         self._operator_archive_execution_result(result="accepted", final_text="确认收到，开始执行。")
         self._append_log("用户页面", "Agent确认执行", "成功", getattr(plan, "reason", "已确认执行"))
         self._execute_nlp_plan(self._operator_agent_record_to_execution_plan(plan, record))
+
+    def _operator_record_confirmed_plan_execution_failure(self, plan, exc: Exception) -> None:
+        error = str(exc) or exc.__class__.__name__
+        result, error = self._operator_record_agent_runtime_execution_failure(
+            self._operator_confirmed_plan_failure_record(plan),
+            error,
+        )
+        text = str(getattr(result, "message", "") or f"执行失败：{error}")
+        self._set_nlp_execute_busy(False)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        self._operator_add_chat_message("assistant", text, kind="warn")
+        self._operator_archive_execution_result(result="failure", final_text=text)
+        self._append_log("用户页面", "确认执行", "失败", error)
+        self._refresh_operator_view()
+
+    @staticmethod
+    def _operator_confirmed_plan_failure_record(plan) -> dict[str, Any]:
+        actions = tuple(getattr(plan, "actions", ()) or ())
+        action = actions[0] if actions else None
+        return {
+            "action_type": str(getattr(action, "action_type", "") or ""),
+            "target": str(getattr(action, "target", "") or ""),
+            "source": str(getattr(action, "source", "") or getattr(plan, "source", "") or ""),
+            "raw_text": str(getattr(plan, "raw_text", "") or ""),
+            "reason": str(getattr(plan, "reason", "") or ""),
+        }
+
+    def _operator_record_agent_execution_failure(self, query_record: dict[str, Any], exc: Exception) -> None:
+        error = str(exc) or exc.__class__.__name__
+        result, error = self._operator_record_agent_runtime_execution_failure(query_record, error)
+        text = str(getattr(result, "message", "") or f"执行失败：{error}")
+        self._set_nlp_execute_busy(False)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        self._operator_add_chat_message("assistant", text, kind="warn")
+        self._operator_archive_execution_result(result="failure", final_text=text)
+        self._append_log("用户页面", "Agent执行", "失败", error)
+        self._refresh_operator_view()
+
+    def _operator_record_agent_runtime_execution_failure(
+        self,
+        query_record: dict[str, Any] | None,
+        error: str,
+    ):
+        result = None
+        clean_error = str(error or "执行失败。")
+        try:
+            bridge = self._operator_agent_runtime_bridge()
+            if hasattr(bridge, "record_execution_failure"):
+                result = bridge.record_execution_failure(
+                    thread_id=self._operator_session_thread_id(),
+                    query_record=query_record,
+                    error=clean_error,
+                )
+        except Exception as bridge_exc:
+            clean_error = f"{clean_error}; runtime failure record failed: {bridge_exc}"
+        return result, clean_error
+
+    @staticmethod
+    def _operator_query_record_from_payload(payload: dict[str, Any]) -> QueryRecord:
+        return QueryRecord(
+            query_key=str(payload.get("query_key", "") or ""),
+            func_num=int(payload.get("func_num", 0) or 0),
+            params=dict(payload.get("params", {}) or {}),
+            description=str(payload.get("description", "") or ""),
+        )
 
     def _operator_accept_suggestion(self) -> None:
         if self._operator_reject_expired_pending_confirm():
@@ -3288,9 +3755,25 @@ class OperatorUiMixin:
         return ""
 
     def _operator_cancel_confirm(self) -> None:
-        if getattr(self, "_operator_pending_confirm_plan", None) is not None:
+        plan = getattr(self, "_operator_pending_confirm_plan", None)
+        if plan is not None:
             if self._operator_cancel_compound_step_confirmation():
                 return
+            if (
+                self._operator_plan_is_agent_draft(plan)
+                and str(getattr(plan, "source", "") or "") == "agent_orchestrator"
+            ):
+                draft_id = self._operator_agent_draft_id(plan)
+                if draft_id:
+                    try:
+                        result = self._operator_agent_runtime_bridge().cancel_pending_plan(
+                            draft_id,
+                            thread_id=self._operator_session_thread_id(),
+                        )
+                        if not result.ok:
+                            self._append_log("Agent", "取消待确认草案", "失败", result.message)
+                    except Exception as exc:
+                        self._append_log("Agent", "取消待确认草案", "失败", str(exc))
             self._operator_set_pending_confirm_plan(None)
             self._operator_scene_override = None
             text = "已取消待确认的执行计划。"
@@ -3308,7 +3791,8 @@ class OperatorUiMixin:
         if not isinstance(draft, dict) or draft.get("agent_kind") != "compound_step_confirmation":
             return False
         self._operator_set_pending_confirm_plan(None)
-        self._operator_pending_flow_draft = None
+        self._operator_set_pending_flow_draft(None)
+        self._operator_sync_compound_terminal_state(None)
         self._operator_scene_override = None
         text = "已取消复合指令，后续步骤不会继续执行。"
         if hasattr(self, "status_label"):
@@ -3359,6 +3843,8 @@ class OperatorUiMixin:
         if self._operator_handle_engineer_voice_capability_query(text):
             return True
         if self._operator_handle_pending_engineer_voice_command(text):
+            return True
+        if self._operator_handle_memory_review_command(text):
             return True
         if self._operator_handle_voice_command_spec(text):
             return True
@@ -3435,6 +3921,163 @@ class OperatorUiMixin:
 
         return False
 
+    def _operator_handle_memory_review_command(self, text: str) -> bool:
+        from .operator_memory_review import OperatorMemoryReviewCommands
+
+        result = OperatorMemoryReviewCommands(self._operator_call_memory_tool).handle(text)
+        if not result.handled or result.result is None:
+            return False
+        self._operator_present_memory_tool_result(result.result, category=result.category)
+        return True
+
+    def _operator_call_memory_tool(self, tool_name: str, **kwargs):
+        return self._operator_tool_calling_agent_runtime().tool_registry.call(tool_name, **kwargs)
+
+    def _operator_present_memory_tool_result(self, result, *, category: str) -> None:
+        self._operator_update_memory_review_view(result)
+        text = self._operator_memory_tool_result_text(result)
+        if hasattr(self, "status_label"):
+            self.status_label.setText(text)
+        if hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", text, kind="warn" if not getattr(result, "ok", False) else "info")
+        if hasattr(self, "_append_log"):
+            self._append_log("用户页面", category, "成功" if getattr(result, "ok", False) else "失败", text)
+        if hasattr(self, "_refresh_operator_view"):
+            self._refresh_operator_view()
+
+    def _operator_update_memory_review_view(self, result) -> None:
+        from .operator_memory_review import memory_review_view
+
+        view = memory_review_view(result)
+        self._operator_last_memory_review_view = view
+        table = getattr(self, "operator_memory_review_table", None)
+        if table is not None:
+            headers = ["ID", "类型", "键", "值", "状态", "来源", "审计"]
+            if hasattr(table, "setColumnCount"):
+                table.setColumnCount(len(headers))
+            if hasattr(table, "setHorizontalHeaderLabels"):
+                table.setHorizontalHeaderLabels(headers)
+            if hasattr(table, "setRowCount"):
+                table.setRowCount(len(view.rows))
+            for row_index, row in enumerate(view.rows):
+                values = (
+                    row.memory_id,
+                    row.kind,
+                    row.key,
+                    row.value_text,
+                    row.status,
+                    row.source,
+                    row.last_event or str(row.audit_count),
+                )
+                for column_index, value in enumerate(values):
+                    if hasattr(table, "setItem"):
+                        table.setItem(row_index, column_index, QTableWidgetItem(str(value)))
+        detail = getattr(self, "operator_memory_review_detail", None)
+        if detail is not None:
+            if hasattr(detail, "setPlainText"):
+                detail.setPlainText(view.detail_text)
+            elif hasattr(detail, "setText"):
+                detail.setText(view.detail_text)
+        status_filter = getattr(self, "operator_memory_status_filter", None)
+        if status_filter is not None:
+            self._operator_populate_memory_filter(status_filter, view.status_options)
+        kind_filter = getattr(self, "operator_memory_kind_filter", None)
+        if kind_filter is not None:
+            self._operator_populate_memory_filter(kind_filter, view.kind_options)
+
+    @staticmethod
+    def _operator_populate_memory_filter(widget, options) -> None:
+        previous = widget.blockSignals(True) if hasattr(widget, "blockSignals") else None
+        if hasattr(widget, "clear"):
+            widget.clear()
+        if hasattr(widget, "addItems"):
+            widget.addItems(list(options))
+        if previous is not None and hasattr(widget, "blockSignals"):
+            widget.blockSignals(previous)
+
+    def _operator_refresh_memory_review_from_filters(self, *_args) -> None:
+        if bool(getattr(self, "_operator_updating_memory_review_view", False)):
+            return
+        status = self._operator_memory_filter_text(getattr(self, "operator_memory_status_filter", None))
+        kind = self._operator_memory_filter_text(getattr(self, "operator_memory_kind_filter", None))
+        kwargs = {"status": status or "candidate", "include_audit": True}
+        if kind:
+            kwargs["kind"] = kind
+        result = self._operator_call_memory_tool("query_memory_review", **kwargs)
+        self._operator_present_memory_tool_result(result, category="经验审核")
+
+    def _operator_on_memory_review_row_selected(self, current_row: int, _current_column: int, _previous_row: int, _previous_column: int) -> None:
+        view = getattr(self, "_operator_last_memory_review_view", None)
+        rows = tuple(getattr(view, "rows", ()) or ())
+        if current_row < 0 or current_row >= len(rows):
+            return
+        self._operator_selected_memory_review_row = current_row
+        detail = getattr(self, "operator_memory_review_detail", None)
+        if detail is None:
+            return
+        text = rows[current_row].detail_text
+        if hasattr(detail, "setPlainText"):
+            detail.setPlainText(text)
+        elif hasattr(detail, "setText"):
+            detail.setText(text)
+
+    @staticmethod
+    def _operator_memory_filter_text(widget) -> str:
+        if widget is None or not hasattr(widget, "currentText"):
+            return ""
+        return str(widget.currentText() or "").strip()
+
+    def _operator_selected_memory_id(self) -> str:
+        view = getattr(self, "_operator_last_memory_review_view", None)
+        rows = tuple(getattr(view, "rows", ()) or ())
+        row_index = int(getattr(self, "_operator_selected_memory_review_row", 0) or 0)
+        if row_index < 0 or row_index >= len(rows):
+            return ""
+        return str(rows[row_index].memory_id or "")
+
+    def _operator_approve_selected_memory(self) -> None:
+        memory_id = self._operator_selected_memory_id()
+        if not memory_id:
+            return
+        result = self._operator_call_memory_tool("approve_memory_candidate", memory_id=memory_id, reviewer="operator-ui")
+        self._operator_present_memory_tool_result(result, category="经验审核")
+
+    def _operator_disable_selected_memory(self) -> None:
+        memory_id = self._operator_selected_memory_id()
+        if not memory_id:
+            return
+        result = self._operator_call_memory_tool(
+            "disable_memory",
+            memory_id=memory_id,
+            reviewer="operator-ui",
+            reason="operator panel",
+        )
+        self._operator_present_memory_tool_result(result, category="经验停用")
+
+    def _operator_rollback_selected_memory(self) -> None:
+        memory_id = self._operator_selected_memory_id()
+        if not memory_id:
+            return
+        result = self._operator_call_memory_tool(
+            "rollback_memory",
+            memory_id=memory_id,
+            reviewer="operator-ui",
+            reason="operator panel",
+        )
+        self._operator_present_memory_tool_result(result, category="经验回滚")
+
+    @staticmethod
+    def _operator_memory_id_from_text(text: str) -> str:
+        from .operator_memory_review import memory_id_from_text
+
+        return memory_id_from_text(text)
+
+    @staticmethod
+    def _operator_memory_tool_result_text(result) -> str:
+        from .operator_memory_review import memory_tool_result_text
+
+        return memory_tool_result_text(result)
+
     def _operator_handle_running_control_text(self, text: str) -> bool:
         compact = re.sub(r"\s+", "", text or "")
         compact = compact.strip("，。！？,.!?")
@@ -3495,6 +4138,8 @@ class OperatorUiMixin:
             if hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", message)
             self._append_log("自然语言", "追问回答", "失败", message)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="clarification_answer_failed", final_text=message)
             self._refresh_operator_view()
             return True
         draft = getattr(self, "_operator_pending_flow_draft", None)
@@ -3504,13 +4149,15 @@ class OperatorUiMixin:
             merged["expanded_steps"] = updated.get("expanded_steps", [])
             merged["flow_name"] = updated.get("flow_name", merged.get("flow_name", ""))
             merged["needs_precheck"] = True
-            self._operator_pending_flow_draft = merged
+            self._operator_set_pending_flow_draft(merged)
         message = f"{result.message}。当前流程草案已更新，保存或执行前需要重新预检。"
         if hasattr(self, "status_label"):
             self.status_label.setText(self._operator_footer_status_text(message))
         if hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", message)
         self._append_log("自然语言", "追问回答", "成功", message)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="clarification_answer", final_text=message)
         self._refresh_operator_view()
         return True
 
@@ -3527,13 +4174,15 @@ class OperatorUiMixin:
             if flow_name:
                 draft["flow_name"] = flow_name
                 draft["needs_precheck"] = True
-                self._operator_pending_flow_draft = draft
+                self._operator_set_pending_flow_draft(draft)
                 message = f"流程名称已改为“{flow_name}”。请继续添加步骤，或说“查看流程”。"
                 if hasattr(self, "status_label"):
                     self.status_label.setText(self._operator_footer_status_text(message))
                 if hasattr(self, "_operator_add_chat_message"):
                     self._operator_add_chat_message("assistant", message)
                 self._append_log("自然语言", "流程草案编辑", "成功", message)
+                if hasattr(self, "_archive_non_execution_result"):
+                    self._archive_non_execution_result(result="flow_draft_edit", final_text=message)
                 self._refresh_operator_view()
                 return True
         if self._operator_pending_flow_draft_apply_coordinate_answer(draft, compact):
@@ -3615,6 +4264,8 @@ class OperatorUiMixin:
             if hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", message)
             self._append_log("自然语言", "流程草案编辑", "失败", message)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="flow_draft_edit_failed", final_text=message)
             self._refresh_operator_view()
             return True
         updated = service.pending_flow_draft()
@@ -3624,7 +4275,7 @@ class OperatorUiMixin:
             merged["flow_name"] = updated.get("flow_name", merged.get("flow_name", ""))
             merged["needs_precheck"] = True
             self._operator_sync_flow_draft_positions_from_steps(merged)
-            self._operator_pending_flow_draft = merged
+            self._operator_set_pending_flow_draft(merged)
         message = f"{result.message}。当前流程草案尚未保存/执行。"
         appended_missing = self._operator_last_flow_step_missing_pose(self._operator_pending_flow_draft)
         if appended_missing:
@@ -3634,6 +4285,8 @@ class OperatorUiMixin:
         if hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", message)
         self._append_log("自然语言", "流程草案编辑", "成功", message)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="flow_draft_edit", final_text=message)
         self._refresh_operator_view()
         return True
 
@@ -3702,7 +4355,7 @@ class OperatorUiMixin:
             params["dec_pct"] = updates["spd_pct"]
         self._operator_sync_flow_draft_positions_from_steps(draft)
         draft["needs_precheck"] = True
-        self._operator_pending_flow_draft = draft
+        self._operator_set_pending_flow_draft(draft)
         label = str(target_step.get("target_label") or target_label or "").strip()
         label_text = f"位置{label.upper()}" if label and len(label) == 1 else (label or "当前步骤")
         message = f"已补齐{label_text}参数：{self._operator_format_params_inline(params)}。当前流程草案尚未保存/执行。"
@@ -3711,6 +4364,8 @@ class OperatorUiMixin:
         if hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", message)
         self._append_log("自然语言", "流程草案编辑", "成功", message)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="flow_draft_edit", final_text=message)
         self._refresh_operator_view()
         return True
 
@@ -3987,7 +4642,7 @@ class OperatorUiMixin:
         merged["expanded_steps"] = updated.get("expanded_steps", [])
         merged["flow_name"] = updated.get("flow_name", flow_name)
         merged["needs_precheck"] = True
-        self._operator_pending_flow_draft = merged
+        self._operator_set_pending_flow_draft(merged)
         service.set_pending_flow_draft(merged)
         clarification = service.current_clarification()
         if clarification is not None:
@@ -4122,12 +4777,14 @@ class OperatorUiMixin:
         if not compact:
             return False
         if any(keyword in compact for keyword in ("取消草案", "放弃草案", "不要保存", "取消流程草案")):
-            self._operator_pending_flow_draft = None
+            self._operator_set_pending_flow_draft(None)
             message = "已取消当前流程草案。"
             self.status_label.setText(message)
             if hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", message)
             self._append_log("自然语言", "流程草案取消", "成功", message)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="flow_draft_cancelled", final_text=message)
             self._refresh_operator_view()
             return True
         if any(keyword in compact for keyword in ("重新预检", "开始预检", "检查草案", "预检草案", "重跑预检")):
@@ -4138,6 +4795,8 @@ class OperatorUiMixin:
                 if hasattr(self, "_operator_add_chat_message"):
                     self._operator_add_chat_message("assistant", message)
                 self._append_log("自然语言", "流程草案预检", "失败", message)
+                if hasattr(self, "_archive_non_execution_result"):
+                    self._archive_non_execution_result(result="flow_draft_precheck_failed", final_text=message)
                 self._refresh_operator_view()
                 return True
             self._operator_prepare_plan_prechecks(plan)
@@ -4147,6 +4806,8 @@ class OperatorUiMixin:
             if hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", message)
             self._append_log("自然语言", "流程草案预检", "成功", message)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="flow_draft_prechecked", final_text=message)
             self._refresh_operator_view()
             return True
         execute_after_save = any(
@@ -4190,14 +4851,16 @@ class OperatorUiMixin:
         ok, detail, flow_name = self._operator_save_flow_draft(draft)
         if not ok:
             if not draft.get("expanded_steps"):
-                self._operator_pending_flow_draft = None
+                self._operator_set_pending_flow_draft(None)
             self.status_label.setText(detail)
             if hasattr(self, "_operator_add_chat_message"):
                 self._operator_add_chat_message("assistant", detail)
             self._append_log("自然语言", "流程草案保存", "失败", detail)
+            if hasattr(self, "_archive_non_execution_result"):
+                self._archive_non_execution_result(result="flow_draft_save_failed", final_text=detail)
             self._refresh_operator_view()
             return True
-        self._operator_pending_flow_draft = None
+        self._operator_set_pending_flow_draft(None)
         self.current_flow_name = flow_name
         if hasattr(self, "flow_combo"):
             try:
@@ -4223,6 +4886,8 @@ class OperatorUiMixin:
         if hasattr(self, "_operator_add_chat_message"):
             self._operator_add_chat_message("assistant", message)
         self._append_log("自然语言", "流程草案保存", "成功", detail)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="flow_draft_saved", final_text=message)
         self._refresh_operator_view()
         return True
 
@@ -4267,6 +4932,8 @@ class OperatorUiMixin:
             self._operator_add_chat_message("assistant", answer)
         self._operator_publish_ai_answer_for_speech(answer)
         self._append_log("自然语言", "流程草案查询", "成功", answer)
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="flow_draft_query", final_text=answer)
         self._refresh_operator_view()
         return True
 
@@ -4295,8 +4962,12 @@ class OperatorUiMixin:
         self._operator_publish_ai_answer_for_speech(answer)
         if "缺少" in answer and "唤醒词" in answer:
             self._append_log("自然语言", "缺少唤醒词", "提示", answer)
+            archive_result = "missing_wake_word"
         else:
             self._append_log("自然语言", "上下文查询", "成功", answer)
+            archive_result = "context_query"
+        if hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result=archive_result, final_text=answer)
         self._refresh_operator_view()
         return True
 
@@ -4474,6 +5145,7 @@ class OperatorUiMixin:
         if not any(keyword in compact_text for keyword in ("位置", "位", "坐标", "xy", "XY", "xyz", "XYZ", "参数")):
             return False
         query_markers = (
+            "命令",
             "参数",
             "坐标",
             "xy",
@@ -4493,6 +5165,9 @@ class OperatorUiMixin:
             "看一下",
             "查询",
             "查一下",
+            "有没有",
+            "有吗",
+            "没有",
         )
         return any(marker in compact_text for marker in query_markers)
 
@@ -7316,6 +7991,39 @@ class OperatorUiMixin:
                 return record
         return getattr(self, "table", {}).get(target)
 
+    def _operator_current_agent_execution_record_payload(self) -> dict[str, Any] | None:
+        plan = getattr(self, "_nlp_current_plan", None)
+        if plan is None:
+            return None
+        actions = tuple(getattr(self, "_nlp_pending_actions", ()) or getattr(plan, "actions", ()) or ())
+        if not actions:
+            return None
+        try:
+            index = int(getattr(self, "_nlp_pending_index", 0) or 0)
+        except (TypeError, ValueError):
+            index = 0
+        if index < 0 or index >= len(actions):
+            index = 0
+        action = actions[index]
+        target = str(getattr(action, "target", "") or "")
+        if not target.startswith("agent:"):
+            return None
+        record = self._operator_record_for_action(plan, action)
+        if record is None:
+            return None
+        if hasattr(record, "to_dict"):
+            return dict(record.to_dict())
+        if isinstance(record, dict):
+            return dict(record)
+        return None
+
+    def _operator_record_agent_async_execution_failure_from_log(self, detail: str) -> str:
+        query_record = self._operator_current_agent_execution_record_payload()
+        if query_record is None:
+            return ""
+        _result, clean_error = self._operator_record_agent_runtime_execution_failure(query_record, str(detail or "动作序列已终止"))
+        return str(clean_error or "")
+
     def _operator_toggle_compact(self) -> None:
         if not getattr(self, "_operator_compact", False):
             if not self.isFullScreen():
@@ -8664,10 +9372,18 @@ class OperatorUiMixin:
             return False
         if getattr(self, "_operator_streaming_chat_active", False):
             return True
+        if self._operator_text_requires_agent_route(text):
+            return False
         if not self._operator_text_looks_like_streaming_chat(text):
             return False
         self._operator_begin_streaming_chat_response()
         return True
+
+    @staticmethod
+    def _operator_text_requires_agent_route(text: str) -> bool:
+        from .agent_runtime.streaming_chat_gate import text_requires_agent_route
+
+        return text_requires_agent_route(text)
 
     def _operator_maybe_begin_agent_processing_response(self, text: str) -> bool:
         if getattr(self, "_operator_streaming_chat_active", False):
@@ -8992,6 +9708,8 @@ class OperatorUiMixin:
         self._operator_chat_autoscroll_pending = True
         self._operator_streaming_chat_render_pending = False
         self._render_operator_chat()
+        if clean_text and hasattr(self, "_archive_non_execution_result"):
+            self._archive_non_execution_result(result="streaming_chat", final_text=clean_text)
 
     def _operator_cancel_streaming_chat_response(self) -> None:
         if not getattr(self, "_operator_streaming_chat_active", False):
@@ -9124,6 +9842,9 @@ class OperatorUiMixin:
         if category == "自然语言" and action == "动作序列完成" and result == "成功":
             return self._operator_archive_execution_result(result="success", final_text=response_text, exec_duration_ms=exec_duration_ms, execution_detail=execution_detail)
         if category == "自然语言" and action == "动作序列终止":
+            runtime_error = self._operator_record_agent_async_execution_failure_from_log(str(entry.get("detail", "") or execution_detail))
+            if runtime_error and runtime_error not in str(response_text or ""):
+                response_text = f"{response_text}；{runtime_error}"
             return self._operator_archive_execution_result(result="failure", final_text=response_text, exec_duration_ms=exec_duration_ms, execution_detail=execution_detail)
         if category == "流程" and action.startswith("流程完成 ") and result == "成功":
             return self._operator_archive_execution_result(result="success", final_text=response_text, exec_duration_ms=exec_duration_ms, execution_detail=execution_detail)

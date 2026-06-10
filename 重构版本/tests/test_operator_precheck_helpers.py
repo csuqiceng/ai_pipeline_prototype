@@ -24,6 +24,7 @@ from robot_modbus_lite.response_builder import ResponseBuilder, ResponseMessage
 from robot_modbus_lite.service import RobotModbusService
 from robot_modbus_lite.speech_broadcast import CallableSpeechSink, Pyttsx3SpeechSink, WindowsSapiSpeechSink
 from robot_modbus_lite.system_config import AxisRangeConfig
+from robot_modbus_lite.agent_tools.tool_result import ToolResult
 from robot_modbus_lite.voice_nlp_adapter import VoiceNlpAction, VoiceNlpPlan
 
 
@@ -160,9 +161,10 @@ def test_operator_save_flow_draft_persists_positions_templates_and_flow(tmp_path
 
 def test_operator_pending_clarification_answer_updates_flow_draft(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
+    dummy.session_id = "flow-session"
     draft = flow_draft_payload()
     draft["expanded_steps"][0]["params"] = {"spd_pct": 50.0}
-    dummy._operator_pending_flow_draft = draft
+    dummy._operator_set_pending_flow_draft(draft)
     service = dummy._operator_execution_plan_service()
     service.set_pending_flow_draft(draft)
     service.pending_plan = service.pending_plan.transition_to(ExecutionPlanStatus.NEED_CLARIFICATION)
@@ -184,10 +186,44 @@ def test_operator_pending_clarification_answer_updates_flow_draft(tmp_path):
     assert handled is True
     updated = dummy._operator_pending_flow_draft
     params = updated["expanded_steps"][0]["params"]
+    runtime_params = dummy._operator_session_state().current_flow_draft["expanded_steps"][0]["params"]
     assert params["target_x"] == 900.0
     assert params["target_z"] == 1000.0
+    assert runtime_params["target_x"] == 900.0
+    assert runtime_params["target_z"] == 1000.0
     assert updated["needs_precheck"] is True
     assert service.current_clarification() is None
+
+
+def test_operator_pending_clarification_answer_archives_non_execution_result(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    draft = flow_draft_payload()
+    draft["expanded_steps"][0]["params"] = {"spd_pct": 50.0}
+    dummy._operator_set_pending_flow_draft(draft)
+    service = dummy._operator_execution_plan_service()
+    service.set_pending_flow_draft(draft)
+    service.pending_plan = service.pending_plan.transition_to(ExecutionPlanStatus.NEED_CLARIFICATION)
+    service.add_clarifications(
+        [
+            PendingClarification.new(
+                service.pending_plan.plan_id,
+                1,
+                "target_pose",
+                "目标坐标是多少？",
+                ("pose",),
+                now=10.0,
+            )
+        ]
+    )
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._operator_handle_pending_clarification_answer("900,0,1000,0,0,0")
+
+    assert handled is True
+    assert archived
+    assert archived[0][0] == "clarification_answer"
+    assert "当前流程草案已更新" in archived[0][1]
 
 
 def make_context_operator(tmp_path):
@@ -600,6 +636,34 @@ def test_operator_pending_flow_draft_coordinate_answer_updates_missing_position_
     assert "已补齐位置A参数" in dummy.chat_messages[-1][1]
 
 
+def test_operator_pending_flow_draft_coordinate_answer_archives_non_execution_result(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [
+            {
+                "step_id": 1,
+                "action": "move_position",
+                "func_id": 108,
+                "target_label": "B",
+                "description": "移动到位置B",
+                "params": {"spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0, "move_type": 0},
+            }
+        ],
+        "positions": [],
+        "needs_precheck": True,
+    }
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._operator_handle_pending_flow_draft_edit("位置B X475 Y0 Z545 RX0 RY0 RZ0，速度30%")
+
+    assert handled is True
+    assert archived
+    assert archived[0][0] == "flow_draft_edit"
+    assert "已补齐位置B参数" in archived[0][1]
+
+
 def test_operator_pending_flow_draft_appends_spoken_multi_step_with_inline_position(tmp_path):
     dummy = make_context_operator(tmp_path)
     dummy._operator_pending_flow_draft = {
@@ -954,6 +1018,18 @@ def test_operator_pending_flow_draft_confirm_save_uses_pending_draft(tmp_path):
     assert "已保存流程草案" in dummy.status_text
 
 
+def test_operator_pending_flow_draft_confirm_save_archives_non_execution_result(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._operator_handle_pending_flow_draft_command("确认保存")
+
+    assert handled is True
+    assert archived == [("flow_draft_saved", "已保存流程草案：打招呼。")]
+
+
 def test_operator_pending_flow_draft_save_and_execute_starts_saved_flow(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
     dummy._operator_pending_flow_draft = flow_draft_payload()
@@ -1047,6 +1123,20 @@ def test_operator_pending_flow_draft_query_previews_current_draft(tmp_path):
     assert logs[-1][1] == "流程草案查询"
 
 
+def test_operator_pending_flow_draft_query_archives_non_execution_result(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._operator_handle_pending_flow_draft_query("查看流程")
+
+    assert handled is True
+    assert archived
+    assert archived[0][0] == "flow_draft_query"
+    assert "当前待确认流程草案" in archived[0][1]
+
+
 def test_operator_pending_flow_status_text_summarizes_pending_draft():
     text = DummyOperator._operator_pending_flow_status_text(flow_draft_payload())
 
@@ -1073,6 +1163,13 @@ def test_operator_sidebars_use_ui_scale():
     assert left.maximumWidth() == 214
     assert right.minimumWidth() == 269
     assert right.maximumWidth() == 269
+    assert hasattr(dummy, "operator_memory_review_table")
+    assert hasattr(dummy, "operator_memory_review_detail")
+    assert hasattr(dummy, "operator_memory_status_filter")
+    assert hasattr(dummy, "operator_memory_kind_filter")
+    assert dummy.operator_memory_review_table.columnCount() == 7
+    assert dummy.operator_memory_status_filter.count() >= 4
+    assert dummy.operator_memory_kind_filter.count() >= 5
     app.processEvents()
 
 
@@ -1337,6 +1434,42 @@ def test_operator_context_query_answers_position_params_from_query_table():
     assert "ry=90" in answer
 
 
+def test_operator_context_query_answers_command_contains_position_from_query_table():
+    dummy = DummyOperator()
+    chats = []
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "move_type": 0,
+            },
+        )
+    }
+    dummy._position_registry = lambda: SimpleNamespace(list_all=lambda: [])
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("我的命令里面没有位置a吗")
+
+    assert handled is True
+    answer = chats[-1][1]
+    assert "位置 位置A 的参数" in answer
+    assert "x=1000" in answer
+    assert "z=800" in answer
+
+
 def test_operator_context_query_answers_current_device_status_locally():
     dummy = DummyOperator()
     chats = []
@@ -1446,6 +1579,43 @@ def test_operator_context_query_answers_registered_flow_information():
     assert "Func108" in answer
     assert "02  Func107  小臂上下点头" in answer
     assert "axis_no=10" in answer
+
+
+def test_operator_context_query_archives_registered_flow_information():
+    dummy = DummyOperator()
+    flow = FlowEntry(
+        name="测试",
+        description="",
+        steps=[
+            FlowStep(
+                step_id=1,
+                action="移动到位置B",
+                func_id=108,
+                params={"target_x": 475, "target_z": 545, "spd_pct": 20},
+            ),
+        ],
+        confirmed=True,
+    )
+    dummy.service = SimpleNamespace(
+        flow_registry=SimpleNamespace(list_all=lambda: [flow]),
+        get_flow_entry=lambda name: flow if name == "测试" else None,
+        flows={},
+    )
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._operator_publish_ai_answer_for_speech = lambda _text: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._operator_handle_context_query("查看下测试")
+
+    assert handled is True
+    assert archived
+    assert archived[0][0] == "context_query"
+    assert "流程 测试" in archived[0][1]
 
 
 def test_operator_context_query_prefers_pending_flow_draft_for_named_test_flow(tmp_path):
@@ -2898,6 +3068,368 @@ def test_operator_confirm_agent_draft_converts_to_atomic_plan_for_existing_execu
     assert converted.requires_confirmation is False
 
 
+def test_operator_confirm_agent_draft_uses_bridge_for_tool_chain_plan():
+    dummy = DummyOperator()
+    record = {
+        "query_key": "agent:draft1",
+        "func_num": 109,
+        "params": {"delay_sec": 2.0},
+        "description": "Agent confirmed draft",
+    }
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "agent_orchestrator", "等待2秒", "等待操作者确认。"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    confirmed = []
+    executed = []
+    status_messages = []
+    chats = []
+    logs = []
+
+    class Bridge:
+        def confirm_pending_plan(self, draft_id, *, thread_id):
+            confirmed.append((draft_id, thread_id))
+            from robot_modbus_lite.agent_tools.tool_result import ToolResult
+
+            return ToolResult.success(
+                state="confirmed",
+                message="确认已通过。",
+                data={"draft_id": draft_id, "query_record": record},
+            )
+
+        def clear_pending_confirm(self, *, thread_id):
+            return None
+
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_session_thread_id = lambda: "session-1"
+    dummy._restricted_agent_service = SimpleNamespace(confirm=lambda draft_id: (_ for _ in ()).throw(AssertionError("legacy confirm should not run")))
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = None
+    dummy._operator_last_motion_plan_result = None
+    dummy._operator_last_process_precheck_result = None
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._execute_nlp_plan = lambda converted_plan: executed.append(converted_plan)
+
+    dummy._operator_confirm_execute()
+
+    assert confirmed == [("draft1", "session-1")]
+    assert getattr(dummy, "_operator_pending_confirm_plan") is None
+    assert getattr(dummy, "execute_busy") is True
+    converted = executed[-1]
+    assert converted.actions[0].action_type == "atomic_template"
+    assert converted.actions[0].target == "agent:draft1"
+    assert converted.requires_confirmation is False
+
+
+def test_operator_confirm_agent_draft_records_runtime_failure_when_execution_raises():
+    dummy = DummyOperator()
+    record = {
+        "query_key": "agent:draft1",
+        "func_num": 109,
+        "params": {"delay_sec": 2.0},
+        "description": "Agent confirmed draft",
+    }
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "agent_orchestrator", "等待2秒", "等待操作者确认。"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    failures = []
+    archived = []
+    chats = []
+    logs = []
+
+    class Bridge:
+        def confirm_pending_plan(self, draft_id, *, thread_id):
+            return ToolResult.success(
+                state="confirmed",
+                message="确认已通过。",
+                data={"draft_id": draft_id, "query_record": record},
+            )
+
+        def record_execution_failure(self, *, thread_id, query_record, error):
+            failures.append((thread_id, query_record, error))
+            return ToolResult.failure(
+                state="execution_failed",
+                message=f"执行失败：{error}",
+                code="EXECUTION_FAILED",
+                data={"query_record": query_record},
+            )
+
+        def clear_pending_confirm(self, *, thread_id):
+            return None
+
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_session_thread_id = lambda: "session-1"
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = None
+    dummy._operator_last_motion_plan_result = None
+    dummy._operator_last_process_precheck_result = None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    def failing_execute(_converted_plan):
+        raise RuntimeError("modbus write failed")
+
+    dummy._execute_nlp_plan = failing_execute
+
+    dummy._operator_confirm_execute()
+
+    assert failures == [("session-1", record, "modbus write failed")]
+    assert getattr(dummy, "_operator_pending_confirm_plan") is None
+    assert getattr(dummy, "execute_busy") is False
+    assert "执行失败" in dummy.last_status
+    assert archived[-1]["result"] == "failure"
+    assert "modbus write failed" in archived[-1]["final_text"]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "Agent执行", "失败")
+
+
+def test_operator_confirm_agent_draft_survives_runtime_failure_record_exception():
+    dummy = DummyOperator()
+    record = {
+        "query_key": "agent:draft1",
+        "func_num": 109,
+        "params": {"delay_sec": 2.0},
+        "description": "Agent confirmed draft",
+    }
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "agent_orchestrator", "等待2秒", "等待操作者确认。"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    archived = []
+    chats = []
+    logs = []
+
+    class Bridge:
+        def confirm_pending_plan(self, draft_id, *, thread_id):
+            return ToolResult.success(
+                state="confirmed",
+                message="确认已通过。",
+                data={"draft_id": draft_id, "query_record": record},
+            )
+
+        def record_execution_failure(self, *, thread_id, query_record, error):
+            raise RuntimeError("runtime sqlite locked")
+
+        def clear_pending_confirm(self, *, thread_id):
+            return None
+
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_session_thread_id = lambda: "session-1"
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = None
+    dummy._operator_last_motion_plan_result = None
+    dummy._operator_last_process_precheck_result = None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    def failing_execute(_converted_plan):
+        raise RuntimeError("modbus write failed")
+
+    dummy._execute_nlp_plan = failing_execute
+
+    dummy._operator_confirm_execute()
+
+    assert getattr(dummy, "execute_busy") is False
+    assert "modbus write failed" in dummy.last_status
+    assert "runtime failure record failed: runtime sqlite locked" in dummy.last_status
+    assert archived[-1]["result"] == "failure"
+    assert "runtime failure record failed: runtime sqlite locked" in archived[-1]["final_text"]
+    assert chats[-1][2]["kind"] == "warn"
+    assert log_args(logs[-1])[0:3] == ("用户页面", "Agent执行", "失败")
+
+
+def test_operator_agent_async_execution_failure_log_records_runtime_failure():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="agent:draft1",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="Agent confirmed draft",
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent:draft1", "restricted_agent", "等待2秒", "已确认"),),
+        source="restricted_agent",
+        raw_text="等待2秒",
+        reason="Agent 草稿已确认，转入现有执行链路。",
+        requires_confirmation=False,
+        atomic_records={"agent:draft1": record},
+    )
+    failures = []
+    archived = []
+
+    class Bridge:
+        def record_execution_failure(self, *, thread_id, query_record, error):
+            failures.append((thread_id, query_record, error))
+            return ToolResult.failure(
+                state="execution_failed",
+                message=f"执行失败：{error}",
+                code="EXECUTION_FAILED",
+                data={"query_record": query_record},
+            )
+
+    dummy.session_id = "session-1"
+    dummy._nlp_current_plan = plan
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs) or True
+
+    entry = {
+        "category": "自然语言",
+        "action": "动作序列终止",
+        "result": "失败",
+        "detail": "停止于第 1 步",
+    }
+
+    handled = dummy._operator_archive_execution_from_log(entry, "执行失败：停止于第 1 步")
+
+    assert handled is True
+    assert failures == [
+        (
+            "session-1",
+            {
+                "query_key": "agent:draft1",
+                "func_num": 109,
+                "params": {"delay_sec": 2.0},
+                "keywords": "",
+                "description": "Agent confirmed draft",
+                "safety_level": 5,
+            },
+            "停止于第 1 步",
+        )
+    ]
+    assert archived[-1]["result"] == "failure"
+
+
+def test_operator_agent_async_execution_failure_log_mentions_runtime_record_exception():
+    dummy = DummyOperator()
+    record = QueryRecord(
+        query_key="agent:draft1",
+        func_num=109,
+        params={"delay_sec": 2.0},
+        description="Agent confirmed draft",
+    )
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "agent:draft1", "restricted_agent", "等待2秒", "已确认"),),
+        source="restricted_agent",
+        raw_text="等待2秒",
+        reason="Agent 草稿已确认，转入现有执行链路。",
+        requires_confirmation=False,
+        atomic_records={"agent:draft1": record},
+    )
+    archived = []
+
+    class Bridge:
+        def record_execution_failure(self, *, thread_id, query_record, error):
+            raise RuntimeError("runtime sqlite locked")
+
+    dummy.session_id = "session-1"
+    dummy._nlp_current_plan = plan
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs) or True
+
+    entry = {
+        "category": "自然语言",
+        "action": "动作序列终止",
+        "result": "失败",
+        "detail": "停止于第 1 步",
+    }
+
+    handled = dummy._operator_archive_execution_from_log(entry, "执行失败：停止于第 1 步")
+
+    assert handled is True
+    assert archived[-1]["result"] == "failure"
+    assert "runtime failure record failed: runtime sqlite locked" in archived[-1]["final_text"]
+
+
+def test_operator_confirm_agent_draft_blocks_when_execution_gate_rejects():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "agent_orchestrator", "等待2秒", "等待操作者确认。"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待操作者确认。",
+        semantic_level=3,
+        semantic_label="常规生产执行层",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    confirmed = []
+    executed = []
+    status_messages = []
+    chats = []
+    archived = []
+    logs = []
+
+    class Bridge:
+        def confirm_pending_plan(self, draft_id, *, thread_id):
+            confirmed.append((draft_id, thread_id))
+            return ToolResult.success(state="confirmed", message="不应确认。", data={})
+
+        def clear_pending_confirm(self, *, thread_id):
+            return None
+
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_session_thread_id = lambda: "session-1"
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_confirm_execution_gate_result = lambda _plan: ToolResult.failure(
+        state="permission_denied",
+        message="当前权限不允许执行该动作。",
+        code="PERMISSION_DENIED",
+    )
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy._execute_nlp_plan = executed.append
+
+    dummy._operator_confirm_execute()
+
+    assert confirmed == []
+    assert executed == []
+    assert status_messages[-1] == "执行门禁未通过，已拒绝执行。"
+    assert "当前权限不允许执行该动作" in chats[-1][1]
+    assert archived[-1]["result"] == "blocked"
+    assert log_args(logs[-1])[0:3] == ("执行门禁", "确认执行", "拒绝")
+
+
 def test_operator_restricted_agent_gate_is_conservative():
     dummy = DummyOperator()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
@@ -3120,6 +3652,93 @@ def test_operator_try_agent_orchestrator_returns_position_move_atomic_template()
     assert record.params["target_x"] == 350.0
     assert record.params["target_z"] == 500.0
     assert plan.requires_confirmation is True
+
+
+def test_operator_try_agent_orchestrator_prefers_query_table_position_template():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "acc_pct": 60.0,
+                "dec_pct": 60.0,
+                "move_type": 0,
+            },
+        )
+    }
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，移动到位置a")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "atomic_template"
+    assert plan.actions[0].target == "位置A"
+    assert "请明确位置a的坐标" not in plan.reason
+    record = plan.atomic_records[plan.actions[0].target]
+    assert record.params["target_x"] == 1000.0
+    assert record.params["target_z"] == 800.0
+    assert plan.requires_confirmation is True
+
+
+def test_operator_execute_nlp_text_uses_query_table_position_template():
+    dummy = DummyOperator()
+    executed = []
+    parsed = []
+    dummy.nlp_input_edit = SimpleNamespace(
+        toPlainText=lambda: "小正，移动到位置a",
+        setPlainText=lambda text: None,
+    )
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "acc_pct": 60.0,
+                "dec_pct": 60.0,
+                "move_type": 0,
+            },
+        )
+    }
+    dummy._operator_prepare_pending_flow_creation_followup_text = lambda text: text
+    dummy._handle_operator_ui_command = lambda text: False
+    dummy._operator_reject_new_action_while_busy = lambda text: False
+    dummy._operator_set_pending_confirm_plan = lambda plan: None
+    dummy._operator_maybe_begin_agent_processing_response = lambda text: False
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._set_nlp_result_plan = lambda plan: parsed.append(plan)
+    dummy._execute_nlp_plan = lambda plan: executed.append(plan)
+
+    dummy._execute_nlp_text()
+
+    assert parsed
+    assert executed == parsed
+    plan = executed[0]
+    assert plan.actions[0].action_type == "atomic_template"
+    assert plan.actions[0].target == "位置A"
+    assert "请明确位置a的坐标" not in plan.reason
+    assert plan.atomic_records["位置A"].params["target_x"] == 1000.0
 
 
 def test_operator_try_agent_orchestrator_returns_rest_pose_atomic_template():
@@ -3354,6 +3973,45 @@ def test_operator_try_agent_orchestrator_routes_joint_jog_to_agent_draft():
     assert plan.flow_draft["func_id"] == 106
 
 
+def test_operator_try_agent_orchestrator_uses_tool_chain_confirm_plan_for_single_command():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-1000, 1000),
+        y=(-1000, 1000),
+        z=(0, 1000),
+        safe_speed_max=50.0,
+        safe_acc_max=50.0,
+        safe_dec_max=50.0,
+        safe_r_min=0.0,
+        safe_r_max=1000.0,
+        safe_z_min=0.0,
+        safe_z_max=1000.0,
+        restricted_agent_enabled=True,
+    )
+    dummy.robot_x = "0.0"
+    dummy.robot_y = "0.0"
+    dummy.robot_z = "100.0"
+    dummy.robot_r = "0.0 / 0.0 / 0.0"
+    dummy._operator_restricted_agent_is_moving = lambda: False
+    dummy._operator_dashboard_snapshot_dict = lambda refresh=False: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 100.0, "z": 100.0}},
+    }
+    dummy._append_log = lambda *args: None
+
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，移动到 X 一百，Y 0，Z 100，速度 50")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "agent_draft"
+    assert plan.source == "agent_orchestrator"
+    assert plan.requires_confirmation is True
+    assert plan.flow_draft["agent_kind"] == "waiting_confirmation"
+    assert plan.flow_draft["params"]["target_x"] == 100.0
+    assert plan.flow_draft["precheck_result"]["valid"] is True
+
+
 def test_operator_try_agent_orchestrator_does_not_depend_on_old_whitelist_for_supported_actions():
     from robot_modbus_lite.agent.command_understanding import CommandUnderstandingResult
     from robot_modbus_lite.agent.service import RestrictedAgentResult
@@ -3380,7 +4038,7 @@ def test_operator_try_agent_orchestrator_does_not_depend_on_old_whitelist_for_su
     plan = dummy._operator_try_agent_orchestrator_plan("急停")
 
     assert plan is not None
-    assert service.calls == ["急停"]
+    assert service.calls == []
     assert plan.actions[0].action_type == "system"
     assert plan.actions[0].target == "sys_estop"
 
@@ -3499,7 +4157,7 @@ def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft()
     assert plan.flow_draft["safe_to_execute"] is False
 
 
-def test_operator_try_agent_orchestrator_compound_plans_each_step_with_restricted_service():
+def test_operator_try_agent_orchestrator_compound_plans_each_step_with_restricted_service(tmp_path):
     class FakeRestrictedService:
         def __init__(self):
             self.calls = []
@@ -3509,6 +4167,7 @@ def test_operator_try_agent_orchestrator_compound_plans_each_step_with_restricte
             return {"kind": "waiting_confirmation", "text": text}
 
     dummy = DummyOperator()
+    dummy.runtime_root = tmp_path
     service = FakeRestrictedService()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
     dummy._operator_restricted_agent_service = lambda: service
@@ -3870,6 +4529,7 @@ def test_operator_execute_nlp_plan_handles_agent_blocked_without_running_sequenc
     archived = []
     dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
     dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
     dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
     dummy._operator_publish_ai_answer_for_speech = lambda text: None
     dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
@@ -4393,8 +5053,51 @@ def test_operator_compound_step_success_advances_to_next_step(tmp_path):
     assert "等待2秒" in chats[-1][1]
 
 
+def test_operator_compound_step_success_records_runtime_event(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    dummy.session_id = "compound-session"
+    calls = []
+    dummy.status_label = SimpleNamespace(setText=lambda _text: None)
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+
+    class Bridge:
+        def record_compound_step_result(self, *, thread_id, ok, reason):
+            calls.append({"thread_id": thread_id, "ok": ok, "reason": reason})
+            return None
+
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._operator_pending_flow_draft = {
+        "agent_kind": "compound_plan_draft",
+        "plan_id": "compound:test",
+        "flow_name": "agent_compound_test",
+        "safe_to_execute": True,
+        "expanded_steps": [
+            {"step_id": 1, "action": "move_linear", "func_id": 108, "description": "走到X1000", "params": {"target_x": 1000.0}},
+            {"step_id": 2, "action": "delay_blocking", "func_id": 109, "description": "等待2秒", "params": {"delay_sec": 2.0}},
+        ],
+        "step_machine": {
+            "status": "step_confirmed",
+            "current_index": 0,
+            "current_step_text": "走到X1000",
+            "steps": [
+                {"index": 0, "text": "走到X1000", "status": "confirmed"},
+                {"index": 1, "text": "等待2秒", "status": "pending"},
+            ],
+        },
+    }
+
+    handled = dummy._operator_update_compound_step_result(ok=True, reason="第1步完成")
+
+    assert handled is True
+    assert calls == [{"thread_id": "compound-session", "ok": True, "reason": "第1步完成"}]
+
+
 def test_operator_compound_step_failure_stops_at_current_step(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
+    dummy.session_id = "compound-session"
     chats = []
     status_messages = []
     archived = []
@@ -4422,15 +5125,25 @@ def test_operator_compound_step_failure_stops_at_current_step(tmp_path):
             ],
         },
     }
+    state = dummy._operator_session_state()
+    dummy._operator_set_session_state(
+        state.with_compound_plan({"plan_id": "compound:test", "steps": ["走到X1000", "等待2秒"]}).with_pending_confirm(
+            {"plan_id": "compound:test:step1", "source": "compound_step"}
+        )
+    )
 
     handled = dummy._operator_update_compound_step_result(ok=False, reason="控制器报警")
 
     machine = dummy._operator_pending_flow_draft["step_machine"]
+    runtime_state = dummy._operator_session_state()
     assert handled is True
     assert machine["status"] == "failed"
     assert machine["current_index"] == 0
     assert machine["steps"][0]["status"] == "failed"
     assert machine["steps"][1]["status"] == "pending"
+    assert runtime_state.current_compound_plan == {}
+    assert runtime_state.pending_confirm == {}
+    assert runtime_state.mode == "editing_flow"
     assert "停止在第 1/2 步" in chats[-1][1]
     assert "控制器报警" in chats[-1][1]
     assert archived[-1]["result"] == "compound_step_failed"
@@ -4546,6 +5259,7 @@ def test_operator_compound_step_result_log_updates_step_machine(tmp_path):
 
 def test_operator_cancel_compound_step_confirmation_clears_compound_plan(tmp_path):
     dummy = make_flow_draft_operator(tmp_path)
+    dummy.session_id = "compound-session"
     chats = []
     status_messages = []
     archived = []
@@ -4563,11 +5277,21 @@ def test_operator_cancel_compound_step_confirmation_clears_compound_plan(tmp_pat
         requires_confirmation=True,
         flow_draft={"agent_kind": "compound_step_confirmation", "compound_step_index": 0},
     )
+    state = dummy._operator_session_state()
+    dummy._operator_set_session_state(
+        state.with_compound_plan({"plan_id": "compound:test", "steps": ["走到X1000"]}).with_pending_confirm(
+            {"plan_id": "compound:test:step1", "source": "compound_step"}
+        )
+    )
 
     dummy._operator_cancel_confirm()
 
+    runtime_state = dummy._operator_session_state()
     assert dummy._operator_pending_flow_draft is None
     assert dummy._operator_pending_confirm_plan is None
+    assert runtime_state.current_compound_plan == {}
+    assert runtime_state.pending_confirm == {}
+    assert runtime_state.mode == "idle"
     assert "已取消复合指令" in chats[-1][1]
     assert archived[-1]["result"] == "compound_cancelled"
 
@@ -5036,6 +5760,25 @@ def test_operator_streaming_chat_begins_with_thinking_hint():
     assert dummy._operator_chat_thinking_meta[-1]["active"] is True
 
 
+def test_operator_streaming_chat_completion_archives_non_execution_result(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+    dummy._operator_archive_text_input("你好")
+
+    dummy._operator_begin_streaming_chat_response()
+    dummy._operator_complete_streaming_chat_response("你好，我可以解释系统状态。")
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert payload["execution"]["result"] == "skipped"
+    assert payload["execution"]["non_execution_result"] == "streaming_chat"
+    assert payload["response"]["final"] == "你好，我可以解释系统状态。"
+
+
 def test_operator_maybe_begin_streaming_chat_starts_immediately_for_deepseek_chat():
     dummy = DummyOperator()
     dummy._operator_chat_messages = []
@@ -5047,6 +5790,582 @@ def test_operator_maybe_begin_streaming_chat_starts_immediately_for_deepseek_cha
     assert started is True
     assert dummy._operator_chat_messages == [("assistant", "")]
     assert dummy._operator_chat_thinking_meta[-1]["active"] is True
+
+
+def test_operator_maybe_begin_streaming_chat_rejects_control_intent():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    started = dummy._operator_maybe_begin_streaming_chat_for_text("小正，走到 X100", use_deepseek=True)
+
+    assert started is False
+    assert getattr(dummy, "_operator_streaming_chat_active", False) is False
+    assert dummy._operator_chat_messages == []
+
+
+def test_operator_maybe_begin_streaming_chat_rejects_flow_and_confirm_intents():
+    dummy = DummyOperator()
+    dummy._operator_chat_messages = []
+    dummy._render_operator_chat = lambda: None
+    dummy._operator_scroll_chat_to_bottom = lambda: None
+
+    for text in ("创建流程", "添加步骤移动到位置A", "确认执行", "保存流程"):
+        started = dummy._operator_maybe_begin_streaming_chat_for_text(text, use_deepseek=True)
+
+        assert started is False
+        assert getattr(dummy, "_operator_streaming_chat_active", False) is False
+        assert dummy._operator_chat_messages == []
+
+
+def test_operator_agent_orchestrator_is_reused_per_ui_session(monkeypatch):
+    created = []
+
+    class CountingOrchestrator:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    monkeypatch.setattr("robot_modbus_lite.agent.orchestrator.AgentOrchestrator", CountingOrchestrator)
+
+    dummy = DummyOperator()
+    dummy._append_log = lambda *args, **kwargs: None
+
+    first = dummy._operator_agent_orchestrator()
+    second = dummy._operator_agent_orchestrator()
+
+    assert first is second
+    assert len(created) == 1
+
+
+def test_operator_tool_calling_runtime_has_memory_backed_registry(tmp_path):
+    dummy = DummyOperator()
+    dummy.runtime_root = tmp_path
+
+    runtime = dummy._operator_tool_calling_agent_runtime()
+
+    assert runtime.tool_registry.memory_store is dummy._operator_agent_memory_store()
+    assert "lookup_active_memory" in runtime.tool_registry.tool_names
+
+
+def test_operator_agent_runtime_bridge_uses_deepseek_tool_decider_when_enabled(tmp_path):
+    class FakeDeepSeekClient:
+        def parse_json(self, prompt, **_kwargs):
+            assert "available_tools" in prompt
+            return {"tool_name": "explain_text", "args": {"text": "你好"}}
+
+    dummy = DummyOperator()
+    dummy.runtime_root = tmp_path
+    dummy._deepseek_client = FakeDeepSeekClient()
+    dummy.nlp_use_deepseek_check = SimpleNamespace(isChecked=lambda: True)
+
+    result = dummy._operator_agent_runtime_bridge().handle_text(
+        "移动到 X100",
+        thread_id="operator-ui",
+        legacy_fallback=lambda _text: VoiceNlpPlan(),
+    )
+
+    assert result.kind == "chat_answer"
+    assert result.payload["tool_name"] == "explain_text"
+
+
+def test_operator_agent_runtime_bridge_cache_key_tracks_deepseek_client(tmp_path):
+    dummy = DummyOperator()
+    dummy.runtime_root = tmp_path
+    dummy.nlp_use_deepseek_check = SimpleNamespace(isChecked=lambda: True)
+    dummy._deepseek_client = object()
+
+    first = dummy._operator_agent_runtime_bridge()
+    dummy._deepseek_client = object()
+    second = dummy._operator_agent_runtime_bridge()
+
+    assert second is not first
+
+
+def test_operator_try_agent_runtime_precedes_legacy_orchestrator(monkeypatch):
+    from robot_modbus_lite.agent.orchestrator import AgentOrchestratorResult
+
+    class FakeRuntime:
+        def handle(self, text, *, session_state):
+            assert text == "你好"
+            assert session_state.thread_id == "operator-ui"
+            return AgentOrchestratorResult(kind="chat_answer", message="runtime answer")
+
+    def fail_legacy(*args, **kwargs):
+        raise AssertionError("legacy orchestrator should not be constructed")
+
+    monkeypatch.setattr("robot_modbus_lite.agent.orchestrator.AgentOrchestrator", fail_legacy)
+
+    dummy = DummyOperator()
+    dummy._operator_tool_calling_agent_runtime = lambda: FakeRuntime()
+
+    plan = dummy._operator_try_agent_orchestrator_plan("你好")
+
+    assert plan.source == "agent_orchestrator"
+    assert plan.reason == "runtime answer"
+
+
+def test_operator_try_agent_runtime_falls_back_when_unavailable(monkeypatch):
+    from robot_modbus_lite.agent.orchestrator import AgentOrchestratorResult
+
+    class FakeRuntime:
+        def handle(self, text, *, session_state):
+            return AgentOrchestratorResult(
+                kind="tool_calling_unavailable",
+                message="LangChain 不可用。",
+                payload={"fallback_required": True},
+            )
+
+    class FakeLegacyOrchestrator:
+        def __init__(self, **kwargs):
+            pass
+
+        def handle(self, text):
+            return AgentOrchestratorResult(kind="chat_answer", message="legacy answer")
+
+    monkeypatch.setattr("robot_modbus_lite.agent.orchestrator.AgentOrchestrator", FakeLegacyOrchestrator)
+
+    dummy = DummyOperator()
+    dummy._operator_tool_calling_agent_runtime = lambda: FakeRuntime()
+
+    plan = dummy._operator_try_agent_orchestrator_plan("你好")
+
+    assert plan.source == "agent_orchestrator"
+    assert plan.reason == "legacy answer"
+
+
+def test_operator_try_agent_applies_active_memory_before_legacy_orchestrator(tmp_path):
+    from robot_modbus_lite.agent.orchestrator import AgentOrchestratorResult
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    candidate = store.create_candidate(
+        kind="asr_alias",
+        key="位置诶",
+        value={"normalized": "位置A"},
+        source="vote",
+    )
+    store.approve_memory(candidate["memory_id"], reviewer="engineer")
+    seen = []
+
+    class FakeRuntime:
+        def handle(self, text, *, session_state):
+            return AgentOrchestratorResult(
+                kind="tool_calling_unavailable",
+                message="LangChain 不可用。",
+                payload={"fallback_required": True},
+            )
+
+    class FakeLegacy:
+        def handle(self, text):
+            seen.append(text)
+            return AgentOrchestratorResult(kind="chat_answer", message="legacy answer")
+
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._operator_agent_memory_store = lambda: store
+    dummy._operator_tool_calling_agent_runtime = lambda: FakeRuntime()
+    dummy._operator_agent_orchestrator = lambda: FakeLegacy()
+
+    plan = dummy._operator_try_agent_orchestrator_plan("移动到位置诶")
+
+    state = dummy._operator_session_state()
+    assert plan.reason == "legacy answer"
+    assert seen == ["移动到位置A"]
+    assert state.last_user_text == "移动到位置诶"
+    assert state.last_normalized_text == "移动到位置A"
+    assert state.applied_memories[0]["memory_id"] == candidate["memory_id"]
+    assert store.list_audit_events(memory_id=candidate["memory_id"])[-1]["event"] == "memory_applied"
+
+
+def test_operator_record_feedback_vote_writes_sqlite_memory_store(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+    dummy._operator_current_interaction_record_id = "record-1"
+
+    result = dummy._operator_record_feedback_vote(vote="down", note="坐标没有按我说的")
+
+    votes = store.list_feedback_votes(interaction_id="record-1")
+    assert result.ok is True
+    assert result.state == "feedback_vote_recorded"
+    assert votes[0]["vote"] == "down"
+    assert votes[0]["note"] == "坐标没有按我说的"
+
+
+def test_operator_record_feedback_vote_uses_last_archived_interaction_id(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_agent_memory_store = lambda: store
+    record = dummy._operator_archive_text_input("你好")
+
+    result = dummy._operator_record_feedback_vote(vote="down", note="回答没用")
+
+    votes = store.list_feedback_votes(interaction_id=record["msg_id"])
+    assert result.ok is True
+    assert result.state == "feedback_vote_recorded"
+    assert votes[0]["target_id"] == record["msg_id"]
+    assert votes[0]["vote"] == "down"
+
+
+def test_operator_record_feedback_vote_without_interaction_id_fails(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+
+    result = dummy._operator_record_feedback_vote(vote="up")
+
+    assert result.ok is False
+    assert result.state == "feedback_vote_missing_target"
+    assert store.list_feedback_votes() == []
+
+
+def test_operator_learn_memory_candidates_from_feedback_creates_candidates(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    store.record_feedback_vote(
+        interaction_id="record-1",
+        target_type="interaction",
+        target_id="record-1",
+        vote="down",
+        note="把 位置诶 识别为 位置A",
+    )
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+
+    result = dummy._operator_learn_memory_candidates_from_feedback()
+
+    assert result.ok is True
+    assert result.state == "memory_candidates_learned"
+    assert result.data["created_count"] == 1
+    assert store.list_memories(status="candidate", kind="asr_alias")[0]["key"] == "位置诶"
+
+
+def test_operator_learn_memory_candidates_from_feedback_skips_forbidden_candidates(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    store.record_feedback_vote(
+        interaction_id="record-1",
+        target_type="interaction",
+        target_id="record-1",
+        vote="down",
+        note="跳过确认=低风险命令直接执行",
+    )
+    store.record_feedback_vote(
+        interaction_id="record-2",
+        target_type="interaction",
+        target_id="record-2",
+        vote="down",
+        note="夫位=复位",
+    )
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+
+    result = dummy._operator_learn_memory_candidates_from_feedback()
+
+    assert result.ok is True
+    assert result.state == "memory_candidates_learned"
+    assert result.data["created_count"] == 1
+    assert result.data["skipped_count"] == 1
+    candidates = store.list_memories(status="candidate", kind="asr_alias")
+    assert len(candidates) == 1
+    assert candidates[0]["key"] == "夫位"
+
+
+def test_operator_memory_review_command_lists_pending_candidates(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    candidate = store.create_candidate(
+        kind="asr_alias",
+        key="位置诶",
+        value={"normalized": "位置A"},
+        source="vote",
+    )
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    chats = []
+    logs = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("查看待审核经验")
+
+    assert handled is True
+    assert candidate["memory_id"] in dummy.last_status
+    assert "位置诶" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "经验审核", "成功")
+
+
+def test_operator_memory_review_command_approves_and_rolls_back_memory(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    candidate = store.create_candidate(
+        kind="asr_alias",
+        key="位置诶",
+        value={"normalized": "位置A"},
+        source="vote",
+    )
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    chats = []
+    logs = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    approved = dummy._handle_operator_ui_command(f"批准经验 {candidate['memory_id']}")
+    rolled_back = dummy._handle_operator_ui_command(f"回滚经验 {candidate['memory_id']}")
+
+    assert approved is True
+    assert rolled_back is True
+    assert store.list_memories(status="active") == []
+    assert store.list_memories(status="rolled_back")[0]["memory_id"] == candidate["memory_id"]
+    assert "已回滚" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "经验回滚", "成功")
+
+
+def test_operator_memory_review_command_lists_active_memories(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    active = store.create_candidate(
+        kind="asr_alias",
+        key="位置诶",
+        value={"normalized": "位置A"},
+        source="vote",
+    )
+    candidate = store.create_candidate(
+        kind="asr_alias",
+        key="位置比",
+        value={"normalized": "位置B"},
+        source="vote",
+    )
+    store.approve_memory(active["memory_id"], reviewer="engineer")
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    chats = []
+    logs = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("查看生效经验")
+
+    assert handled is True
+    assert active["memory_id"] in dummy.last_status
+    assert candidate["memory_id"] not in dummy.last_status
+    assert "active" in chats[-1][1]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "经验审核", "成功")
+
+
+def test_operator_memory_review_command_batch_approves_candidates(tmp_path):
+    from robot_modbus_lite.agent_runtime.memory_store import AgentMemoryStore
+
+    store = AgentMemoryStore(tmp_path / "agent_memory.sqlite3")
+    first = store.create_candidate(kind="asr_alias", key="位置诶", value={"normalized": "位置A"}, source="vote")
+    second = store.create_candidate(kind="asr_alias", key="位置比", value={"normalized": "位置B"}, source="vote")
+    dummy = DummyOperator()
+    dummy._operator_agent_memory_store = lambda: store
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    chats = []
+    logs = []
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._handle_operator_ui_command("批准全部待审核经验")
+
+    assert handled is True
+    active_ids = {item["memory_id"] for item in store.list_memories(status="active")}
+    assert active_ids == {first["memory_id"], second["memory_id"]}
+    assert "已批准 2 条候选经验" in dummy.last_status
+    assert log_args(logs[-1])[0:3] == ("用户页面", "经验批量审核", "成功")
+
+
+def test_operator_memory_review_presenter_updates_optional_table_detail_and_filters():
+    class FakeTable:
+        def __init__(self):
+            self.row_count = 0
+            self.column_count = 0
+            self.headers = []
+            self.items = {}
+
+        def setRowCount(self, count):
+            self.row_count = count
+
+        def setColumnCount(self, count):
+            self.column_count = count
+
+        def setHorizontalHeaderLabels(self, labels):
+            self.headers = list(labels)
+
+        def setItem(self, row, column, item):
+            self.items[(row, column)] = item.text() if hasattr(item, "text") else str(item)
+
+    class FakeText:
+        def __init__(self):
+            self.text = ""
+
+        def setPlainText(self, text):
+            self.text = text
+
+    class FakeCombo:
+        def __init__(self):
+            self.items = []
+
+        def clear(self):
+            self.items.clear()
+
+        def addItems(self, items):
+            self.items.extend(list(items))
+
+    dummy = DummyOperator()
+    dummy.operator_memory_review_table = FakeTable()
+    dummy.operator_memory_review_detail = FakeText()
+    dummy.operator_memory_status_filter = FakeCombo()
+    dummy.operator_memory_kind_filter = FakeCombo()
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda *args, **kwargs: None
+    result = ToolResult.success(
+        state="memory_review_listed",
+        message="找到 1 条经验记录。",
+        data={
+            "memories": [
+                {
+                    "memory_id": "mem_1",
+                    "kind": "asr_alias",
+                    "key": "位置诶",
+                    "value": {"normalized": "位置A"},
+                    "status": "active",
+                    "audit_events": [{"event": "memory_approved", "created_at": "2026-06-01"}],
+                }
+            ]
+        },
+    )
+
+    dummy._operator_present_memory_tool_result(result, category="经验审核")
+
+    assert dummy.operator_memory_review_table.row_count == 1
+    assert dummy.operator_memory_review_table.headers == ["ID", "类型", "键", "值", "状态", "来源", "审计"]
+    assert dummy.operator_memory_review_table.items[(0, 0)] == "mem_1"
+    assert dummy.operator_memory_review_table.items[(0, 1)] == "asr_alias"
+    assert "memory_approved" in dummy.operator_memory_review_detail.text
+    assert "active" in dummy.operator_memory_status_filter.items
+    assert "asr_alias" in dummy.operator_memory_kind_filter.items
+
+
+def test_operator_memory_review_filters_trigger_query_and_present_result():
+    class FakeCombo:
+        def __init__(self, text):
+            self._text = text
+
+        def currentText(self):
+            return self._text
+
+    calls = []
+    presented = []
+    dummy = DummyOperator()
+    dummy.operator_memory_status_filter = FakeCombo("active")
+    dummy.operator_memory_kind_filter = FakeCombo("asr_alias")
+    dummy._operator_call_memory_tool = lambda tool_name, **kwargs: calls.append((tool_name, kwargs)) or ToolResult.success(
+        state="memory_review_listed",
+        message="找到 0 条经验记录。",
+        data={"memories": []},
+    )
+    dummy._operator_present_memory_tool_result = lambda result, *, category: presented.append((result.state, category))
+
+    dummy._operator_refresh_memory_review_from_filters()
+
+    assert calls == [("query_memory_review", {"status": "active", "kind": "asr_alias", "include_audit": True})]
+    assert presented == [("memory_review_listed", "经验审核")]
+
+
+def test_operator_memory_review_row_selection_updates_detail_text():
+    dummy = DummyOperator()
+    result = ToolResult.success(
+        state="memory_review_listed",
+        message="找到 2 条经验记录。",
+        data={
+            "memories": [
+                {"memory_id": "mem_1", "kind": "asr_alias", "key": "位置诶", "value": {"normalized": "位置A"}, "status": "active"},
+                {
+                    "memory_id": "mem_2",
+                    "kind": "flow_preference",
+                    "key": "推荐流程",
+                    "value": {"prefer": "先移动"},
+                    "status": "candidate",
+                    "audit_events": [{"event": "candidate_created", "created_at": "2026-06-02"}],
+                },
+            ]
+        },
+    )
+    dummy._operator_update_memory_review_view(result)
+    captured = []
+    dummy.operator_memory_review_detail = SimpleNamespace(setPlainText=lambda text: captured.append(text))
+
+    dummy._operator_on_memory_review_row_selected(1, 0, 0, 0)
+
+    assert "mem_2" in captured[-1]
+    assert "推荐流程" in captured[-1]
+    assert "candidate_created" in captured[-1]
+
+
+def test_operator_memory_review_selected_row_actions_call_tools_and_refresh():
+    dummy = DummyOperator()
+    result = ToolResult.success(
+        state="memory_review_listed",
+        message="找到 2 条经验记录。",
+        data={
+            "memories": [
+                {"memory_id": "mem_1", "kind": "asr_alias", "key": "位置诶", "value": {"normalized": "位置A"}, "status": "active"},
+                {"memory_id": "mem_2", "kind": "asr_alias", "key": "位置比", "value": {"normalized": "位置B"}, "status": "candidate"},
+            ]
+        },
+    )
+    dummy._operator_update_memory_review_view(result)
+    calls = []
+    presented = []
+    dummy._operator_selected_memory_review_row = 1
+    dummy._operator_call_memory_tool = lambda tool_name, **kwargs: calls.append((tool_name, kwargs)) or ToolResult.success(
+        state=f"{tool_name}_ok",
+        message="ok",
+        data={"memory": {"memory_id": kwargs["memory_id"], "status": "changed"}},
+    )
+    dummy._operator_present_memory_tool_result = lambda result, *, category: presented.append((result.state, category))
+
+    dummy._operator_approve_selected_memory()
+    dummy._operator_disable_selected_memory()
+    dummy._operator_rollback_selected_memory()
+
+    assert calls == [
+        ("approve_memory_candidate", {"memory_id": "mem_2", "reviewer": "operator-ui"}),
+        ("disable_memory", {"memory_id": "mem_2", "reviewer": "operator-ui", "reason": "operator panel"}),
+        ("rollback_memory", {"memory_id": "mem_2", "reviewer": "operator-ui", "reason": "operator panel"}),
+    ]
+    assert presented == [
+        ("approve_memory_candidate_ok", "经验审核"),
+        ("disable_memory_ok", "经验停用"),
+        ("rollback_memory_ok", "经验回滚"),
+    ]
 
 
 def test_operator_execute_text_shows_agent_processing_hint_before_sync_parse():
@@ -7848,6 +9167,63 @@ def test_operator_current_pose_tuple_reads_runtime_pose_fields():
     assert dummy._operator_current_pose_tuple() == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
 
 
+def test_operator_controller_snapshot_provider_reuses_current_pose_and_safety_defaults():
+    dummy = DummyOperator()
+    dummy.robot_x = "1.0"
+    dummy.robot_y = "2.0"
+    dummy.robot_z = "3.0"
+    dummy.robot_r = "4.0 / 5.0 / 6.0"
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-1, 1),
+        y=(-1, 1),
+        z=(0, 1),
+        safe_speed_max=45.0,
+        safe_acc_max=35.0,
+        safe_dec_max=25.0,
+    )
+    dummy._operator_restricted_agent_is_moving = lambda: False
+
+    snapshot = dummy._operator_controller_snapshot_provider()
+
+    assert snapshot.current_pose == {
+        "target_x": 1.0,
+        "target_y": 2.0,
+        "target_z": 3.0,
+        "target_rx": 4.0,
+        "target_ry": 5.0,
+        "target_rz": 6.0,
+    }
+    assert snapshot.safety_params == {"spd_pct": 45.0, "acc_pct": 35.0, "dec_pct": 25.0}
+    assert snapshot.is_moving is False
+    assert snapshot.read_ok is True
+
+
+def test_operator_agent_runtime_bridge_receives_safety_precheck_dependencies():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy._append_log = lambda *args: None
+
+    bridge = dummy._operator_agent_runtime_bridge()
+
+    assert bridge.safety_review_agent_provider == dummy._operator_safety_review_agent
+    assert bridge.runtime_snapshot_provider() == dummy._operator_dashboard_snapshot_dict(refresh=True)
+    assert bridge.start_pose_provider == dummy._operator_current_pose_tuple
+
+
+def test_operator_agent_runtime_bridge_receives_confirmation_dependencies_from_restricted_service():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1))
+    dummy._append_log = lambda *args: None
+
+    bridge = dummy._operator_agent_runtime_bridge()
+    service = dummy._operator_restricted_agent_service()
+
+    assert bridge.confirmation_agent_provider() is service.confirmation_agent
+    assert bridge.clock == dummy._operator_now_seconds
+    assert bridge.status_signature_provider == dummy._operator_restricted_agent_status_signature
+    assert bridge.safety_signature_provider == dummy._operator_restricted_agent_safety_signature
+
+
 def test_operator_confirm_execute_blocks_failed_l2_motion_plan():
     dummy = DummyOperator()
     plan = VoiceNlpPlan(
@@ -7880,6 +9256,44 @@ def test_operator_confirm_execute_blocks_failed_l2_motion_plan():
     assert status_messages[-1] == "L2运动规划预演未通过，已拒绝执行。"
     assert "插值点 J4=0.0 接近奇异阈值" in chat_messages[-1][1]
     assert log_args(logs[-1])[0:3] == ("运动预演", "确认执行", "拒绝")
+
+
+def test_operator_confirm_execute_fails_closed_when_l2_precheck_raises():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+    )
+    status_messages = []
+    chats = []
+    archived = []
+    logs = []
+    executed = []
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "pass", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_l2_should_block = lambda _motion_plan: (_ for _ in ()).throw(RuntimeError("planner crashed"))
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy._execute_nlp_plan = executed.append
+
+    dummy._operator_confirm_execute()
+
+    assert executed == []
+    assert status_messages[-1] == "执行门禁异常，已拒绝执行。"
+    assert "planner crashed" in chats[-1][1]
+    assert archived[-1]["result"] == "blocked"
+    assert log_args(logs[-1])[0:3] == ("执行门禁", "L2运动预演异常", "拒绝")
 
 
 def test_operator_confirm_execute_blocks_failed_l3_process_precheck():
@@ -7950,6 +9364,177 @@ def test_operator_confirm_execute_runs_confirmed_flow_without_reconfirming():
     assert run_calls[0][0].target == "点头"
     assert "确认收到" in status_messages[-1]
     assert not any(log_args(entry)[0:3] == ("用户页面", "等待确认", "提示") for entry in logs)
+
+
+def test_operator_confirm_execute_archives_failure_when_confirmed_flow_execution_raises():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "点头", "rule", "小兵，执行点头流程", "命中流程规则"),),
+        source="rule",
+        raw_text="小兵，执行点头流程",
+        reason="命中流程规则",
+        requires_confirmation=True,
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    archived = []
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "unavailable", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+
+    def failing_execute(_confirmed_plan):
+        raise RuntimeError("controller write timeout")
+
+    dummy._execute_nlp_plan = failing_execute
+
+    dummy._operator_confirm_execute()
+
+    assert getattr(dummy, "_operator_pending_confirm_plan") is None
+    assert getattr(dummy, "execute_busy") is False
+    assert "执行失败" in status_messages[-1]
+    assert "controller write timeout" in status_messages[-1]
+    assert chats[-1][2]["kind"] == "warn"
+    assert archived[-1]["result"] == "failure"
+    assert "controller write timeout" in archived[-1]["final_text"]
+    assert log_args(logs[-1])[0:3] == ("用户页面", "确认执行", "失败")
+
+
+def test_operator_confirmed_plan_execution_failure_records_runtime_state():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "点头", "rule", "小兵，执行点头流程", "命中流程规则"),),
+        source="rule",
+        raw_text="小兵，执行点头流程",
+        reason="命中流程规则",
+        requires_confirmation=False,
+    )
+    calls = []
+
+    class Bridge:
+        def record_execution_failure(self, *, thread_id, query_record, error):
+            calls.append((thread_id, query_record, error))
+            return ToolResult.failure(
+                state="execution_failed",
+                message=f"执行失败：{error}",
+                code="EXECUTION_FAILED",
+                data={"query_record": query_record, "error": error},
+            )
+
+    dummy.session_id = "ui-session-1"
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "last_status", text))
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._operator_record_confirmed_plan_execution_failure(plan, RuntimeError("controller write timeout"))
+
+    assert calls
+    assert calls[0][0] == "ui-session-1"
+    assert calls[0][1]["action_type"] == "flow"
+    assert calls[0][1]["target"] == "点头"
+    assert calls[0][2] == "controller write timeout"
+
+
+def test_operator_confirm_execute_blocks_when_execution_gate_rejects():
+    from robot_modbus_lite.agent_tools.tool_result import ToolResult
+
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("flow", "点头", "rule", "小兵，执行点头流程", "命中流程规则"),),
+        source="rule",
+        raw_text="小兵，执行点头流程",
+        reason="命中流程规则",
+        requires_confirmation=True,
+    )
+    status_messages = []
+    chats = []
+    logs = []
+    archived = []
+    executed = []
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 999999999.0
+    dummy._operator_now_seconds = lambda: 100.0
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "unavailable", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._set_nlp_execute_busy = lambda busy: setattr(dummy, "execute_busy", busy)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._append_log = lambda *args, **kwargs: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
+    dummy._execute_nlp_plan = executed.append
+    dummy._operator_confirm_execution_gate_result = lambda _plan: ToolResult.failure(
+        state="permission_denied",
+        message="当前权限不允许执行该动作。",
+        code="PERMISSION_DENIED",
+    )
+
+    dummy._operator_confirm_execute()
+
+    assert executed == []
+    assert status_messages[-1] == "执行门禁未通过，已拒绝执行。"
+    assert "当前权限不允许执行该动作" in chats[-1][1]
+    assert archived[-1]["result"] == "blocked"
+    assert log_args(logs[-1])[0:3] == ("执行门禁", "确认执行", "拒绝")
+
+
+def test_operator_confirm_execution_gate_reflects_latest_precheck_failure():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+    )
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_last_precheck_result = {"status": "fail", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "pass", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+
+    result = dummy._operator_confirm_execution_gate_result(plan)
+
+    assert result.ok is False
+    assert result.state == "bounds_failed"
+    assert result.errors[0]["code"] == "PARAM_BOUNDS_FAILED"
+
+
+def test_operator_confirm_execution_gate_fails_closed_when_internal_check_raises():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft1", "agent_orchestrator", "等待2秒", "等待确认"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待确认",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft1"},
+    )
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {"status": "pass", "items": []}
+    dummy._operator_last_process_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_l2_should_block = lambda _motion_plan: (_ for _ in ()).throw(RuntimeError("l2 unavailable"))
+
+    result = dummy._operator_confirm_execution_gate_result(plan)
+
+    assert result.ok is False
+    assert result.state == "execution_gate_failed"
+    assert result.errors[0]["code"] == "EXECUTION_GATE_FAILED"
+    assert "l2 unavailable" in result.message
 
 
 def test_operator_l3_summary_mentions_flow_midpoint_suggestion():
@@ -8089,6 +9674,51 @@ def test_operator_cancel_confirm_archives_cancelled_pending_plan():
     assert dummy._operator_scene_override is None
     assert status_messages[-1] == "已取消待确认的执行计划。"
     assert chat_messages[-1] == ("assistant", "已取消待确认的执行计划。")
+    assert archived[-1] == {"result": "cancelled", "final_text": "已取消待确认的执行计划。"}
+    assert log_args(logs[-1])[0:3] == ("用户页面", "取消确认", "成功")
+
+
+def test_operator_cancel_confirm_cancels_tool_chain_agent_draft():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("agent_draft", "draft-1", "agent_orchestrator", "等待2秒", "等待确认"),),
+        source="agent_orchestrator",
+        raw_text="等待2秒",
+        reason="等待确认",
+        requires_confirmation=True,
+        flow_draft={"agent_kind": "waiting_confirmation", "draft_id": "draft-1"},
+    )
+    calls = []
+
+    class Bridge:
+        def cancel_pending_plan(self, draft_id, *, thread_id):
+            calls.append(("cancel", draft_id, thread_id))
+            return ToolResult.success(state="cancelled", message="已取消。")
+
+        def clear_pending_confirm(self, *, thread_id):
+            calls.append(("clear", thread_id))
+
+    status_messages = []
+    chat_messages = []
+    logs = []
+    archived = []
+    dummy.session_id = "ui-session-1"
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_pending_confirm_deadline_sec = 30.0
+    dummy._operator_scene_override = "confirm"
+    dummy._operator_agent_runtime_bridge = lambda: Bridge()
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+    dummy._append_log = lambda *args: logs.append(args)
+    dummy._operator_archive_execution_result = lambda **kwargs: archived.append(kwargs)
+    dummy._refresh_operator_view = lambda: None
+
+    dummy._operator_cancel_confirm()
+
+    assert calls[0] == ("cancel", "draft-1", "ui-session-1")
+    assert calls[1] == ("clear", "ui-session-1")
+    assert dummy._operator_pending_confirm_plan is None
+    assert status_messages[-1] == "已取消待确认的执行计划。"
     assert archived[-1] == {"result": "cancelled", "final_text": "已取消待确认的执行计划。"}
     assert log_args(logs[-1])[0:3] == ("用户页面", "取消确认", "成功")
 
@@ -9427,6 +11057,7 @@ def test_operator_archive_text_input_writes_interaction_record(tmp_path: Path):
     assert record["msg_type"] == "interaction_record"
     assert record["session_id"] == "session-1"
     assert record["input"]["raw_text"] == "移动到安全点"
+    assert record["input"]["normalized_text"] == "移动到安全点"
     assert record["input"]["scene_state"] == {
         "current": "confirm",
         "previous": "precheck",
@@ -9437,6 +11068,30 @@ def test_operator_archive_text_input_writes_interaction_record(tmp_path: Path):
     dialog_files = list((tmp_path / "dialogs").glob("dialog_*.jsonl"))
     assert len(dialog_files) == 1
     assert "移动到安全点" in dialog_files[0].read_text(encoding="utf-8")
+
+
+def test_operator_archive_text_input_writes_normalized_text(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+
+    record = dummy._operator_archive_text_input("我觉得坐标是 X 一百 Y零 Z一百 速度 五十")
+
+    assert record["input"]["raw_text"] == "我觉得坐标是 X 一百 Y零 Z一百 速度 五十"
+    assert record["input"]["normalized_text"] == "我觉得坐标是 X100 Y0 Z100 速度50"
+
+
+def test_operator_archive_text_input_writes_asr_normalized_text(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+
+    record = dummy._operator_archive_text_input("夫位")
+
+    assert record["input"]["raw_text"] == "夫位"
+    assert record["input"]["normalized_text"] == "复位"
 
 
 def test_operator_archive_nlp_result_updates_last_interaction_record(tmp_path: Path):
@@ -9464,6 +11119,8 @@ def test_operator_archive_nlp_result_updates_last_interaction_record(tmp_path: P
     payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert updated is True
     assert payload["nlp_result"]["intent"] == "command"
+    assert payload["nlp_result"]["raw_text"] == "移动"
+    assert payload["nlp_result"]["normalized_text"] == "移动"
     assert payload["nlp_result"]["func_id"] == 108
     assert payload["nlp_result"]["params"]["target_x"] == 1.0
     assert payload["nlp_result"]["command_intent"]["msg_type"] == "command_intent"
@@ -9522,6 +11179,29 @@ def test_operator_nlp_result_payload_uses_plan_semantic_metadata():
     assert payload["command_intent"]["semantic_level"] == 4
 
 
+def test_operator_nlp_result_payload_uses_plan_normalized_text_when_available():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("template", "move_pose", "rule", "X 一百", "测试"),),
+        source="rule",
+        raw_text="X 一百",
+        normalized_text="X100",
+        reason="测试",
+    )
+    dummy.table = {
+        "move_pose": QueryRecord(
+            query_key="move_pose",
+            func_num=108,
+            params={"target_x": 100.0},
+        )
+    }
+
+    payload = dummy._operator_nlp_result_payload(plan)
+
+    assert payload["raw_text"] == "X 一百"
+    assert payload["normalized_text"] == "X100"
+
+
 def test_operator_nlp_result_payload_promotes_atomic_risk_metadata():
     dummy = DummyOperator()
     record = QueryRecord(
@@ -9565,6 +11245,107 @@ def test_operator_archive_execution_result_updates_last_interaction_record(tmp_p
     assert payload["response"]["final"] == "L1预检未通过。"
 
 
+def test_operator_archive_non_execution_result_marks_skipped_and_final(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_text_input("你好")
+
+    updated = dummy._archive_non_execution_result(result="chat", final_text="你好，我可以解释系统状态。")
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert updated is True
+    assert payload["execution"]["result"] == "skipped"
+    assert payload["execution"]["non_execution_result"] == "chat"
+    assert payload["response"]["final"] == "你好，我可以解释系统状态。"
+
+
+def test_operator_archive_non_execution_result_finalizes_pending_nlp_result(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_text_input("你好")
+
+    updated = dummy._archive_non_execution_result(result="streaming_chat", final_text="你好。")
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert updated is True
+    assert payload["nlp_result"]["engine"] == "streaming_chat"
+    assert payload["nlp_result"]["intent"] == "chat"
+    assert payload["nlp_result"]["confidence"] == 1.0
+    assert payload["execution"]["result"] == "skipped"
+    assert payload["response"]["final"] == "你好。"
+
+
+def test_operator_set_pending_confirm_plan_updates_session_state(tmp_path: Path):
+    dummy = make_context_operator(tmp_path)
+    dummy.session_id = "ui-session-1"
+    dummy._operator_now_seconds = lambda: 10.0
+    dummy._operator_confirm_timeout_seconds = lambda: 60.0
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+    )
+
+    dummy._operator_set_pending_confirm_plan(plan)
+
+    state = dummy._operator_session_state()
+    assert state.mode == "waiting_confirm"
+    assert state.pending_confirm["plan_id"]
+    assert state.pending_confirm["expires_at"] == 70.0
+
+    dummy._operator_set_pending_confirm_plan(None)
+
+    cleared = dummy._operator_session_state()
+    assert cleared.mode == "idle"
+    assert cleared.pending_confirm == {}
+
+
+def test_operator_expire_pending_confirm_marks_session_state_expired(tmp_path: Path):
+    dummy = make_context_operator(tmp_path)
+    dummy.session_id = "ui-session-1"
+    dummy._operator_now_seconds = lambda: 10.0
+    dummy._operator_confirm_timeout_seconds = lambda: 60.0
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("atomic_template", "move", "test", "X100", "等待确认"),),
+        source="test",
+        raw_text="X100",
+        reason="等待确认",
+        requires_confirmation=True,
+    )
+    dummy._operator_set_pending_confirm_plan(plan)
+
+    dummy._operator_expire_pending_confirm(refresh=False)
+
+    state = dummy._operator_session_state()
+    assert state.mode == "confirm_expired"
+    assert state.pending_confirm == {}
+
+
+def test_operator_set_pending_flow_draft_updates_session_state(tmp_path: Path):
+    dummy = make_context_operator(tmp_path)
+    dummy.session_id = "ui-session-1"
+    draft = {"flow_name": "测试", "expanded_steps": []}
+
+    dummy._operator_set_pending_flow_draft(draft)
+
+    state = dummy._operator_session_state()
+    assert dummy._operator_pending_flow_draft == draft
+    assert state.mode == "editing_flow"
+    assert state.current_flow_draft["flow_name"] == "测试"
+
+    dummy._operator_set_pending_flow_draft(None)
+
+    cleared = dummy._operator_session_state()
+    assert cleared.mode == "idle"
+    assert cleared.current_flow_draft == {}
+
+
 def test_operator_dashboard_query_archives_final_response(tmp_path: Path):
     dummy = DummyOperator()
     dummy.session_id = "session-1"
@@ -9591,6 +11372,8 @@ def test_operator_dashboard_query_archives_final_response(tmp_path: Path):
     payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert handled is True
     assert payload["execution"]["result"] == "answered"
+    assert payload["nlp_result"]["engine"] == "answered"
+    assert payload["nlp_result"]["intent"] == "answered"
     assert payload["response"]["final"].startswith("当前不建议执行。原因：")
     assert "建议：" in payload["response"]["final"]
 

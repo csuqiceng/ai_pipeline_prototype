@@ -1,6 +1,6 @@
 {
   "version": "1.1",
-  "updated_at": "2026-06-03T23:25:39.837896",
+  "updated_at": "2026-06-09T21:36:47.198952",
   "flows": [
     {
       "name": "打个招呼的小",
@@ -27,6 +27,32 @@
       "current_step": 0,
       "created_at": "2026-05-25T21:57:42.937655",
       "updated_at": "2026-05-25T21:57:42.937655"
+    },
+    {
+      "name": "测试",
+      "description": "",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "flowdraft:测试:01",
+          "func_id": 0,
+          "params": {
+            "query_key": "flowdraft:测试:01"
+          },
+          "position_name": null,
+          "spd_pct": 50,
+          "description": "flowdraft:测试:01"
+        }
+      ],
+      "step_delay_ms": 300,
+      "rehearsal_spd": 20,
+      "confirmed": false,
+      "created_by": "operator",
+      "version": 1,
+      "state": "idle",
+      "current_step": 0,
+      "created_at": "2026-06-09T21:36:47.198952",
+      "updated_at": "2026-06-09T21:36:47.198952"
     },
     {
       "name": "点头",
