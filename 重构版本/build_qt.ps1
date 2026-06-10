@@ -19,20 +19,29 @@ New-Item -ItemType Directory -Path $buildPath -Force | Out-Null
 
 if (Test-Path -LiteralPath $webRoot) {
     $npmCmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
-    if ($npmCmd) {
+    if ($npmCmd -and $env:ROBOT_BUILD_WEB -eq "1") {
         Push-Location $webRoot
         try {
             if (-not (Test-Path -LiteralPath (Join-Path $webRoot "node_modules"))) {
                 & $npmCmd.Source install
+                if ($LASTEXITCODE -ne 0) {
+                    throw "npm install failed with exit code $LASTEXITCODE"
+                }
             }
             $env:VITE_DATA_MODE = "api"
             Remove-Item Env:VITE_API_BASE_URL -ErrorAction SilentlyContinue
             Remove-Item Env:VITE_WS_URL -ErrorAction SilentlyContinue
             & $npmCmd.Source run build
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm run build failed with exit code $LASTEXITCODE"
+            }
         }
         finally {
             Pop-Location
         }
+    }
+    elseif ($npmCmd) {
+        Write-Host "npm.cmd found but ROBOT_BUILD_WEB is not 1; skip Web frontend build."
     }
     else {
         Write-Warning "npm.cmd not found; skip Web frontend build."
@@ -40,6 +49,9 @@ if (Test-Path -LiteralPath $webRoot) {
 }
 
 & $pythonExe -m PyInstaller $specPath --noconfirm --distpath $distPath --workpath $buildPath
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE"
+}
 
 Write-Host ""
 Write-Host "Build complete:" -ForegroundColor Green

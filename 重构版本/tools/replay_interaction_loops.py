@@ -169,6 +169,28 @@ def _violations_for_record(path: Path, line_no: int, payload: dict[str, Any]) ->
                 detail="执行成功记录仍保留澄清、闲聊或未知 NLP 结果，说明解析结果和执行结果不一致。",
             )
         )
+    if _negated_flow_answered_as_detail(raw_text, final_text):
+        violations.append(
+            ReplayViolation(
+                code="NO_NEGATED_FLOW_DETAIL",
+                file=str(path),
+                line_no=line_no,
+                msg_id=msg_id,
+                raw_text=raw_text,
+                detail="用户否定某个流程时，回复不应返回该流程详情。",
+            )
+        )
+    if _followup_execute_without_pending(raw_text, nlp_result, execution, final_text):
+        violations.append(
+            ReplayViolation(
+                code="NO_FOLLOWUP_EXECUTE_WITHOUT_PENDING",
+                file=str(path),
+                line_no=line_no,
+                msg_id=msg_id,
+                raw_text=raw_text,
+                detail="无待确认上下文的承接执行语不应被回复为确认执行当前流程。",
+            )
+        )
     return violations
 
 
@@ -189,7 +211,13 @@ def _looks_like_chat_action_promise(
     engine = str(nlp_result.get("engine", "") or "")
     if intent not in {"", "chat", "unknown", "suggestion"} and engine not in {"chat", "llm", "deepseek_chat"}:
         return False
+    if _looks_like_clarification_example(final_text):
+        return False
     return bool(ACTION_PROMISE_PATTERN.search(final_text))
+
+
+def _looks_like_clarification_example(final_text: str) -> bool:
+    return any(marker in final_text for marker in ("请补充", "例如", "如：", "如:", "可以尝试说", "可说"))
 
 
 def _success_has_non_execution_nlp_result(
@@ -204,6 +232,44 @@ def _success_has_non_execution_nlp_result(
     action_type = str(nlp_result.get("action_type", "") or "")
     intent = str(nlp_result.get("intent", "") or "")
     return action_type in {"clarification", "chat", "unknown"} or intent in {"chat", "unknown"}
+
+
+def _negated_flow_answered_as_detail(raw_text: str, final_text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(raw_text or ""))
+    final_compact = re.sub(r"\s+", "", str(final_text or ""))
+    if not compact or not final_compact:
+        return False
+    match = re.search(r"(?:不是|并不是|不是这个|不要)(?P<name>[^，。,.；;！？?\s]{1,20})流程?", compact)
+    if not match:
+        return False
+    name = str(match.group("name") or "").strip()
+    if not name:
+        return False
+    return name in final_compact and ("流程" in final_compact and any(word in final_compact for word in ("共", "步骤", "第", "Func")))
+
+
+def _followup_execute_without_pending(
+    raw_text: str,
+    nlp_result: dict[str, Any],
+    execution: dict[str, Any],
+    final_text: str,
+) -> bool:
+    compact = re.sub(r"\s+", "", str(raw_text or ""))
+    final_compact = re.sub(r"\s+", "", str(final_text or ""))
+    if not compact or not final_compact:
+        return False
+    if not any(word in compact for word in ("执行", "运行", "开始")):
+        return False
+    if not any(word in compact for word in ("刚刚", "刚才", "上一个", "上次", "这个", "它", "刚创建", "刚才创建")):
+        return False
+    execution_result = str(execution.get("result", "") or "")
+    if execution_result not in {"", "skipped", "blocked", "cancelled"}:
+        return False
+    if "当前没有待确认计划" in final_compact or "没有待确认" in final_compact:
+        return False
+    if str(nlp_result.get("action_type", "") or "") == "followup_rejected":
+        return False
+    return "请确认" in final_compact and any(word in final_compact for word in ("执行", "运行", "当前流程", "流程"))
 
 
 def format_report(report: ReplayReport) -> str:

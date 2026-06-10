@@ -215,6 +215,11 @@ def build_local_tool_specs() -> tuple[LocalToolSpec, ...]:
             description="查询已保存位置点参数。",
         ),
         LocalToolSpec(
+            name="query_command_catalog",
+            group="chat_tools",
+            description="读取本地流程、命令模板和可用命令示例，不生成执行命令。",
+        ),
+        LocalToolSpec(
             name="explain_text",
             group="chat_tools",
             description="解释非控制类问题，不生成执行命令。",
@@ -307,7 +312,7 @@ class ToolCallingAgentRuntime:
             return bool(self._langchain_available)
         return _langchain_runtime_available()
 
-    def handle(self, text: str, *, session_state: SessionState) -> AgentOrchestratorResult:
+    def handle(self, text: str, *, session_state: SessionState, apply_memory: bool = True) -> AgentOrchestratorResult:
         if not self.available:
             return AgentOrchestratorResult(
                 kind="tool_calling_unavailable",
@@ -320,7 +325,15 @@ class ToolCallingAgentRuntime:
                 message="LangChain/LangGraph 已安装但尚未配置 runner，回退兼容 AgentOrchestrator。",
                 payload={"fallback_required": True},
             )
-        result = self.runner(str(text or ""), session_state, self.tool_specs)
+        if apply_memory:
+            result = self.runner(str(text or ""), session_state, self.tool_specs)
+        else:
+            original_memory_store = self.tool_registry.memory_store
+            self.tool_registry.memory_store = None
+            try:
+                result = self.runner(str(text or ""), session_state, self.tool_specs)
+            finally:
+                self.tool_registry.memory_store = original_memory_store
         if result is None:
             return AgentOrchestratorResult(
                 kind="tool_calling_unavailable",

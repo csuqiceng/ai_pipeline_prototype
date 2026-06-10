@@ -16,12 +16,14 @@ def test_dashboard_query_specs_cover_required_v21_boards():
 def test_dashboard_query_specs_match_common_questions():
     assert match_dashboard_query_spec("通讯正常吗").board_key == "communication_faults"
     assert match_dashboard_query_spec("现在能不能执行").board_key == "action_feasibility"
+    assert match_dashboard_query_spec("为什么不能走").board_key == "action_feasibility"
     assert match_dashboard_query_spec("当前位置安全吗").board_key == "safety_boundary"
     assert match_dashboard_query_spec("速度有没有超限").board_key == "motion_limits"
     assert match_dashboard_query_spec("流程预演到哪了").board_key == "process_preview"
     assert match_dashboard_query_spec("这个位置能到吗").board_key == "process_adaptation"
     assert match_dashboard_query_spec("现在设备状态").board_key == "device_status"
     assert match_dashboard_query_spec("现在下位机状态是什么").board_key == "device_status"
+    assert match_dashboard_query_spec("系统就绪了吗").board_key == "device_status"
 
 
 def test_dashboard_query_specs_do_not_capture_cartesian_motion_command():

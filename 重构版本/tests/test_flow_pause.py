@@ -1,6 +1,6 @@
 from robot_modbus_lite.flow_execution_mixin import FlowExecutionMixin
 from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
-from robot_modbus_lite.models import FlowDefinition
+from robot_modbus_lite.models import FlowDefinition, QueryRecord
 
 
 class DummyFlow(FlowExecutionMixin):
@@ -200,6 +200,59 @@ def test_start_flow_resets_completed_step_index_when_flow_was_extended(monkeypat
         kwargs.get("extra", {}).get("start_step_index") == 1
         for _args, kwargs in logs
     )
+
+
+def test_start_flow_answers_unsupported_legacy_jog_template_without_popup(monkeypatch):
+    dummy = DummyFlow()
+    warnings = []
+    chats = []
+    logs = []
+    callbacks = []
+    flow = FlowDefinition(name="demo", steps=("jog_step",))
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": flow},
+            "get_flow": lambda self, name: self.flows[name],
+        },
+    )()
+    dummy.table = {
+        "jog_step": QueryRecord(
+            query_key="jog_step",
+            func_num=107,
+            description="小臂点头",
+            params={"axis_no": 10, "pos_val": 15.0},
+        )
+    }
+    dummy.current_flow_name = "demo"
+    dummy.flow_running = False
+    dummy.flow_paused = False
+    dummy.flow_step_index = 0
+    dummy.flow_current_step = "-"
+    dummy.flow_status = "空闲"
+    dummy.flow_run_id = 0
+    dummy.host_edit = type("Host", (), {"text": lambda self: "127.0.0.1"})()
+    dummy._show_info = lambda *args: None
+    dummy._show_warning = lambda title, text: warnings.append((title, text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._refresh_flow_steps = lambda: None
+    dummy._refresh_flow_status_panel = lambda: None
+    dummy._append_log = lambda *args, **kwargs: logs.append((args, kwargs))
+    dummy._pause_polling = lambda: callbacks.append("pause")
+    dummy._run_in_background = lambda *_args, **_kwargs: callbacks.append("background")
+    monkeypatch.setattr("robot_modbus_lite.flow_execution_mixin.QTimer.singleShot", lambda _ms, callback: callback())
+
+    dummy._start_flow()
+
+    assert warnings == []
+    assert chats
+    assert chats[-1][0] == "assistant"
+    assert chats[-1][2]["kind"] == "warn"
+    assert "Func107" in chats[-1][1]
+    assert dummy.flow_running is False
+    assert callbacks == []
+    assert logs[-1][0][0:3] == ("流程", "流程预检查 demo", "失败")
 
 
 def test_reset_flow_clears_flow_pause_state():

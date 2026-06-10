@@ -17,6 +17,22 @@ def test_position_query_answers_existing_position_without_command():
     assert result["generates_command"] is False
 
 
+def test_position_query_treats_bare_known_position_as_query_without_command():
+    agent = PositionQueryAgent(
+        lookup=lambda name: {
+            "A": (350.0, 200.0, 500.0, 0.0, 90.0, 0.0),
+        }.get(name)
+    )
+
+    result = agent.answer("位置A")
+
+    assert result is not None
+    assert result["kind"] == "position_query_answer"
+    assert result["position_name"] == "A"
+    assert "X=350.0" in result["text"]
+    assert result["generates_command"] is False
+
+
 def test_position_query_reports_missing_position_without_command():
     agent = PositionQueryAgent(lookup=lambda name: None)
 

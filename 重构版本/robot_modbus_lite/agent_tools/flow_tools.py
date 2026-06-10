@@ -327,6 +327,19 @@ def prepare_registered_flow_execution(service: Any, flow_name: str, *, mode: str
         )
     clean_mode = str(mode or "start").strip() or "start"
     data = _flow_entry_to_data(entry)
+    unsupported_steps = _unsupported_registered_flow_steps(entry)
+    if unsupported_steps:
+        return ToolResult.failure(
+            state="registered_flow_unsupported_steps",
+            message="当前阶段不允许执行包含 Func106/Func107 点动步骤的已登记流程，请先改为 Func108/Func112 等受支持动作。",
+            code="REGISTERED_FLOW_UNSUPPORTED_STEPS",
+            data={
+                "flow_name": clean_name,
+                "unsupported_steps": unsupported_steps,
+                "entry": data,
+                "generates_command": False,
+            },
+        )
     return ToolResult.success(
         state="registered_flow_execution_draft",
         message=f"已准备流程“{clean_name}”的执行草案，等待门禁和确认。",
@@ -340,6 +353,25 @@ def prepare_registered_flow_execution(service: Any, flow_name: str, *, mode: str
             "generates_command": False,
         },
     )
+
+
+def _unsupported_registered_flow_steps(entry: FlowEntry) -> list[dict[str, Any]]:
+    unsupported: list[dict[str, Any]] = []
+    for index, step in enumerate(entry.steps, start=1):
+        try:
+            func_id = int(getattr(step, "func_id", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if func_id not in {106, 107}:
+            continue
+        unsupported.append(
+            {
+                "step_id": int(getattr(step, "step_id", index) or index),
+                "func_id": func_id,
+                "action": str(getattr(step, "action", "") or getattr(step, "description", "") or f"step_{index}"),
+            }
+        )
+    return unsupported
 
 
 def set_flow_draft(service: ExecutionPlanService, draft: dict[str, Any]) -> ToolResult:
@@ -381,7 +413,7 @@ def query_current_draft(service: ExecutionPlanService) -> ToolResult:
         )
     return ToolResult.success(
         state="flow_draft_loaded",
-        message="已读取当前流程草案。",
+        message=_flow_draft_summary(current),
         data=_flow_draft_data(current),
     )
 
@@ -683,7 +715,16 @@ def _flow_draft_summary(draft: dict[str, Any]) -> str:
     data = _flow_draft_data(draft)
     flow_name = str(data.get("flow_name", "") or "未命名流程")
     step_count = int(data.get("step_count", 0) or 0)
-    return f"当前流程草案：{flow_name}，共 {step_count} 步。"
+    steps = list(dict(data.get("draft", {}) or {}).get("expanded_steps") or dict(data.get("draft", {}) or {}).get("steps") or [])
+    labels: list[str] = []
+    for index, step in enumerate(steps[:3], start=1):
+        if not isinstance(step, dict):
+            continue
+        label = str(step.get("action") or step.get("description") or f"第{index}步").strip()
+        if label:
+            labels.append(f"{index}. {label}")
+    suffix = f" 步骤：{'；'.join(labels)}。" if labels else ""
+    return f"当前流程草案：{flow_name}，共 {step_count} 步。{suffix}"
 
 
 def _flow_draft_data(draft: dict[str, Any], *, missing_fields: list[str] | None = None) -> dict[str, Any]:

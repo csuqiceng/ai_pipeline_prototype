@@ -265,7 +265,7 @@ class CommandUnderstandingAgent:
             ("ry", "target_ry"),
             ("rz", "target_rz"),
         ):
-            match = re.search(rf"{source_key.upper()}(-?\d+(?:\.\d+)?)", compact, flags=re.IGNORECASE)
+            match = re.search(rf"{source_key.upper()}\s*[=:=：]?\s*(-?\d+(?:\.\d+)?)", compact, flags=re.IGNORECASE)
             if match:
                 params[target_key] = float(match.group(1))
 

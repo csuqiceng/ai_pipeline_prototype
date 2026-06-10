@@ -8,6 +8,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -1653,6 +1654,8 @@ class OperatorUiMixin:
             return None
 
     def _operator_try_agent_orchestrator_plan(self, text: str):
+        if self._operator_agent_execution_disabled_for_text(text):
+            return None
         try:
             from .agent_runtime.voice_plan_bridge import voice_plan_from_agent_result
 
@@ -1664,11 +1667,31 @@ class OperatorUiMixin:
             if result.kind == "fallback_legacy":
                 self._operator_log_agent_orchestrator_fallback(result)
                 return None
+            if result.kind == "clarification" and not bool((result.payload or {}).get("needs_model")):
+                legacy_result = self._operator_agent_orchestrator().handle(text)
+                if legacy_result.kind == "fallback_legacy":
+                    self._operator_log_agent_orchestrator_fallback(legacy_result)
+                    return None
+                if legacy_result.kind != "clarification":
+                    return voice_plan_from_agent_result(legacy_result)
             return voice_plan_from_agent_result(result)
         except Exception as exc:
             if hasattr(self, "_append_log"):
                 self._append_log("Agent", "统一Agent解析", "失败", str(exc))
             return None
+
+    def _operator_agent_execution_disabled_for_text(self, text: str) -> bool:
+        axis_ranges = getattr(self, "axis_ranges", None)
+        if bool(getattr(axis_ranges, "restricted_agent_enabled", False)):
+            return False
+        try:
+            from .agent.command_understanding import CommandUnderstandingAgent
+            from .agent.orchestrator import AgentOrchestrator
+
+            understanding = CommandUnderstandingAgent().understand(text)
+            return AgentOrchestrator._execution_intent_requires_wake_word(understanding)
+        except Exception:
+            return False
 
     @staticmethod
     def _operator_compound_plan_adapter_payload(payload):
@@ -1966,6 +1989,7 @@ class OperatorUiMixin:
 
         pose = self._operator_current_pose_tuple()
         axis_ranges = getattr(self, "axis_ranges", None)
+        moving_reasons = self._operator_restricted_agent_moving_reasons()
         return ControllerSnapshot(
             current_pose={
                 "target_x": float(pose[0]),
@@ -1980,7 +2004,8 @@ class OperatorUiMixin:
                 "acc_pct": float(getattr(axis_ranges, "safe_acc_max", 50.0) or 50.0),
                 "dec_pct": float(getattr(axis_ranges, "safe_dec_max", 50.0) or 50.0),
             },
-            is_moving=self._operator_restricted_agent_is_moving(),
+            is_moving=bool(moving_reasons),
+            moving_reasons=moving_reasons,
             read_ok=True,
         )
 
@@ -2018,16 +2043,24 @@ class OperatorUiMixin:
         }
 
     def _operator_restricted_agent_is_moving(self) -> bool:
+        return bool(self._operator_restricted_agent_moving_reasons())
+
+    def _operator_restricted_agent_moving_reasons(self) -> tuple[str, ...]:
+        reasons: list[str] = []
         motion_percent = str(getattr(self, "motion_percent", "") or "")
         busy = str(getattr(self, "busy", "") or "")
         run_state = str(getattr(self, "run_state", "") or "")
-        return bool(
-            motion_percent == "运动中"
-            or busy == "运行中"
-            or run_state == "运行中"
-            or getattr(self, "nlp_sequence_running", False)
-            or getattr(self, "flow_running", False)
-        )
+        if motion_percent == "运动中":
+            reasons.append("motion_percent=运动中")
+        if busy == "运行中":
+            reasons.append("busy=运行中")
+        if run_state == "运行中":
+            reasons.append("run_state=运行中")
+        if getattr(self, "nlp_sequence_running", False):
+            reasons.append("nlp_sequence_running=True")
+        if getattr(self, "flow_running", False):
+            reasons.append("flow_running=True")
+        return tuple(reasons)
 
     def _operator_restricted_agent_status_signature(self) -> str:
         return "|".join(
@@ -2664,6 +2697,12 @@ class OperatorUiMixin:
                 normalized_text=self._operator_normalized_text_for_archive(text),
                 device_snapshot=self._operator_device_snapshot_for_archive(refresh_dashboard=False),
                 scene_state=self._operator_scene_state_payload(),
+                input_event=self._operator_dialogue_event(
+                    category="自然语言",
+                    action="用户输入",
+                    result="收到",
+                    detail=text,
+                ),
             )
             self._operator_last_interaction_record_id = record.msg_id
             self._operator_last_interaction_start_sec = self._operator_now_seconds()
@@ -2688,6 +2727,12 @@ class OperatorUiMixin:
                 asr_confidence=asr_confidence,
                 device_snapshot=self._operator_device_snapshot_for_archive(),
                 scene_state=self._operator_scene_state_payload(),
+                input_event=self._operator_dialogue_event(
+                    category="语音",
+                    action="用户输入",
+                    result="收到",
+                    detail=text,
+                ),
             )
             self._operator_last_interaction_record_id = record.msg_id
             self._operator_last_interaction_start_sec = self._operator_now_seconds()
@@ -2724,6 +2769,12 @@ class OperatorUiMixin:
             log_dir = getattr(self, "runtime_root", None) / "data" / "exported_logs"
         return log_dir / f"interaction_session_{getattr(self, 'session_id', 'session')}.jsonl"
 
+    def _operator_dialogue_archive_path(self):
+        log_dir = getattr(self, "_log_dir", None)
+        if log_dir is None:
+            log_dir = getattr(self, "runtime_root", None) / "data" / "exported_logs"
+        return log_dir / f"dialogue_session_{getattr(self, 'session_id', 'session')}.jsonl"
+
     def _operator_dialog_log_dir(self):
         log_dir = getattr(self, "_log_dir", None)
         if log_dir is None:
@@ -2736,9 +2787,54 @@ class OperatorUiMixin:
     def _operator_interaction_writer(self) -> InteractionArchiveWriter:
         return InteractionArchiveWriter(
             path=self._operator_interaction_archive_path(),
+            dialogue_path=self._operator_dialogue_archive_path(),
             session_id=str(getattr(self, "session_id", "session")),
             dialog_logger=self._operator_dialog_logger(),
         )
+
+    def _operator_dialogue_event(self, *, category: str, action: str, result: str, detail: str) -> dict[str, Any]:
+        now = datetime.now()
+        context: dict[str, Any] = {}
+        current_log_context = getattr(self, "_current_log_context", None)
+        if callable(current_log_context):
+            try:
+                context.update(dict(current_log_context() or {}))
+            except Exception:
+                context = {}
+        host = str(context.get("host", "") or "")
+        if not host and hasattr(self, "host_edit"):
+            try:
+                host = str(self.host_edit.text().strip())
+            except Exception:
+                host = ""
+        controller_mode = str(context.get("controller_mode", "") or "")
+        if not controller_mode:
+            controller_mode_value = getattr(self, "_controller_mode_value", None)
+            if callable(controller_mode_value):
+                try:
+                    controller_mode = str(controller_mode_value())
+                except Exception:
+                    controller_mode = ""
+        started = getattr(self, "_session_start_perf", None)
+        monotonic_ms = 0
+        if started is not None:
+            try:
+                monotonic_ms = int((time.perf_counter() - float(started)) * 1000)
+            except Exception:
+                monotonic_ms = 0
+        return {
+            "time": now.strftime("%H:%M:%S.%f")[:-3],
+            "ts": now.isoformat(timespec="milliseconds"),
+            "session_id": str(getattr(self, "session_id", "session")),
+            "monotonic_ms": monotonic_ms,
+            "host": host,
+            "controller_mode": controller_mode,
+            "thread": "MainThread",
+            "category": category,
+            "action": action,
+            "result": result,
+            "detail": detail,
+        }
 
     def _operator_device_snapshot_for_archive(self, *, refresh_dashboard: bool = True) -> dict[str, Any]:
         try:
@@ -2872,6 +2968,11 @@ class OperatorUiMixin:
         modbus_write = dict(detail.get("modbus_write") or current_execution.get("modbus_write") or {})
         state_before = dict(detail.get("state_before") or current_execution.get("state_before") or self._operator_current_interaction_device_snapshot())
         state_after = dict(detail.get("state_after") or self._operator_device_snapshot_for_archive())
+        result, final_text = self._operator_adjust_execution_result_for_state_after(
+            result=result,
+            final_text=final_text,
+            state_after=state_after,
+        )
         existing_duration_ms = int(current_execution.get("exec_duration_ms", 0) or 0)
         effective_exec_duration_ms = int(exec_duration_ms) if int(exec_duration_ms) > 0 else existing_duration_ms
         execution_payload = {
@@ -2901,12 +3002,22 @@ class OperatorUiMixin:
                 {
                     "execution": execution_payload,
                     "response": response,
+                    "_dialogue_response_event": self._operator_dialogue_event(
+                        category="自然语言",
+                        action=self._operator_dialogue_action_for_result(result, execution_payload),
+                        result=self._operator_dialogue_result_for_result(result, execution_payload),
+                        detail=final_text,
+                    ),
                 },
             )
             if updated and self._operator_result_needs_non_execution_nlp_finalize(result):
                 current_nlp = self._operator_current_interaction_nlp_result()
                 if self._operator_should_finalize_pending_nlp(current_nlp):
                     writer.update_nlp_result(msg_id, self._operator_non_execution_nlp_payload(result))
+            if updated and self._operator_result_needs_execution_nlp_finalize(result):
+                current_nlp = self._operator_current_interaction_nlp_result()
+                if self._operator_should_finalize_pending_nlp(current_nlp):
+                    writer.update_nlp_result(msg_id, self._operator_execution_nlp_payload(result, execution_payload))
             return updated
         except Exception as exc:
             if hasattr(self, "_append_log"):
@@ -2914,8 +3025,85 @@ class OperatorUiMixin:
             return False
 
     @staticmethod
+    def _operator_adjust_execution_result_for_state_after(
+        *,
+        result: str,
+        final_text: str,
+        state_after: dict[str, Any],
+    ) -> tuple[str, str]:
+        normalized_result = str(result or "")
+        if normalized_result != "success":
+            return normalized_result, final_text
+        data = state_after.get("data") if isinstance(state_after, dict) else {}
+        if not isinstance(data, dict):
+            data = state_after
+        alarm_active = ("alarm" in data and bool(data.get("alarm"))) or (
+            "alarm_active" in data and bool(data.get("alarm_active"))
+        )
+        ecat_ok = data.get("ecat_ok")
+        communication_bad = alarm_active and "ecat_ok" in data and ecat_ok is False
+        if not alarm_active and not communication_bad:
+            return normalized_result, final_text
+        issues = []
+        if alarm_active:
+            code = str(data.get("alarm_code") or "").strip()
+            issues.append(f"报警已触发{f'，报警码：{code}' if code else ''}")
+        if communication_bad:
+            issues.append("通讯异常")
+        suffix = "执行后状态异常：" + "，".join(issues) + "。"
+        text = str(final_text or "").strip()
+        if suffix in text:
+            return "warning", text
+        return "warning", f"{text}；{suffix}" if text else suffix
+
+    @staticmethod
+    def _operator_dialogue_action_for_result(result: str, execution_payload: dict[str, Any]) -> str:
+        non_execution = str(execution_payload.get("non_execution_result", "") or "")
+        if non_execution == "clarification":
+            return "澄清提示"
+        if non_execution in {"chat", "streaming_chat"}:
+            return "闲聊咨询"
+        if non_execution.startswith("flow_draft"):
+            return "流程草案"
+        if non_execution:
+            return non_execution
+        mapping = {
+            "success": "执行完成",
+            "failure": "执行失败",
+            "blocked": "安全拦截",
+            "warning": "执行警告",
+            "accepted": "确认收到",
+            "cancelled": "取消执行",
+            "skipped": "非执行回复",
+        }
+        return mapping.get(str(result or ""), str(result or "自然语言回复"))
+
+    @staticmethod
+    def _operator_dialogue_result_for_result(result: str, execution_payload: dict[str, Any]) -> str:
+        non_execution = str(execution_payload.get("non_execution_result", "") or "")
+        if non_execution == "clarification":
+            return "提示"
+        if str(result or "") == "success":
+            return "成功"
+        if str(result or "") == "failure":
+            return "失败"
+        if str(result or "") == "blocked":
+            return "拦截"
+        if str(result or "") == "warning":
+            return "警告"
+        if str(result or "") == "cancelled":
+            return "取消"
+        if str(result or "") == "accepted":
+            return "收到"
+        return "成功" if non_execution in {"chat", "streaming_chat"} else str(result or "提示")
+
+    @staticmethod
     def _operator_result_needs_non_execution_nlp_finalize(result: str) -> bool:
         return str(result or "") in {"answered"}
+
+    @staticmethod
+    def _operator_result_needs_execution_nlp_finalize(result: str) -> bool:
+        return str(result or "") in {"success", "failure", "warning", "blocked", "accepted", "cancelled"}
 
     def _archive_non_execution_result(self, *, result: str, final_text: str) -> bool:
         from .agent_runtime.archive_finalizer import build_non_execution_detail, finalize_non_execution_nlp
@@ -2955,6 +3143,37 @@ class OperatorUiMixin:
         from .agent_runtime.archive_finalizer import build_non_execution_nlp_payload
 
         return build_non_execution_nlp_payload(result)
+
+    def _operator_execution_nlp_payload(self, result: str, execution_payload: dict[str, Any]) -> dict[str, Any]:
+        input_payload = self._operator_current_interaction_payload().get("input", {})
+        raw_text = str(input_payload.get("raw_text", "") or "")
+        normalized_text = str(input_payload.get("normalized_text", "") or raw_text)
+        modbus_write = execution_payload.get("modbus_write", {})
+        func_id = None
+        params = {}
+        if isinstance(modbus_write, dict):
+            func_id = modbus_write.get("func_num")
+            params = dict(modbus_write.get("params") or {})
+        return {
+            "semantic_level": 3,
+            "semantic_label": "执行结果层",
+            "response_deadline_ms": 500,
+            "progress_interval_ms": 0,
+            "requires_precheck": False,
+            "requires_confirmation": False,
+            "priority": "high" if str(result or "") in {"failure", "warning", "blocked"} else "normal",
+            "intent": "execution_result",
+            "raw_text": raw_text,
+            "normalized_text": normalized_text,
+            "func_id": func_id,
+            "params": params,
+            "confidence": 1.0,
+            "engine": "execution_log",
+            "tokens": [],
+            "action_type": "execution",
+            "target": modbus_write.get("query_key") if isinstance(modbus_write, dict) else None,
+            "reason": str(result or "execution_result"),
+        }
 
     def _operator_archive_engineer_voice_command(
         self,
@@ -4454,15 +4673,18 @@ class OperatorUiMixin:
             compact,
         )
         markers = list(re.finditer(r"(?:步骤|第)([一二三四五六七八九十\d]+)步?", normalized))
-        if len(markers) < 2:
-            return []
         segments: list[str] = []
-        for index, marker in enumerate(markers):
-            start = marker.end()
-            end = markers[index + 1].start() if index + 1 < len(markers) else len(normalized)
-            segment = normalized[start:end].strip("，,。；;")
-            if segment:
-                segments.append(segment)
+        if len(markers) >= 2:
+            for index, marker in enumerate(markers):
+                start = marker.end()
+                end = markers[index + 1].start() if index + 1 < len(markers) else len(normalized)
+                segment = normalized[start:end].strip("，,。；;")
+                if segment:
+                    segments.append(segment)
+        elif any(word in normalized for word in ("然后", "再", "接着")):
+            segments = [part.strip("，,。；;") for part in re.split(r"然后|再|接着", normalized) if part.strip("，,。；;")]
+        if len(segments) < 2:
+            return []
         steps = []
         for segment in segments:
             step = self._operator_build_append_flow_step_from_text(draft, segment)
@@ -4537,6 +4759,9 @@ class OperatorUiMixin:
         if len(pose) < 6:
             return None
         default_speed = self._operator_flow_draft_default_speed(draft)
+        speed = float(selected.get("spd", default_speed))
+        acc = float(selected.get("acc", speed))
+        dec = float(selected.get("dec", speed))
         name = str(selected.get("name") or "").strip()
         params = {
             "target_x": float(pose[0]),
@@ -4545,10 +4770,10 @@ class OperatorUiMixin:
             "target_rx": float(pose[3]),
             "target_ry": float(pose[4]),
             "target_rz": float(pose[5]),
-            "spd_pct": default_speed,
-            "acc_pct": default_speed,
-            "dec_pct": default_speed,
-            "move_type": 0,
+            "spd_pct": speed,
+            "acc_pct": acc,
+            "dec_pct": dec,
+            "move_type": int(float(selected.get("move_type", 0))),
         }
         return ExecutionStep(
             step_id=0,
@@ -4741,13 +4966,99 @@ class OperatorUiMixin:
             entries = list(registry.list_all()) if registry is not None and hasattr(registry, "list_all") else []
         except Exception:
             entries = []
-        items: list[dict[str, Any]] = []
+        by_key: dict[str, dict[str, Any]] = {}
         for entry in entries:
             name = str(getattr(entry, "name", "") or "").strip()
             pose = getattr(entry, "pose", None)
             if name and isinstance(pose, (list, tuple)) and len(pose) >= 6:
-                items.append({"name": name, "pose": list(pose[:6])})
+                item = {
+                    "name": name,
+                    "pose": [float(value) for value in pose[:6]],
+                    "source": "position_registry",
+                    "spd": int(getattr(entry, "spd", 50)),
+                    "move_type": int(getattr(entry, "move_type", 0)),
+                }
+                by_key[self._operator_position_draft_key(name)] = item
+        for item in self._operator_query_table_position_draft_items():
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            key = self._operator_position_draft_key(name)
+            existing = by_key.get(key)
+            if existing is None:
+                by_key[key] = item
+                continue
+            if not self._operator_position_pose_equal(existing.get("pose"), item.get("pose")):
+                conflicts = existing.setdefault("conflict_sources", [])
+                if isinstance(conflicts, list) and "query_table" not in conflicts:
+                    conflicts.append("query_table")
+        return list(by_key.values())
+
+    def _operator_query_table_position_draft_items(self) -> list[dict[str, Any]]:
+        table = getattr(self, "table", None)
+        if not isinstance(table, dict):
+            return []
+        items: list[dict[str, Any]] = []
+        for key, record in table.items():
+            try:
+                func_num = int(float(getattr(record, "func_num", getattr(record, "function_id", 0)) or 0))
+            except (TypeError, ValueError):
+                continue
+            if func_num != 108:
+                continue
+            params = getattr(record, "params", None)
+            if not isinstance(params, dict):
+                continue
+            required = ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")
+            if not all(param in params for param in required):
+                continue
+            name = str(getattr(record, "query_key", "") or key or "").strip()
+            if not name:
+                continue
+            try:
+                pose = [float(params[param]) for param in required]
+            except (TypeError, ValueError):
+                continue
+            items.append(
+                {
+                    "name": self._operator_position_draft_display_name(name),
+                    "query_key": name,
+                    "pose": pose,
+                    "source": "query_table",
+                    "spd": int(float(params.get("spd_pct", 50))),
+                    "acc": int(float(params.get("acc_pct", params.get("spd_pct", 50)))),
+                    "dec": int(float(params.get("dec_pct", params.get("spd_pct", 50)))),
+                    "move_type": int(float(params.get("move_type", 0))),
+                }
+            )
         return items
+
+    @staticmethod
+    def _operator_position_draft_display_name(name: str) -> str:
+        clean = str(name or "").strip()
+        match = re.fullmatch(r"位置([A-Za-z0-9])", clean, re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+        return clean
+
+    @staticmethod
+    def _operator_position_draft_key(name: str) -> str:
+        clean = re.sub(r"\s+", "", str(name or "")).lower()
+        match = re.fullmatch(r"位置([a-z0-9])", clean, re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+        return clean
+
+    @staticmethod
+    def _operator_position_pose_equal(left: Any, right: Any) -> bool:
+        if not isinstance(left, (list, tuple)) or not isinstance(right, (list, tuple)):
+            return False
+        if len(left) < 6 or len(right) < 6:
+            return False
+        try:
+            return all(abs(float(left[index]) - float(right[index])) <= 1e-6 for index in range(6))
+        except (TypeError, ValueError):
+            return False
 
     def _operator_missing_move_step_from_text(self, draft: dict, compact: str):
         from .execution_plan import ExecutionStep
@@ -4838,7 +5149,7 @@ class OperatorUiMixin:
         }
         save_only = execute_after_save or any(
             keyword in compact for keyword in ("确认保存", "保存流程", "保存草案", "保存这个流程", "确认草案")
-        )
+        ) or compact in {"保存", "保存吧", "保存一下"}
         if not save_only:
             return False
         if (
@@ -5017,7 +5328,17 @@ class OperatorUiMixin:
         flow = self._operator_find_registered_flow_for_text(compact_text)
         if flow is None:
             return ""
+        if self._operator_text_negates_registered_flow(compact_text, flow):
+            return ""
         return self._operator_flow_entry_preview_text(flow, include_params=True)
+
+    @staticmethod
+    def _operator_text_negates_registered_flow(compact_text: str, flow: Any) -> bool:
+        compact = re.sub(r"\s+", "", compact_text or "")
+        name = re.sub(r"\s+", "", str(getattr(flow, "name", "") or ""))
+        if not compact or not name or name not in compact:
+            return False
+        return any(marker in compact for marker in (f"不是{name}", f"不是{name}流程", f"不要{name}", f"别{name}"))
 
     def _operator_missing_wake_word_flow_execution_answer(self, compact_text: str) -> str:
         compact = re.sub(r"\s+", "", compact_text or "")
@@ -5259,15 +5580,16 @@ class OperatorUiMixin:
             if name and name.lower() in normalized_text:
                 selected = entry
                 break
+        if selected is None:
+            table_answer = self._operator_table_position_context_answer(compact_text)
+            if table_answer:
+                return table_answer
         if selected is None and len(entries) == 1 and (
             any(keyword in compact_text for keyword in ("home", "Home", "HOME"))
             or any(keyword in compact_text for keyword in ("坐标", "参数", "xy", "xyz", "XYZ", "具体"))
         ):
             selected = entries[0]
         if selected is None:
-            table_answer = self._operator_table_position_context_answer(compact_text)
-            if table_answer:
-                return table_answer
             return ""
         x, y, z, rx, ry, rz = getattr(selected, "pose", (0, 0, 0, 0, 0, 0))
         spd = getattr(selected, "spd", 50)
@@ -5479,6 +5801,8 @@ class OperatorUiMixin:
             return False
         list_markers = (
             "有哪些流程",
+            "有那些流程",
+            "那些流程",
             "有什么流程",
             "流程有哪些",
             "流程列表",

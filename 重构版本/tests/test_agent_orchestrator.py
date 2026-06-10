@@ -47,12 +47,12 @@ def test_orchestrator_llm_fallback_rewrites_then_reroutes_through_rules():
         llm_fallback_enabled=True,
     )
 
-    result = orchestrator.handle("往左边去一点")
+    result = orchestrator.handle("小正，往左边去一点")
 
     assert result.kind == "restricted_agent"
     assert result.payload == "restricted-result"
     assert service.text == "向左移动200"
-    assert fallback.text == "往左边去一点"
+    assert fallback.text == "小正，往左边去一点"
     assert fallback.intent == "unknown"
 
 
@@ -159,20 +159,43 @@ def test_orchestrator_llm_fallback_rejects_direct_execution_payloads():
     assert result.payload["llm_fallback_rejected"] is True
 
 
-def test_orchestrator_routes_supported_motion_to_restricted_service():
+def test_orchestrator_blocks_supported_motion_without_wake_word_before_restricted_service():
     class FakeRestrictedService:
         def parse(self, text):
-            self.text = text
-            return "restricted-result"
+            raise AssertionError(f"missing wake word command should not reach restricted service: {text}")
 
-    service = FakeRestrictedService()
-    orchestrator = AgentOrchestrator(restricted_service=service, chat_agent=None)
+    orchestrator = AgentOrchestrator(restricted_service=FakeRestrictedService(), chat_agent=None)
 
     result = orchestrator.handle("走到 X1000 Z300")
 
-    assert result.kind == "restricted_agent"
-    assert result.payload == "restricted-result"
-    assert service.text == "走到 X1000 Z300"
+    assert result.kind == "clarification"
+    assert "缺少" in result.message
+    assert "唤醒词" in result.message
+    assert result.payload["reason"] == "missing_wake_word"
+
+
+def test_orchestrator_blocks_llm_candidate_without_original_wake_word():
+    class FakeRestrictedService:
+        def parse(self, text):
+            raise AssertionError(f"missing wake word llm candidate should not execute: {text}")
+
+    class FakeLlmFallbackAgent:
+        def apply(self, text, understanding):
+            return {"kind": "candidate_text", "text": "小正，X100", "confidence": 0.8}
+
+    orchestrator = AgentOrchestrator(
+        restricted_service=FakeRestrictedService(),
+        chat_agent=None,
+        llm_fallback_agent=FakeLlmFallbackAgent(),
+        llm_fallback_enabled=True,
+    )
+
+    result = orchestrator.handle("去X100")
+
+    assert result.kind == "clarification"
+    assert "缺少" in result.message
+    assert "唤醒词" in result.message
+    assert result.payload["reason"] == "missing_wake_word"
 
 
 def test_orchestrator_keeps_short_vertical_step_on_legacy_atomic_path():
@@ -471,6 +494,6 @@ def test_orchestrator_does_not_send_unsupported_compound_to_restricted_service()
         chat_agent=ChatExplanationAgent(),
     )
 
-    result = orchestrator.handle("如果没有报警就走到X1000")
+    result = orchestrator.handle("小正，如果没有报警就走到X1000")
 
     assert result.kind == "unsupported_compound"

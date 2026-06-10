@@ -436,6 +436,35 @@ def test_adapter_converts_confirm_rejected_to_clarification():
     assert plan.flow_draft["agent_kind"] == "confirm_rejected"
 
 
+def test_adapter_converts_followup_rejected_to_clarification():
+    result = AgentOrchestratorResult(
+        kind="followup_rejected",
+        message="当前没有待确认计划，不能执行刚刚提到的命令。请先创建运动草案并完成确认。",
+        payload={
+            "raw_text": "我要执行我刚刚的创建的命令",
+            "tool_name": "query_pending_confirm",
+            "tool_result": {
+                "ok": False,
+                "state": "confirm_not_found",
+                "message": "当前没有待确认计划，不能执行刚刚提到的命令。请先创建运动草案并完成确认。",
+                "data": {},
+                "errors": [{"code": "CONFIRM_NOT_FOUND", "message": "没有待确认计划"}],
+            },
+        },
+    )
+
+    plan = AgentPlanAdapter().to_voice_plan(result)
+
+    assert plan.actions[0].action_type == "clarification"
+    assert plan.source == "agent_orchestrator"
+    assert plan.raw_text == "我要执行我刚刚的创建的命令"
+    assert plan.reason == "当前没有待确认计划，不能执行刚刚提到的命令。请先创建运动草案并完成确认。"
+    assert plan.requires_confirmation is False
+    assert plan.requires_precheck is False
+    assert plan.flow_draft["agent_kind"] == "followup_rejected"
+    assert plan.flow_draft["tool_state"] == "confirm_not_found"
+
+
 def test_adapter_converts_confirm_cancelled_to_nonexecuting_ack():
     result = AgentOrchestratorResult(
         kind="confirm_cancelled",

@@ -197,6 +197,22 @@ class ClarificationManager:
 
     @staticmethod
     def _parse_pose_answer(text: str) -> tuple[float, float, float, float, float, float] | None:
+        labelled: dict[str, float] = {}
+        for match in re.finditer(
+            r"(RX|RY|RZ|X|Y|Z)\s*=?\s*(-?\d+(?:\.\d+)?)",
+            text or "",
+            flags=re.IGNORECASE,
+        ):
+            labelled[match.group(1).lower()] = float(match.group(2))
+        if {"x", "y", "z"}.issubset(labelled):
+            return (
+                labelled["x"],
+                labelled["y"],
+                labelled["z"],
+                labelled.get("rx", 0.0),
+                labelled.get("ry", 0.0),
+                labelled.get("rz", 0.0),
+            )
         values = re.findall(r"-?\d+(?:\.\d+)?", text or "")
         if len(values) < 6:
             return None

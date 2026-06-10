@@ -315,9 +315,9 @@ def build_command_draft(
     )
 
 
-def apply_atomic_template(text: str, *, memory: AtomicMemory) -> ToolResult:
+def apply_atomic_template(text: str, *, memory: AtomicMemory, template_lookup: Any = None) -> ToolResult:
     raw_text = str(text or "")
-    answer = AtomicTemplateAgent(memory=memory).apply(raw_text)
+    answer = AtomicTemplateAgent(memory=memory, template_lookup=template_lookup).apply(raw_text)
     if answer is None:
         return ToolResult.failure(
             state="atomic_template_not_matched",

@@ -460,6 +460,17 @@ def test_operator_flow_list_query_lists_all_saved_flows(tmp_path):
     assert "执行" in answer
 
 
+def test_operator_flow_list_query_accepts_those_flows_wording(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
+
+    handled = dummy._handle_operator_ui_command("我有那些流程")
+
+    assert handled is True
+    assert "当前共有 1 个流程" in dummy.chat_messages[-1][1]
+    assert "点头" in dummy.chat_messages[-1][1]
+
+
 def test_operator_flow_count_query_uses_flow_list_not_dashboard_status(tmp_path):
     dummy = make_context_operator(tmp_path)
     dummy.service.save_flow(FlowDefinition(name="点头", steps=(), step_delay_ms=500))
@@ -692,6 +703,137 @@ def test_operator_pending_flow_draft_appends_spoken_multi_step_with_inline_posit
     assert steps[1]["params"]["delay_sec"] == 2.0
     assert steps[2]["func_id"] == 108
     assert steps[2]["target_label"] == "home"
+
+
+def test_operator_pending_flow_draft_splits_then_move_steps(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [],
+        "positions": [
+            {"name": "home", "pose": [1475.0, 0.0, 1545.0, 0.0, 0.0, 0.0]},
+        ],
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("第一步 移动到位置a 然后移动到home")
+
+    assert handled is True
+    steps = dummy._operator_pending_flow_draft["expanded_steps"]
+    assert len(steps) == 2
+    assert steps[0]["func_id"] == 108
+    assert steps[0]["target_label"] == "A"
+    assert "然后" not in steps[0]["description"]
+    assert steps[1]["func_id"] == 108
+    assert steps[1]["target_label"] == "home"
+
+
+def test_operator_pending_flow_draft_uses_query_table_positions_when_registry_missing(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 45.0,
+                "acc_pct": 45.0,
+                "dec_pct": 45.0,
+                "move_type": 0,
+            },
+        ),
+        "位置B": QueryRecord(
+            query_key="位置B",
+            func_num=108,
+            description="移动到位置B",
+            keywords="B点 位置B",
+            params={
+                "target_x": 600.0,
+                "target_y": 0.0,
+                "target_z": 1000.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "acc_pct": 50.0,
+                "dec_pct": 50.0,
+                "move_type": 0,
+            },
+        ),
+    }
+    dummy._operator_pending_flow_draft = {
+        "flow_name": "测试",
+        "expanded_steps": [],
+        "positions": dummy._operator_position_registry_draft_items(),
+        "needs_precheck": True,
+    }
+
+    handled = dummy._handle_operator_ui_command("第一步 移动到位置a 然后移动到位置b")
+
+    assert handled is True
+    steps = dummy._operator_pending_flow_draft["expanded_steps"]
+    assert len(steps) == 2
+    assert steps[0]["target_label"] == "A"
+    assert steps[0]["params"]["target_x"] == 1000.0
+    assert steps[0]["params"]["target_z"] == 800.0
+    assert steps[0]["params"]["target_ry"] == 90.0
+    assert steps[0]["params"]["spd_pct"] == 45.0
+    assert steps[1]["target_label"] == "B"
+    assert steps[1]["params"]["target_x"] == 600.0
+    assert steps[1]["params"]["target_z"] == 1000.0
+
+
+def test_operator_position_draft_items_prefer_registry_and_mark_query_table_conflict(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    ok, message = dummy._position_registry().set_position("home", (1475, 0, 1545, 0, 0, 0), created_by="operator")
+    assert ok, message
+    dummy.table = {
+        "home": QueryRecord(
+            query_key="home",
+            func_num=108,
+            description="移动到home",
+            keywords="home 回home",
+            params={
+                "target_x": 1400.0,
+                "target_y": 0.0,
+                "target_z": 1270.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "move_type": 0,
+            },
+        )
+    }
+
+    items = dummy._operator_position_registry_draft_items()
+
+    home = next(item for item in items if item["name"].lower() == "home")
+    assert home["pose"] == [1475.0, 0.0, 1545.0, 0.0, 0.0, 0.0]
+    assert home["source"] == "position_registry"
+    assert home["conflict_sources"] == ["query_table"]
+
+
+def test_operator_pending_flow_draft_save_short_command_saves_current_draft(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    dummy._operator_pending_flow_draft = flow_draft_payload()
+    archived = []
+    dummy._archive_non_execution_result = lambda *, result, final_text: archived.append((result, final_text)) or True
+
+    handled = dummy._handle_operator_ui_command("保存")
+
+    assert handled is True
+    assert dummy._operator_pending_flow_draft is None
+    assert dummy.service.get_flow("打招呼") is not None
+    assert archived
+    assert archived[-1][0] == "flow_draft_saved"
 
 
 def test_operator_context_query_answers_position_from_pending_flow_draft(tmp_path):
@@ -1434,6 +1576,40 @@ def test_operator_context_query_answers_position_params_from_query_table():
     assert "ry=90" in answer
 
 
+def test_operator_context_query_prefers_query_table_named_position_over_single_registry_fallback(tmp_path):
+    dummy = make_context_operator(tmp_path)
+    registry = dummy._position_registry()
+    ok, message = registry.set_position("home", (1475, 0, 1545, 0, 0, 0), created_by="operator")
+    assert ok, message
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "move_type": 0,
+            },
+        )
+    }
+
+    handled = dummy._handle_operator_ui_command("位置A坐标是多少")
+
+    assert handled is True
+    answer = dummy.chat_messages[-1][1]
+    assert "位置 位置A 的参数" in answer
+    assert "x=1000" in answer
+    assert "z=800" in answer
+    assert "位置 home" not in answer
+
+
 def test_operator_context_query_answers_command_contains_position_from_query_table():
     dummy = DummyOperator()
     chats = []
@@ -1579,6 +1755,31 @@ def test_operator_context_query_answers_registered_flow_information():
     assert "Func108" in answer
     assert "02  Func107  小臂上下点头" in answer
     assert "axis_no=10" in answer
+
+
+def test_operator_context_query_does_not_show_registered_flow_details_for_negative_reference():
+    dummy = DummyOperator()
+    chats = []
+    flow = FlowEntry(
+        name="点头",
+        description="",
+        steps=[FlowStep(step_id=1, action="小臂上下点头", func_id=107, params={"axis_no": 10})],
+        confirmed=True,
+    )
+    dummy.service = SimpleNamespace(
+        flow_registry=SimpleNamespace(list_all=lambda: [flow]),
+        get_flow_entry=lambda name: flow if name == "点头" else None,
+        flows={},
+    )
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text))
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy.status_label = SimpleNamespace(setText=lambda text: setattr(dummy, "status_text", text))
+    dummy._refresh_operator_view = lambda: None
+
+    handled = dummy._operator_handle_context_query("不是点头流程")
+
+    assert handled is False
+    assert chats == []
 
 
 def test_operator_context_query_archives_registered_flow_information():
@@ -3691,6 +3892,37 @@ def test_operator_try_agent_orchestrator_prefers_query_table_position_template()
     assert plan.requires_confirmation is True
 
 
+def test_operator_try_agent_orchestrator_blocks_position_move_without_wake_word():
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
+    dummy._atomic_memory = AtomicMemory()
+    dummy.table = {
+        "位置A": QueryRecord(
+            query_key="位置A",
+            func_num=108,
+            description="移动到位置A",
+            keywords="A点 位置A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+            },
+        )
+    }
+
+    plan = dummy._operator_try_agent_orchestrator_plan("移动到位置a")
+
+    assert plan is not None
+    assert plan.actions[0].action_type == "clarification"
+    assert "缺少" in plan.reason
+    assert "唤醒词" in plan.reason
+    assert plan.requires_confirmation is False
+    assert not plan.atomic_records
+
+
 def test_operator_execute_nlp_text_uses_query_table_position_template():
     dummy = DummyOperator()
     executed = []
@@ -3922,7 +4154,7 @@ def test_operator_try_agent_orchestrator_uses_deepseek_fallback_when_enabled():
     dummy._deepseek_client = client
     dummy.nlp_use_deepseek_check = SimpleNamespace(isChecked=lambda: True)
 
-    plan = dummy._operator_try_agent_orchestrator_plan("往左边去一点")
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，往左边去一点")
 
     assert plan is not None
     assert service.text == "向左移动200"
@@ -4125,7 +4357,7 @@ def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft()
             "position_increment": 0,
         },
         param_sources={},
-        raw_text="规划路径走到 X1000 Z300",
+        raw_text="小正，规划路径走到 X1000 Z300",
         confidence=0.9,
     )
     result = RestrictedAgentResult(
@@ -4134,7 +4366,7 @@ def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft()
         func_id=112,
         message="等待操作者确认。",
         understanding=CommandUnderstandingResult(
-            raw_text="规划路径走到 X1000 Z300",
+                raw_text="小正，规划路径走到 X1000 Z300",
             intent="continuous_path",
             func_id=112,
             confidence=0.9,
@@ -4147,7 +4379,7 @@ def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
     dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
 
-    plan = dummy._operator_try_agent_orchestrator_plan("规划路径走到 X1000 Z300")
+    plan = dummy._operator_try_agent_orchestrator_plan("小正，规划路径走到 X1000 Z300")
 
     assert plan is not None
     assert plan.actions[0].action_type == "agent_draft"
@@ -10245,6 +10477,57 @@ def test_operator_add_chat_from_log_archives_flow_completion(tmp_path: Path):
     assert payload["response"]["final"] == "流程完成：共完成 3 步"
 
 
+def test_operator_add_chat_from_log_finalizes_pending_nlp_for_execution(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_text_input("保存并执行")
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "流程",
+            "action": "流程完成 demo",
+            "result": "成功",
+            "detail": "共完成 1 步",
+        }
+    )
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert payload["nlp_result"]["engine"] != "pending"
+    assert payload["nlp_result"]["intent"] != "pending"
+    assert payload["nlp_result"]["action_type"] == "execution"
+
+
+def test_operator_add_chat_from_log_downgrades_success_when_state_after_has_alarm(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_text_input("保存并执行")
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "流程",
+            "action": "流程完成 demo",
+            "result": "成功",
+            "detail": "共完成 1 步",
+            "state_after": {
+                "msg_type": "device_snapshot",
+                "data": {"alarm": True, "ready": False, "ecat_ok": False, "alarm_code": "ERR_000"},
+            },
+        }
+    )
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert payload["execution"]["result"] == "warning"
+    assert "执行后状态异常" in payload["response"]["final"]
+
+
 def test_operator_add_chat_from_log_archives_flow_failure(tmp_path: Path):
     dummy = DummyOperator()
     dummy.session_id = "session-1"
@@ -11243,6 +11526,33 @@ def test_operator_archive_execution_result_updates_last_interaction_record(tmp_p
     assert updated is True
     assert payload["execution"]["result"] == "blocked"
     assert payload["response"]["final"] == "L1预检未通过。"
+
+
+def test_operator_archive_execution_result_writes_complete_dialogue_record(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._session_start_perf = time.perf_counter()
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._controller_mode_value = lambda: "real"
+    dummy.host_edit = SimpleNamespace(text=lambda: "10.168.3.21")
+    dummy._operator_archive_text_input("小正，移动到位置A")
+
+    updated = dummy._archive_non_execution_result(result="clarification", final_text="请明确位置A的坐标。")
+
+    payload = json.loads((tmp_path / "dialogue_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert updated is True
+    assert payload["msg_type"] == "dialogue_record"
+    assert payload["session_id"] == "session-1"
+    assert payload["host"] == "10.168.3.21"
+    assert payload["controller_mode"] == "real"
+    assert payload["category"] == "自然语言"
+    assert payload["action"] == "澄清提示"
+    assert payload["result"] == "提示"
+    assert payload["detail"] == "请明确位置A的坐标。"
+    assert payload["user"]["raw_text"] == "小正，移动到位置A"
+    assert payload["assistant"]["final_text"] == "请明确位置A的坐标。"
+    assert payload["execution"]["non_execution_result"] == "clarification"
 
 
 def test_operator_archive_non_execution_result_marks_skipped_and_final(tmp_path: Path):

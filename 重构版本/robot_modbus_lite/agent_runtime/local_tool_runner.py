@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from robot_modbus_lite.agent.command_understanding import CommandUnderstandingResult
+from robot_modbus_lite.agent.command_understanding import CommandUnderstandingAgent, CommandUnderstandingResult
 from robot_modbus_lite.agent.drafts import CommandDraft
-from robot_modbus_lite.agent.orchestrator import AgentOrchestratorResult
+from robot_modbus_lite.agent.orchestrator import AgentOrchestrator, AgentOrchestratorResult
 from robot_modbus_lite.agent.service import RestrictedAgentResult
 from robot_modbus_lite.agent_tools.tool_result import ToolResult
+from robot_modbus_lite.models import QueryRecord
 
 from .local_tool_registry import LocalToolRegistry
 from .memory_normalizer import apply_active_memory_to_text
@@ -70,7 +71,9 @@ class LocalToolCallingRunner:
                 tool_name="cancel_pending_plan",
                 kind="confirm_cancelled" if result.ok else "confirm_rejected",
             )
-        if _looks_like_confirm_execution(route_text):
+        if _looks_like_confirm_execution(route_text) or (
+            _pending_confirm_draft_id(session_state) and _looks_like_positive_pending_ack(route_text)
+        ):
             draft_id = _pending_confirm_draft_id(session_state)
             if not draft_id:
                 return _confirm_result(
@@ -89,6 +92,17 @@ class LocalToolCallingRunner:
                 raw_text=raw_text,
                 tool_name="confirm_pending_plan",
                 kind="confirm_result" if result.ok else "confirm_rejected",
+            )
+        if _looks_like_followup_execute(route_text):
+            return _confirm_result(
+                ToolResult.failure(
+                    state="confirm_not_found",
+                    message="当前没有待确认计划，不能执行刚刚提到的命令。请先创建运动草案并完成确认。",
+                    code="CONFIRM_NOT_FOUND",
+                ),
+                raw_text=raw_text,
+                tool_name="query_pending_confirm",
+                kind="followup_rejected",
             )
         if _is_waiting_flow_name(session_state):
             flow_name = _extract_flow_name(route_text)
@@ -116,6 +130,17 @@ class LocalToolCallingRunner:
                 session_state=session_state,
             )
         if _is_editing_flow(session_state) and _looks_like_query_flow(route_text):
+            result = self.registry.call(
+                "query_current_flow_draft",
+                draft=session_state.current_flow_draft,
+            )
+            return _flow_result(
+                result,
+                raw_text=raw_text,
+                tool_name="query_current_flow_draft",
+                session_state=session_state,
+            )
+        if _is_editing_flow(session_state) and _looks_like_flow_context_followup(route_text):
             result = self.registry.call(
                 "query_current_flow_draft",
                 draft=session_state.current_flow_draft,
@@ -189,11 +214,78 @@ class LocalToolCallingRunner:
                     "tool_result": compound.to_dict(),
                 },
             )
+        if _looks_like_command_catalog_query(route_text):
+            catalog = self.registry.call("query_command_catalog", text=route_text)
+            if catalog.ok:
+                return _tool_result(
+                    catalog,
+                    raw_text=raw_text,
+                    route_text=route_text,
+                    applied_memories=applied_memories,
+                    kind="command_catalog",
+                    tool_name="query_command_catalog",
+                )
+
+        dashboard = self.registry.call("query_dashboard_section", text=route_text)
+        if dashboard.ok and _looks_like_non_execution_dashboard_query(route_text):
+            return AgentOrchestratorResult(
+                kind="dashboard_query_action",
+                message=dashboard.message,
+                payload={
+                    "kind": "dashboard_query_action",
+                    "action_type": str(dashboard.data.get("action_type", "query") or "query"),
+                    "target": str(dashboard.data.get("target", "") or ""),
+                    "text": dashboard.message,
+                    "raw_text": raw_text,
+                    "normalized_text": route_text,
+                    "applied_memories": [dict(item) for item in applied_memories],
+                    "generates_command": False,
+                    "tool_name": "query_dashboard_section",
+                    "tool_result": dashboard.to_dict(),
+                },
+            )
+
+        chat = self.registry.call("explain_text", text=route_text)
+        if chat.ok:
+            return _tool_result(
+                chat,
+                raw_text=raw_text,
+                route_text=route_text,
+                applied_memories=applied_memories,
+                kind="chat_answer",
+                tool_name="explain_text",
+            )
+
         if _looks_like_memory_setting(route_text):
             return self._fallback("疑似参数或记忆设置文本，交回兼容 AgentOrchestrator。")
+        missing_wake = _missing_wake_word_for_execution_text(route_text)
+        if missing_wake is not None:
+            return missing_wake
         if _looks_like_control_command(route_text):
             if not self.registry.control_tools_enabled:
                 return self._fallback("控制类工具未启用，交回兼容 AgentOrchestrator。")
+            atomic = self.registry.call("apply_atomic_template", text=route_text)
+            if atomic.ok:
+                record = _query_record_from_tool_data(atomic.data.get("query_record"))
+                return AgentOrchestratorResult(
+                    kind="atomic_template_action",
+                    message=atomic.message,
+                    payload={
+                        "kind": "atomic_template_action",
+                        "action_type": str(atomic.data.get("action_type", "") or "atomic_template"),
+                        "target": str(atomic.data.get("target", "") or ""),
+                        "text": atomic.message,
+                        "raw_text": raw_text,
+                        "normalized_text": route_text,
+                        "applied_memories": [dict(item) for item in applied_memories],
+                        "record": record,
+                        "requires_confirmation": bool(atomic.data.get("requires_confirmation", True)),
+                        "risk_level": str(atomic.data.get("risk_level", "") or ""),
+                        "generates_command": True,
+                        "tool_name": "apply_atomic_template",
+                        "tool_result": atomic.to_dict(),
+                    },
+                )
             system = self.registry.call("build_system_action_draft", text=route_text)
             if system.ok:
                 return AgentOrchestratorResult(
@@ -261,6 +353,18 @@ class LocalToolCallingRunner:
                 )
             return self._fallback("疑似控制或参数设置文本，交回兼容 AgentOrchestrator。")
 
+        if _looks_like_command_catalog_query(route_text):
+            catalog = self.registry.call("query_command_catalog", text=route_text)
+            if catalog.ok:
+                return _tool_result(
+                    catalog,
+                    raw_text=raw_text,
+                    route_text=route_text,
+                    applied_memories=applied_memories,
+                    kind="command_catalog",
+                    tool_name="query_command_catalog",
+                )
+
         dashboard = self.registry.call("query_dashboard_section", text=route_text)
         if dashboard.ok:
             return AgentOrchestratorResult(
@@ -282,22 +386,24 @@ class LocalToolCallingRunner:
 
         chat = self.registry.call("explain_text", text=route_text)
         if chat.ok:
-            return AgentOrchestratorResult(
+            return _tool_result(
+                chat,
+                raw_text=raw_text,
+                route_text=route_text,
+                applied_memories=applied_memories,
                 kind="chat_answer",
-                message=chat.message,
-                payload={
-                    "kind": "chat_answer",
-                    "text": chat.message,
-                    "raw_text": raw_text,
-                    "normalized_text": route_text,
-                    "applied_memories": [dict(item) for item in applied_memories],
-                    "generates_command": False,
-                    "tool_name": "explain_text",
-                    "tool_result": chat.to_dict(),
-                },
+                tool_name="explain_text",
             )
 
-        return self._fallback("本地工具 runner 未匹配到安全非执行工具。")
+        missing_wake = _missing_wake_word_for_execution_text(route_text)
+        if missing_wake is not None:
+            return missing_wake
+        return _clarification_result(
+            raw_text=raw_text,
+            route_text=route_text,
+            applied_memories=applied_memories,
+            message="请补充明确的问题、状态查询或控制指令。没有触发机械手动作。",
+        )
 
     @staticmethod
     def _fallback(reason: str) -> AgentOrchestratorResult:
@@ -355,6 +461,115 @@ def _confirm_result(result: ToolResult, *, raw_text: str, tool_name: str, kind: 
     )
 
 
+def _tool_result(
+    result: ToolResult,
+    *,
+    raw_text: str,
+    route_text: str,
+    applied_memories: tuple[dict[str, Any], ...],
+    kind: str,
+    tool_name: str,
+) -> AgentOrchestratorResult:
+    return AgentOrchestratorResult(
+        kind=kind,
+        message=result.message,
+        payload={
+            "kind": kind,
+            "text": result.message,
+            "raw_text": raw_text,
+            "normalized_text": route_text,
+            "applied_memories": [dict(item) for item in applied_memories],
+            "generates_command": False,
+            "tool_name": tool_name,
+            "tool_result": result.to_dict(),
+        },
+    )
+
+
+def _clarification_result(
+    *,
+    raw_text: str,
+    route_text: str,
+    applied_memories: tuple[dict[str, Any], ...],
+    message: str,
+) -> AgentOrchestratorResult:
+    return AgentOrchestratorResult(
+        kind="clarification",
+        message=message,
+        payload={
+            "kind": "clarification",
+            "text": message,
+            "raw_text": raw_text,
+            "normalized_text": route_text,
+            "applied_memories": [dict(item) for item in applied_memories],
+            "generates_command": False,
+        },
+    )
+
+
+def _missing_wake_word_for_execution_text(text: str) -> AgentOrchestratorResult | None:
+    understanding_agent = CommandUnderstandingAgent()
+    understanding = understanding_agent.understand(text)
+    if AgentOrchestrator._has_wake_word(text):
+        return None
+    if AgentOrchestrator._looks_like_non_execution_question(text):
+        return None
+    if AgentOrchestrator._execution_intent_requires_wake_word(understanding):
+        return _missing_wake_word_result(text, understanding)
+    wake_checked = understanding_agent.understand(f"小正，{text}")
+    if AgentOrchestrator._execution_intent_requires_wake_word(wake_checked):
+        return _missing_wake_word_result(text, wake_checked)
+    if AgentOrchestrator._atomic_template_text_requires_wake_word(text):
+        return _missing_wake_word_result(text, wake_checked)
+    return None
+
+
+def _missing_wake_word_result(text: str, understanding: CommandUnderstandingResult) -> AgentOrchestratorResult:
+    return AgentOrchestratorResult(
+        kind="clarification",
+        message="生产执行指令缺少“小正或小兵”唤醒词，未执行。请带唤醒词重新下发生产指令。",
+        payload={
+            "kind": "clarification",
+            "reason": "missing_wake_word",
+            "needs_model": False,
+            "generates_command": False,
+            "raw_text": str(text or ""),
+            "normalized_text": str(text or ""),
+            "understanding": {
+                "raw_text": str(getattr(understanding, "raw_text", "") or text or ""),
+                "intent": str(getattr(understanding, "intent", "") or ""),
+                "func_id": getattr(understanding, "func_id", None),
+                "confidence": float(getattr(understanding, "confidence", 0.0) or 0.0),
+                "clarification": str(getattr(understanding, "clarification", "") or ""),
+                "bypass_completion": bool(getattr(understanding, "bypass_completion", False)),
+            },
+        },
+    )
+
+
+def _query_record_from_tool_data(value: Any) -> QueryRecord | None:
+    if isinstance(value, QueryRecord):
+        return value
+    if not isinstance(value, dict):
+        return None
+    query_key = str(value.get("query_key", "") or "")
+    if not query_key:
+        return None
+    try:
+        func_num = int(value.get("func_num", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    params = value.get("params")
+    return QueryRecord(
+        query_key=query_key,
+        func_num=func_num,
+        params=dict(params or {}) if isinstance(params, dict) else {},
+        keywords=str(value.get("keywords", "") or ""),
+        description=str(value.get("description", "") or ""),
+        safety_level=int(value.get("safety_level", 5) or 5),
+    )
+
+
 def _feedback_result(result: ToolResult, *, raw_text: str, tool_name: str, kind: str) -> AgentOrchestratorResult:
     return AgentOrchestratorResult(
         kind=kind,
@@ -403,6 +618,20 @@ def _looks_like_confirm_execution(text: str) -> bool:
     return compact in {"确认", "确认执行", "执行确认", "可以执行", "确认运行", "开始执行"} or (
         "确认" in compact and any(word in compact for word in ("执行", "运行", "计划", "草案"))
     )
+
+
+def _looks_like_positive_pending_ack(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    return compact in {"好的", "好", "可以", "行", "嗯", "嗯嗯", "那就这个", "就这个", "就这样", "可以了"}
+
+
+def _looks_like_followup_execute(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if not any(word in compact for word in ("执行", "运行", "开始")):
+        return False
+    return any(word in compact for word in ("刚刚", "刚才", "上一个", "上次", "这个", "它", "刚创建", "刚才创建"))
 
 
 def _looks_like_cancel_execution(text: str) -> bool:
@@ -468,6 +697,15 @@ def _looks_like_query_flow(text: str) -> bool:
     if not compact:
         return False
     return any(word in compact for word in ("查看流程", "看一下流程", "当前流程", "看看流程", "流程草案", "刚刚的流程"))
+
+
+def _looks_like_flow_context_followup(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if any(word in compact for word in ("为什么", "怎么回事", "哪里", "刚才", "刚刚")):
+        return True
+    return any(word in compact for word in ("对呀", "肯定", "当然", "是的", "用我的坐标", "就用这个"))
 
 
 def _looks_like_edit_flow_params(text: str) -> bool:
@@ -545,6 +783,57 @@ def _looks_like_memory_setting(text: str) -> bool:
     if re.search(r"(速度|加速度|减速度|加速|减速|步长)\-?\d+(?:\.\d+)?%?", compact):
         return not _has_motion_marker(compact)
     return False
+
+
+def _looks_like_command_catalog_query(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if not any(word in compact for word in ("命令", "流程", "模板")):
+        return False
+    return any(
+        marker in compact
+        for marker in (
+            "有哪些",
+            "有什么",
+            "支持哪些",
+            "可用",
+            "列表",
+            "所有",
+            "全部",
+            "多少个",
+            "几个",
+            "命令和流程",
+            "流程和命令",
+        )
+    )
+
+
+def _looks_like_non_execution_dashboard_query(text: str) -> bool:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if re.search(r"(速度|加速度|减速度|高度|X|Y|Z|RX|RY|RZ)-?\d+(?:\.\d+)?%?", compact, flags=re.IGNORECASE):
+        return False
+    if re.search(r"(升高|降低|上升|下降|前进|后退|左移|右移)-?\d+(?:\.\d+)?", compact):
+        return False
+    return any(
+        marker in compact
+        for marker in (
+            "吗",
+            "为什么",
+            "状态",
+            "就绪",
+            "报警",
+            "不能",
+            "风险",
+            "正常",
+            "进度",
+            "到哪",
+            "怎么样",
+            "什么原因",
+        )
+    )
 
 
 def _has_motion_marker(text: str) -> bool:

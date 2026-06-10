@@ -357,6 +357,32 @@ def test_prepare_registered_flow_execution_returns_gate_bound_draft(tmp_path):
     assert result.data["entry"]["steps"][0]["params"]["target_x"] == 100.0
 
 
+def test_prepare_registered_flow_execution_rejects_unsupported_jog_steps(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    service.save_flow_entry(
+        FlowEntry(
+            name="点头",
+            steps=[
+                FlowStep(step_id=1, action="移动到位置A", func_id=108, params={"target_x": 100.0}),
+                FlowStep(step_id=2, action="小臂点头", func_id=107, params={"axis_no": 10, "pos_val": 15.0}),
+            ],
+        )
+    )
+
+    result = prepare_registered_flow_execution(service, "点头")
+
+    assert result.ok is False
+    assert result.state == "registered_flow_unsupported_steps"
+    assert result.errors[0]["code"] == "REGISTERED_FLOW_UNSUPPORTED_STEPS"
+    assert result.data["unsupported_steps"] == [{"step_id": 2, "func_id": 107, "action": "小臂点头"}]
+    assert result.data["generates_command"] is False
+
+
 def test_query_current_draft_returns_structured_draft():
     service = ExecutionPlanService()
     set_flow_draft(service, _draft_missing_pose())

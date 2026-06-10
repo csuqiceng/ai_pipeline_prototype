@@ -6,6 +6,8 @@ from robot_modbus_lite.agent_runtime.tool_calling_agent import build_local_tool_
 from robot_modbus_lite.agent.confirmation import ConfirmationAgent
 from robot_modbus_lite.agent.parameter_completion import ControllerSnapshot
 from robot_modbus_lite.execution_plan_service import ExecutionPlanService
+from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
+from robot_modbus_lite.models import QueryRecord
 from robot_modbus_lite.service import RobotModbusService
 
 
@@ -32,6 +34,158 @@ def test_local_tool_runner_answers_chat_through_tool_registry():
     assert "机械手自然语言交互助手" in result.message
     assert result.payload["tool_name"] == "explain_text"
     assert result.payload["tool_result"]["state"] == "chat_explained"
+
+
+def test_local_tool_runner_answers_capability_question_without_legacy_fallback():
+    runner = LocalToolCallingRunner(LocalToolRegistry())
+
+    result = runner("那你到底能做什么", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "chat_answer"
+    assert result.payload["tool_name"] == "explain_text"
+    assert result.payload["generates_command"] is False
+    assert "机械手" in result.message
+
+
+def test_local_tool_runner_answers_status_readiness_without_legacy_fallback():
+    runner = LocalToolCallingRunner(LocalToolRegistry())
+
+    result = runner("系统就绪了吗", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "dashboard_query_action"
+    assert result.payload["tool_name"] == "query_dashboard_section"
+    assert result.payload["generates_command"] is False
+    assert "就绪" in result.message or "状态" in result.message
+
+
+def test_local_tool_runner_answers_why_cannot_move_without_control_fallback():
+    runner = LocalToolCallingRunner(LocalToolRegistry())
+
+    result = runner("为什么不能走", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "dashboard_query_action"
+    assert result.payload["tool_name"] == "query_dashboard_section"
+    assert result.payload["generates_command"] is False
+    assert "状态" in result.message or "安全" in result.message or "原因" in result.message
+
+
+def test_local_tool_runner_returns_clarification_for_empty_or_junk_without_legacy_fallback():
+    runner = LocalToolCallingRunner(LocalToolRegistry())
+
+    empty = runner("", SessionState(thread_id="session-1"), build_local_tool_specs())
+    junk = runner("!!!@@@###", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert empty.kind == "clarification"
+    assert junk.kind == "clarification"
+    assert empty.payload["generates_command"] is False
+    assert junk.payload["generates_command"] is False
+
+
+def test_local_tool_runner_answers_command_catalog_from_local_data(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    service.table["move_a"] = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        description="移动到位置A",
+        params={"target_x": 100.0, "target_y": 0.0, "target_z": 100.0},
+    )
+    service.save_flow_entry(FlowEntry(name="点头", steps=[FlowStep(step_id=1, action="移动到位置A", func_id=108)]))
+    runner = LocalToolCallingRunner(LocalToolRegistry(flow_service=service))
+
+    result = runner("我有哪些命令", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "command_catalog"
+    assert result.payload["tool_name"] == "query_command_catalog"
+    assert result.payload["tool_result"]["state"] == "command_catalog_loaded"
+    assert "当前共有 1 个流程" in result.message
+    assert "移动到位置A" in result.message
+    assert "二次原子函数能力" not in result.message
+
+
+def test_local_tool_runner_routes_position_template_to_atomic_tool(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    service.table["位置A"] = QueryRecord(
+        query_key="位置A",
+        func_num=108,
+        description="移动到位置A",
+        keywords="A点 位置A",
+        params={"target_x": 1000.0, "target_y": 0.0, "target_z": 800.0},
+    )
+    runner = LocalToolCallingRunner(LocalToolRegistry(flow_service=service))
+
+    result = runner("小正，移动到位置a", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "atomic_template_action"
+    assert result.payload["tool_name"] == "apply_atomic_template"
+    assert result.payload["tool_result"]["state"] == "atomic_template_applied"
+    assert result.payload["tool_result"]["data"]["query_record"]["query_key"] == "位置A"
+    assert result.payload["generates_command"] is True
+
+
+def test_local_tool_runner_answers_flow_context_question_after_clarification(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    plan_service = ExecutionPlanService()
+    runner = LocalToolCallingRunner(LocalToolRegistry(flow_service=service, execution_plan_service=plan_service))
+    specs = build_local_tool_specs()
+    state = SessionState(thread_id="session-1")
+    for text in (
+        "你好，我先创建一个新的流程",
+        "现在流程名字叫测试",
+        "添加第一步是移动到位置 A",
+        "我觉得坐标是 X 一百 Y0 Z100 速度 50",
+    ):
+        result = runner(text, state, specs)
+        state = SessionState.from_dict(result.payload["session_state"])
+
+    followup = runner("为什么也，为什么为什么又在哄呢", state, specs)
+
+    assert followup.kind == "flow_draft"
+    assert followup.payload["tool_name"] == "query_current_flow_draft"
+    assert "测试" in followup.message
+    assert "请补充明确的问题" not in followup.message
+
+
+def test_local_tool_runner_acknowledges_flow_coordinates_after_clarification(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    plan_service = ExecutionPlanService()
+    runner = LocalToolCallingRunner(LocalToolRegistry(flow_service=service, execution_plan_service=plan_service))
+    specs = build_local_tool_specs()
+    state = SessionState(thread_id="session-1")
+    for text in (
+        "你好，我先创建一个新的流程",
+        "现在流程名字叫测试",
+        "添加第一步是移动到位置 A",
+        "我觉得坐标是 X 一百 Y0 Z100 速度 50",
+    ):
+        result = runner(text, state, specs)
+        state = SessionState.from_dict(result.payload["session_state"])
+
+    followup = runner("对呀，那肯定用我的坐标呀", state, specs)
+
+    assert followup.kind == "flow_draft"
+    assert followup.payload["tool_name"] == "query_current_flow_draft"
+    assert "移动到位置A" in followup.message
+    assert "请补充明确的问题" not in followup.message
 
 
 def test_local_tool_runner_routes_dashboard_query_through_tool_registry():
@@ -303,6 +457,17 @@ def test_local_tool_runner_rejects_confirm_execution_without_pending_plan():
     assert "没有" in result.message
 
 
+def test_local_tool_runner_rejects_followup_execute_without_pending_context():
+    runner = LocalToolCallingRunner(LocalToolRegistry())
+
+    result = runner("我要执行我刚刚创建的命令", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "followup_rejected"
+    assert result.payload["tool_name"] == "query_pending_confirm"
+    assert result.payload["generates_command"] is False
+    assert "当前没有待确认计划" in result.message
+
+
 def test_local_tool_runner_confirms_pending_plan_through_tool_registry():
     agent = ConfirmationAgent(timeout_sec=60)
     now = iter([10.0, 20.0])
@@ -337,6 +502,40 @@ def test_local_tool_runner_confirms_pending_plan_through_tool_registry():
     assert result.payload["tool_result"]["state"] == "confirmed"
     assert result.payload["tool_result"]["data"]["query_record"]["func_num"] == 109
     assert result.payload["generates_command"] is False
+
+
+def test_local_tool_runner_treats_positive_ack_as_confirm_when_pending_exists():
+    agent = ConfirmationAgent(timeout_sec=60)
+    now = iter([10.0, 20.0])
+    registry = LocalToolRegistry(
+        confirmation_agent=agent,
+        clock=lambda: next(now),
+        status_signature_provider=lambda: "status-1",
+        safety_signature_provider=lambda: "safety-1",
+    )
+    draft = {
+        "draft_id": "draft-1",
+        "func_id": 109,
+        "intent": "delay_blocking",
+        "params": {"delay_sec": 2.0},
+        "param_sources": {"delay_sec": "specified"},
+        "raw_text": "等待2秒",
+        "confidence": 0.95,
+    }
+    registry.call("create_pending_confirm", draft=draft)
+    runner = LocalToolCallingRunner(registry)
+    state = SessionState(
+        thread_id="session-1",
+        mode="waiting_confirm",
+        pending_confirm={"draft_id": "draft-1", "expires_at": 70.0},
+        pending_execution=draft,
+    )
+
+    result = runner("好的", state, build_local_tool_specs())
+
+    assert result.kind == "confirm_result"
+    assert result.payload["tool_name"] == "confirm_pending_plan"
+    assert result.payload["tool_result"]["state"] == "confirmed"
 
 
 def test_local_tool_runner_rejects_cancel_without_pending_plan():
@@ -546,6 +745,21 @@ def test_local_tool_runner_routes_single_control_command_to_command_draft_tool()
     assert result.payload.draft.params["target_x"] == 100.0
     assert result.payload.draft.params["acc_pct"] == 20.0
     assert result.payload.precheck_result == {}
+
+
+def test_local_tool_runner_routes_lowercase_equal_cartesian_command_to_confirmation():
+    runner = LocalToolCallingRunner(LocalToolRegistry(controller_snapshot_provider=_snapshot))
+
+    result = runner("小正，移动到x=1000,y=0,z=1500", SessionState(thread_id="session-1"), build_local_tool_specs())
+
+    assert result.kind == "restricted_agent"
+    assert result.payload.kind == "waiting_confirmation"
+    assert result.payload.draft.func_id == 108
+    assert result.payload.draft.params["target_x"] == 1000.0
+    assert result.payload.draft.params["target_y"] == 0.0
+    assert result.payload.draft.params["target_z"] == 1500.0
+    assert result.payload.draft.params["target_rx"] == 0.0
+    assert result.payload.draft.params["spd_pct"] == 30.0
 
 
 def test_local_tool_runner_routes_height_increment_to_func108_confirmation():

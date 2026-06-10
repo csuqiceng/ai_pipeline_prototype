@@ -33,6 +33,7 @@ class ControllerSnapshot:
     safety_params: dict[str, float] = field(default_factory=dict)
     is_moving: bool = False
     read_ok: bool = True
+    moving_reasons: tuple[str, ...] = ()
 
 
 class ParameterCompletionAgent:
@@ -57,7 +58,7 @@ class ParameterCompletionAgent:
 
         snapshot = self._snapshot_provider()
         if snapshot.is_moving:
-            raise ParameterCompletionError("当前设备运动中，请等待停止后再继承当前位置。")
+            raise ParameterCompletionError(self._moving_error_message(snapshot, "请等待停止后再生成移动草案。"))
         if not snapshot.read_ok:
             raise ParameterCompletionError("控制器实时值不可用，无法补全运动参数。")
 
@@ -111,7 +112,7 @@ class ParameterCompletionAgent:
 
         snapshot = self._snapshot_provider()
         if snapshot.is_moving:
-            raise ParameterCompletionError("当前设备运动中，请等待停止后再生成点动草案。")
+            raise ParameterCompletionError(self._moving_error_message(snapshot, "请等待停止后再生成点动草案。"))
         if not snapshot.read_ok:
             raise ParameterCompletionError("控制器实时值不可用，无法补全点动参数。")
 
@@ -143,6 +144,12 @@ class ParameterCompletionAgent:
             raw_text=result.raw_text,
             confidence=result.confidence,
         )
+
+    @staticmethod
+    def _moving_error_message(snapshot: ControllerSnapshot, suffix: str) -> str:
+        reasons = tuple(str(item).strip() for item in getattr(snapshot, "moving_reasons", ()) if str(item).strip())
+        detail = f"触发字段：{'; '.join(reasons)}。" if reasons else ""
+        return f"当前设备运动中，{detail}{suffix}"
 
     @staticmethod
     def _complete_pose(

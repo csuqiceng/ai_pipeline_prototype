@@ -7,6 +7,7 @@ from robot_modbus_lite.agent.confirmation import ConfirmationAgent
 from robot_modbus_lite.agent.parameter_completion import ControllerSnapshot
 from robot_modbus_lite.execution_plan_service import ExecutionPlanService
 from robot_modbus_lite.flow_registry import FlowEntry, FlowStep
+from robot_modbus_lite.models import QueryRecord
 from robot_modbus_lite.permission_service import PermissionService
 from robot_modbus_lite.position_registry import PositionRegistry
 from robot_modbus_lite.service import RobotModbusService
@@ -109,6 +110,30 @@ def test_local_tool_registry_calls_atomic_template_tool():
     assert result.state == "atomic_template_applied"
     assert result.data["query_record"]["query_key"] == "atomic:position:A"
     assert result.data["generates_command"] is False
+
+
+def test_local_tool_registry_applies_atomic_template_from_flow_service_table(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    service.table["位置A"] = QueryRecord(
+        query_key="位置A",
+        func_num=108,
+        description="移动到位置A",
+        keywords="A点 位置A",
+        params={"target_x": 1000.0, "target_y": 0.0, "target_z": 800.0},
+    )
+    registry = LocalToolRegistry(flow_service=service)
+
+    result = registry.call("apply_atomic_template", text="小正，移动到位置a")
+
+    assert result.ok is True
+    assert result.state == "atomic_template_applied"
+    assert result.data["query_record"]["query_key"] == "位置A"
+    assert result.data["query_record"]["func_num"] == 108
 
 
 def test_local_tool_registry_calls_draft_to_query_record_tool():
@@ -437,6 +462,38 @@ def test_local_tool_registry_calls_registered_flow_tools(tmp_path):
     assert prepared.state == "registered_flow_execution_draft"
     assert prepared.data["requires_execution_gate"] is True
     assert prepared.data["generates_command"] is False
+
+
+def test_local_tool_registry_queries_local_command_catalog_from_flow_service(tmp_path):
+    service = RobotModbusService(
+        "unused.csv",
+        flows_path=tmp_path / "flows.json",
+        flow_registry_path=tmp_path / "flow_registry.json",
+        table={},
+    )
+    service.table["move_a"] = QueryRecord(
+        query_key="move_a",
+        func_num=108,
+        description="移动到位置A",
+        params={"target_x": 100.0, "target_y": 0.0, "target_z": 100.0},
+    )
+    service.save_flow_entry(
+        FlowEntry(
+            name="点头",
+            steps=[FlowStep(step_id=1, action="移动到位置A", func_id=108, params={"query_key": "move_a"})],
+        )
+    )
+    registry = LocalToolRegistry(flow_service=service)
+
+    result = registry.call("query_command_catalog", text="我有哪些命令")
+
+    assert result.ok is True
+    assert result.state == "command_catalog_loaded"
+    assert result.data["flow_names"] == ["点头"]
+    assert result.data["templates"][0]["query_key"] == "move_a"
+    assert "当前共有 1 个流程" in result.message
+    assert "移动到位置A" in result.message
+    assert "小正，执行点头流程" in result.message
 
 
 def test_local_tool_registry_calls_memory_tools(tmp_path):

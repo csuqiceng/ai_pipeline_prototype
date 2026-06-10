@@ -97,6 +97,74 @@ def test_replay_interaction_logs_flags_success_with_clarification_nlp_result(tmp
     ]
 
 
+def test_replay_interaction_logs_does_not_flag_clarification_examples_as_action_promise(tmp_path):
+    path = tmp_path / "interaction_session_clarification_example.jsonl"
+    _write_jsonl(
+        path,
+        [
+            {
+                "msg_id": "clarify-1",
+                "input": {"raw_text": "小正，移动到位置a"},
+                "nlp_result": {"engine": "agent_orchestrator", "intent": "unknown", "action_type": "clarification"},
+                "execution": {"result": "skipped", "modbus_write": {}},
+                "response": {
+                    "final": "未识别位置“a”，请补充具体坐标、相对方向或已保存位置名称，如：移动到x=1000,y=0,z=1500"
+                },
+            }
+        ],
+    )
+
+    report = analyze_interaction_logs([path])
+
+    assert report.ok is True
+
+
+def test_replay_interaction_logs_flags_negative_flow_reference_answered_as_flow_detail(tmp_path):
+    path = tmp_path / "interaction_session_negative_flow.jsonl"
+    _write_jsonl(
+        path,
+        [
+            {
+                "msg_id": "neg-flow-1",
+                "input": {"raw_text": "不是点头流程"},
+                "nlp_result": {"engine": "context_query", "intent": "flow_query"},
+                "execution": {"result": "skipped", "modbus_write": {}},
+                "response": {"final": "流程“点头”共 10 步：\n01 移动到位置A\n02 小臂上下点头"},
+            }
+        ],
+    )
+
+    report = analyze_interaction_logs([path])
+
+    assert report.ok is False
+    assert [(item.msg_id, item.code) for item in report.violations] == [
+        ("neg-flow-1", "NO_NEGATED_FLOW_DETAIL")
+    ]
+
+
+def test_replay_interaction_logs_flags_followup_execute_without_pending_context(tmp_path):
+    path = tmp_path / "interaction_session_followup_execute.jsonl"
+    _write_jsonl(
+        path,
+        [
+            {
+                "msg_id": "follow-1",
+                "input": {"raw_text": "我要执行我刚刚创建的命令"},
+                "nlp_result": {"engine": "streaming_chat", "intent": "chat"},
+                "execution": {"result": "skipped", "modbus_write": {}},
+                "response": {"final": "当前流程是点头，请确认是否执行点头流程。"},
+            }
+        ],
+    )
+
+    report = analyze_interaction_logs([path])
+
+    assert report.ok is False
+    assert [(item.msg_id, item.code) for item in report.violations] == [
+        ("follow-1", "NO_FOLLOWUP_EXECUTE_WITHOUT_PENDING")
+    ]
+
+
 def test_replay_interaction_logs_expands_directories(tmp_path):
     path = tmp_path / "interaction_session_nested.jsonl"
     legacy_path = tmp_path / "session_legacy.jsonl"

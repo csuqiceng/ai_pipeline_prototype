@@ -1,0 +1,30 @@
+{
+  "version": "1.1",
+  "updated_at": "2026-06-10T10:47:43.211341",
+  "flows": [
+    {
+      "name": "点头",
+      "description": "",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "移动到位置A",
+          "func_id": 108,
+          "params": {},
+          "position_name": null,
+          "spd_pct": 50,
+          "description": ""
+        }
+      ],
+      "step_delay_ms": 1000,
+      "rehearsal_spd": 20,
+      "confirmed": false,
+      "created_by": "operator",
+      "version": 1,
+      "state": "idle",
+      "current_step": 0,
+      "created_at": "2026-06-10T10:41:26.839021",
+      "updated_at": "2026-06-10T10:47:43.211341"
+    }
+  ]
+}

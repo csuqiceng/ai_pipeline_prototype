@@ -53,6 +53,25 @@ def test_operator_bridge_applies_active_memory_and_updates_state(tmp_path):
     assert state.applied_memories[0]["memory_id"] == candidate["memory_id"]
 
 
+def test_operator_bridge_retries_raw_text_when_memory_normalization_breaks_system_action(tmp_path):
+    bridge = OperatorAgentRuntimeBridge(runtime_root=tmp_path, langchain_available=False)
+    candidate = bridge.memory_store().create_candidate(
+        kind="text_alias",
+        key="取消当前",
+        value={"normalized": "停止"},
+    )
+    bridge.memory_store().approve_memory(candidate["memory_id"], reviewer="engineer")
+
+    result = bridge.handle_text(
+        "取消当前动作",
+        thread_id="session-1",
+        legacy_fallback=lambda text: AgentOrchestratorResult(kind="legacy", message=text),
+    )
+
+    assert result.kind == "restricted_agent"
+    assert result.payload.intent == "sys_cancel"
+
+
 def test_operator_bridge_imports_json_seed_memory_from_runtime_data(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -954,6 +973,24 @@ def test_operator_bridge_default_local_runtime_records_command_draft_into_pendin
     assert state.current_intent == "move_linear"
     assert state.pending_execution["draft_id"]
     assert state.pending_execution["params"]["target_x"] == 100.0
+
+
+def test_operator_bridge_rejects_followup_execute_without_pending_context(tmp_path):
+    bridge = OperatorAgentRuntimeBridge(runtime_root=tmp_path)
+
+    result = bridge.handle_text(
+        "我要执行我刚刚创建的命令",
+        thread_id="session-1",
+        legacy_fallback=lambda text: AgentOrchestratorResult(kind="legacy", message="legacy"),
+    )
+
+    state = bridge.session_state("session-1")
+    assert result.kind == "followup_rejected"
+    assert result.payload["tool_name"] == "query_pending_confirm"
+    assert "当前没有待确认计划" in result.message
+    assert state.last_tool_call["tool_name"] == "query_pending_confirm"
+    assert state.pending_confirm == {}
+    assert state.pending_execution == {}
 
 
 def test_operator_bridge_default_local_runtime_creates_pending_confirm_when_dependencies_available(tmp_path):

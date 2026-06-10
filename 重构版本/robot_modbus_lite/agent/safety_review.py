@@ -37,7 +37,10 @@ class SafetyReviewAgent:
         l1 = self.l1_service.run_l1(snapshot, l1_plan)
         items = [dict(item) for item in l1.get("items", [])]
         if l1.get("status") != "pass":
-            summary = self._failure_summary("L1预检未通过。", items)
+            summary = self._with_suggestion(
+                self._failure_summary("L1预检未通过。", items),
+                l1.get("suggestion"),
+            )
             return {
                 "valid": False,
                 "status": "fail",
@@ -171,6 +174,14 @@ class SafetyReviewAgent:
         if not failed_messages:
             return prefix
         return f"{prefix}失败项：" + "；".join(failed_messages[:3])
+
+    @staticmethod
+    def _with_suggestion(summary: str, suggestion: Any) -> str:
+        text = str(summary or "").strip()
+        suggestion_text = str(suggestion or "").strip()
+        if not suggestion_text or suggestion_text in text:
+            return text
+        return f"{text} 建议：{suggestion_text}"
 
     @staticmethod
     def _target_pose(draft: CommandDraft) -> tuple[float, float, float, float, float, float]:

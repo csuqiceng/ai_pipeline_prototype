@@ -530,6 +530,7 @@ _TOOL_ARG_MODELS: dict[str, type[BaseModel]] = {
     "set_flow_draft": DraftArgs,
     "query_current_flow_draft": QueryFlowDraftArgs,
     "cancel_flow_draft": EmptyArgs,
+    "query_command_catalog": TextArgs,
     "query_dashboard_section": TextArgs,
     "get_axis_status": AxisStatusArgs,
     "get_alarm": StatusSnapshotArgs,

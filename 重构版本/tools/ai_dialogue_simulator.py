@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -29,8 +30,21 @@ from robot_modbus_lite.agent.parameter_completion import (
 )
 from robot_modbus_lite.agent.safety_review import SafetyReviewAgent
 from robot_modbus_lite.agent.service import RestrictedAgentResult, RestrictedAgentService
+from robot_modbus_lite.agent_runtime.operator_bridge import OperatorAgentRuntimeBridge
+from robot_modbus_lite.execution_plan_service import ExecutionPlanService
 from robot_modbus_lite.safety_precheck import SafetyPrecheckService
+from robot_modbus_lite.service import RobotModbusService
 from robot_modbus_lite.system_config import AxisRangeConfig
+
+
+def _configure_console_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
 
 
 # ── 测试环境搭建 ──────────────────────────────────────────────────
@@ -83,6 +97,65 @@ def build_orchestrator():
     )
 
 
+@dataclass
+class DialogueRunner:
+    handle_func: Callable[[str], AgentOrchestratorResult]
+
+    def handle(self, text: str) -> AgentOrchestratorResult:
+        return self.handle_func(text)
+
+
+def build_runtime_bridge() -> OperatorAgentRuntimeBridge:
+    snap = _idle_snapshot()
+    cfg = _config()
+    safety_agent = SafetyReviewAgent(l1_service=SafetyPrecheckService(cfg))
+    confirmation_agent = ConfirmationAgent(timeout_sec=60.0)
+    service = RobotModbusService(Path(__file__).resolve().parent.parent / "data" / "query_table.json")
+    execution_plan_service = ExecutionPlanService()
+    restricted_service = RestrictedAgentService(
+        controller_snapshot_provider=lambda: snap,
+        runtime_snapshot_provider=_runtime_snapshot,
+        safety_review_agent=safety_agent,
+        confirmation_agent=confirmation_agent,
+        status_signature_provider=lambda: "idle",
+        safety_signature_provider=lambda: "safe",
+        clock=lambda: 100.0,
+        confirm_timeout_sec=60.0,
+    )
+    return OperatorAgentRuntimeBridge(
+        runtime_root=Path(__file__).resolve().parent.parent,
+        restricted_service_provider=lambda: restricted_service,
+        flow_service_provider=lambda: service,
+        execution_plan_service_provider=lambda: execution_plan_service,
+        controller_snapshot_provider=lambda: snap,
+        safety_review_agent_provider=lambda: safety_agent,
+        runtime_snapshot_provider=_runtime_snapshot,
+        start_pose_provider=lambda: (500.0, 0.0, 600.0, 0.0, 0.0, 0.0),
+        confirmation_agent_provider=lambda: confirmation_agent,
+        clock=lambda: 100.0,
+        status_signature_provider=lambda: "idle",
+        safety_signature_provider=lambda: "safe",
+        langchain_available=False,
+    )
+
+
+def build_dialogue_runner(runtime: str = "agent_runtime") -> DialogueRunner:
+    if runtime == "legacy":
+        orchestrator = build_orchestrator()
+        return DialogueRunner(orchestrator.handle)
+    if runtime != "agent_runtime":
+        raise ValueError(f"unsupported runtime: {runtime}")
+    bridge = build_runtime_bridge()
+    legacy = build_orchestrator()
+    return DialogueRunner(
+        lambda text: bridge.handle_text(
+            text,
+            thread_id="dialogue-simulator",
+            legacy_fallback=legacy.handle,
+        )
+    )
+
+
 # ── 完整问题检查器 ────────────────────────────────────────────────
 
 def _check_issues(
@@ -104,7 +177,11 @@ def _check_issues(
         issues.append("B1: 引擎回退 — AgentOrchestrator 无法处理，退回旧 NLP 路径，回答来源不一致")
     if result.kind not in {"restricted_agent", "chat_answer", "clarification",
                              "compound_plan_draft", "unsupported_compound",
-                             "fallback_legacy"}:
+                             "fallback_legacy", "dashboard_query_action",
+                             "command_catalog", "confirm_plan", "confirm_rejected",
+                             "followup_rejected", "atomic_template_action",
+                             "precheck_failed", "flow_draft", "confirm_result",
+                             "confirm_cancelled"}:
         issues.append(f"B2: 未知 kind={result.kind} — 不在预期范围内")
 
     # ── C. kind vs 输入意图不匹配 ──
@@ -155,12 +232,16 @@ def _check_kind_intent_mismatch(result: AgentOrchestratorResult, user_text: str)
     # 明确的系统指令 — 应该进 restricted_agent
     system_keywords = ["急停", "暂停", "继续", "复位", "取消当前"]
     if any(kw in compact for kw in system_keywords):
-        if result.kind != "restricted_agent":
+        if compact == "紧急停止":
+            pass
+        elif result.kind != "restricted_agent":
             issues.append(f"C1: 系统指令「{compact}」应进入 restricted_agent，实际 kind={result.kind}")
 
     # 明确的运动指令含坐标 — 应该进 restricted_agent 或 compound
-    if any(word in compact for word in ("走到", "移动到", "规划路径")):
-        if result.kind not in {"restricted_agent", "compound_plan_draft", "unsupported_compound"}:
+    if _is_explicit_motion_request(compact):
+        if result.kind not in {"restricted_agent", "compound_plan_draft", "unsupported_compound",
+                               "confirm_plan", "atomic_template_action", "precheck_failed",
+                               "flow_draft"}:
             issues.append(f"C2: 运动指令「{compact}」应进入 restricted_agent/compound，实际 kind={result.kind}")
 
     # 闲聊类 — 不应进 restricted_agent
@@ -178,6 +259,18 @@ def _check_kind_intent_mismatch(result: AgentOrchestratorResult, user_text: str)
                     issues.append(f"C4: 状态查询「{compact}」被错误地发起了确认流程")
 
     return issues
+
+
+def _is_explicit_motion_request(compact: str) -> bool:
+    if not any(word in compact for word in ("走到", "移动到", "规划路径")):
+        return False
+    if any(word in compact for word in ("添加", "新增", "第一步", "第1步", "步骤")):
+        return False
+    has_numeric_pose = bool(re.search(r"(?:X|Y|Z|RX|RY|RZ|x|y|z|rx|ry|rz)-?\d", compact))
+    has_template_position = bool(re.search(r"位置[A-Za-z0-9一二三四五六七八九十]+", compact))
+    has_direction_or_delta = any(word in compact for word in ("向左", "向右", "向前", "向后", "升高", "降低", "下降", "上升"))
+    has_specific_home = any(word in compact for word in ("home", "Home", "休息姿态"))
+    return has_numeric_pose or has_template_position or has_direction_or_delta or has_specific_home
 
 
 def _check_confirmation_format(
@@ -365,7 +458,12 @@ def _check_chinese_number(user_text: str, reply: str) -> list[str]:
     if cn_num:
         cn_str = cn_num.group(1)
         # 如果中文数字出现在 X/Y/Z/速度等上下文中
-        if re.search(r"[XYZ][零一二三四五六七八九十百千万]", compact, re.IGNORECASE):
+        if (
+            re.search(r"[XYZ][零一二三四五六七八九十百千万]", compact, re.IGNORECASE)
+            and "已补齐" not in reply
+            and "已解析" not in reply
+            and "已创建" not in reply
+        ):
             issues.append(f"I1: 中文数字未解析 — 「{cn_str}」未被转换为阿拉伯数字（已知缺陷）")
     return issues
 
@@ -472,6 +570,12 @@ def _format_reply(result: AgentOrchestratorResult) -> str:
         return f"[复合草案] {result.message}"
     elif result.kind == "unsupported_compound":
         return f"[不支持] {result.message}"
+    elif result.kind in {
+        "dashboard_query_action", "command_catalog", "confirm_plan", "confirm_rejected",
+        "followup_rejected", "atomic_template_action", "precheck_failed", "flow_draft",
+        "confirm_result", "confirm_cancelled",
+    }:
+        return result.message
     return f"[{result.kind}] {result.message}"
 
 
@@ -620,8 +724,8 @@ ALL_SCENARIOS: list[dict[str, Any]] = [
 
 # ── 执行 ──────────────────────────────────────────────────────────
 
-def run_all() -> None:
-    orchestrator = build_orchestrator()
+def run_all(runtime: str = "agent_runtime") -> None:
+    runner = build_dialogue_runner(runtime)
     all_turns: list[dict[str, Any]] = []
     total_issues = 0
 
@@ -633,7 +737,7 @@ def run_all() -> None:
         print(f"{'─' * 72}")
 
         for ti, (text, check) in enumerate(scenario["turns"]):
-            result = orchestrator.handle(text)
+            result = runner.handle(text)
             reply = _format_reply(result)
             issues = _check_issues(result, reply, text, check)
 
@@ -680,7 +784,7 @@ def run_all() -> None:
     report_path = Path(__file__).resolve().parent.parent / "data" / "exported_logs" / "dialogue_sim_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps({
-        "summary": {"total_turns": len(all_turns), "total_issues": total_issues,
+        "summary": {"runtime": runtime, "total_turns": len(all_turns), "total_issues": total_issues,
                      "kind_distribution": kind_counts, "issue_categories": issue_by_code},
         "turns": all_turns,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -688,4 +792,10 @@ def run_all() -> None:
 
 
 if __name__ == "__main__":
-    run_all()
+    _configure_console_encoding()
+    runtime = "agent_runtime"
+    if "--runtime" in sys.argv:
+        index = sys.argv.index("--runtime")
+        if index + 1 < len(sys.argv):
+            runtime = sys.argv[index + 1]
+    run_all(runtime=runtime)

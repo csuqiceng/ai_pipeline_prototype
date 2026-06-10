@@ -174,6 +174,20 @@ class FlowExecutionMixin:
             if on_done:
                 on_done(False)
             return
+        unsupported = self._unsupported_flow_execution_steps(flow)
+        if unsupported:
+            detail = "；".join(
+                f"第{item['index']}步 {item['name']} Func{item['func_id']}" for item in unsupported
+            )
+            self._answer_flow_precheck_warning(
+                f"流程异常：暂不支持步骤: {detail}。"
+                "当前流程执行路径暂时拦截 Func106/Func107 点动步骤；"
+                "这些步骤需要改为受支持的流程动作，或后续放开定量点动流程执行。"
+            )
+            self._append_log("流程", f"流程预检查 {flow.name}", "失败", f"暂不支持步骤: {detail}")
+            if on_done:
+                on_done(False)
+            return
         self.flow_step_index = 0
         host = self.host_edit.text().strip()
         if not host:
@@ -657,6 +671,38 @@ class FlowExecutionMixin:
                     self.service.table[generated_key] = record
                 return record
         return self.table.get(self._flow_step_key(step, flow_name=flow_name, index=index))
+
+    def _unsupported_flow_execution_steps(self, flow) -> list[dict[str, Any]]:
+        unsupported: list[dict[str, Any]] = []
+        for index, step in enumerate(getattr(flow, "steps", ()) or (), start=1):
+            record = self._flow_step_record(step, flow_name=getattr(flow, "name", "flow"), index=index)
+            if record is None:
+                continue
+            try:
+                func_id = int(getattr(record, "func_num", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if func_id not in {106, 107}:
+                continue
+            unsupported.append(
+                {
+                    "index": index,
+                    "name": str(getattr(record, "description", "") or getattr(record, "query_key", "") or step),
+                    "func_id": func_id,
+                }
+            )
+        return unsupported
+
+    def _answer_flow_precheck_warning(self, message: str) -> None:
+        if hasattr(self, "_operator_add_chat_message"):
+            self._operator_add_chat_message("assistant", str(message or ""), kind="warn")
+            if hasattr(self, "status_label"):
+                try:
+                    self.status_label.setText(str(message or ""))
+                except Exception:
+                    pass
+            return
+        self._show_warning("流程异常", str(message or ""))
 
     @staticmethod
     def _flow_step_key(step, *, flow_name: str = "flow", index: int = 1) -> str:

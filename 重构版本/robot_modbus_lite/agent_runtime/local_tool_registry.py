@@ -5,6 +5,8 @@ from typing import Any
 
 from robot_modbus_lite.agent_tools import chat_tools, command_tools, compound_tools, flow_tools, memory_tools, safety_tools, status_tools
 from robot_modbus_lite.agent_tools.tool_result import ToolResult
+from robot_modbus_lite.agent.atomic_template import AtomicTemplateAgent
+from robot_modbus_lite.atomic_memory import AtomicMemory
 from robot_modbus_lite.execution_plan_service import ExecutionPlanService
 
 from .memory_store import AgentMemoryStore
@@ -79,6 +81,7 @@ class LocalToolRegistry:
             "set_flow_draft": self._set_flow_draft,
             "query_current_flow_draft": self._query_current_flow_draft,
             "cancel_flow_draft": self._cancel_flow_draft,
+            "query_command_catalog": self._query_command_catalog,
             "explain_text": self._explain_text,
             "query_dashboard_section": self._query_dashboard_section,
             "get_axis_status": self._get_axis_status,
@@ -187,11 +190,17 @@ class LocalToolRegistry:
 
     def _apply_atomic_template(self, **kwargs: Any) -> ToolResult:
         memory = self._require_atomic_memory()
-        if not memory.ok:
+        template_lookup = None
+        table = getattr(self.flow_service, "table", None)
+        if table is not None:
+            template_lookup = AtomicTemplateAgent.query_table_position_template_lookup(table)
+        if not memory.ok and template_lookup is None:
             return memory
+        atomic_memory = memory.data["memory"] if memory.ok else AtomicMemory()
         return command_tools.apply_atomic_template(
             str(kwargs.get("text", "") or ""),
-            memory=memory.data["memory"],
+            memory=atomic_memory,
+            template_lookup=template_lookup,
         )
 
     @staticmethod
@@ -375,6 +384,15 @@ class LocalToolRegistry:
     @staticmethod
     def _explain_text(**kwargs: Any) -> ToolResult:
         return chat_tools.explain_text(str(kwargs.get("text", "") or ""))
+
+    def _query_command_catalog(self, **kwargs: Any) -> ToolResult:
+        service = self._require_flow_service()
+        if not service.ok:
+            return service
+        return chat_tools.query_command_catalog(
+            service.data["service"],
+            text=str(kwargs.get("text", "") or ""),
+        )
 
     @staticmethod
     def _query_dashboard_section(**kwargs: Any) -> ToolResult:

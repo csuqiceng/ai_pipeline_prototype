@@ -6,6 +6,8 @@ from typing import Any
 
 from robot_modbus_lite.agent.command_understanding import CommandUnderstandingAgent
 from robot_modbus_lite.agent.compound import CompoundCommandCoordinator
+from robot_modbus_lite.atomic_parser import AtomicParser
+from robot_modbus_lite.voice_wake_words import strip_wake_word
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,9 @@ class AgentOrchestrator:
     def handle(self, text: str) -> AgentOrchestratorResult:
         understanding = self.understanding_agent.understand(text)
         intent = str(getattr(understanding, "intent", "") or "")
+        missing_wake = self._missing_wake_word_for_execution_text(text, understanding)
+        if missing_wake is not None:
+            return missing_wake
         compound_plan = self.compound_coordinator.plan(text)
         if compound_plan.kind == "compound_plan_draft":
             return AgentOrchestratorResult(
@@ -171,6 +176,20 @@ class AgentOrchestrator:
             },
         )
 
+    def _missing_wake_word_for_execution_text(self, text: str, understanding: Any) -> AgentOrchestratorResult | None:
+        if self._has_wake_word(text):
+            return None
+        if self._execution_intent_requires_wake_word(understanding):
+            return self._missing_wake_word_result(text, understanding)
+        if self._looks_like_non_execution_question(text):
+            return None
+        wake_checked = self.understanding_agent.understand(f"小正，{text}")
+        if self._execution_intent_requires_wake_word(wake_checked):
+            return self._missing_wake_word_result(text, wake_checked)
+        if self._atomic_template_text_requires_wake_word(text):
+            return self._missing_wake_word_result(text, wake_checked)
+        return None
+
     @staticmethod
     def _is_llm_rejected_result(result: AgentOrchestratorResult) -> bool:
         payload = getattr(result, "payload", None)
@@ -243,6 +262,8 @@ class AgentOrchestrator:
         candidate = self.understanding_agent.understand(candidate_text)
         if bool(getattr(candidate, "needs_model", False)) or not self._should_route_to_restricted_agent(candidate):
             return self._llm_fallback_rejected(text, understanding, raw_payload)
+        if self._execution_intent_requires_wake_word(candidate) and not self._has_wake_word(text):
+            return self._missing_wake_word_result(text, candidate)
         if self.restricted_service is None:
             return None
         return AgentOrchestratorResult(
@@ -288,6 +309,56 @@ class AgentOrchestrator:
             "sys_cancel",
             "alarm_reset",
         }
+
+    @staticmethod
+    def _execution_intent_requires_wake_word(understanding: Any) -> bool:
+        intent = str(getattr(understanding, "intent", "") or "")
+        return intent in {
+            "joint_jog",
+            "virtual_jog",
+            "move_linear",
+            "continuous_path",
+            "delay_blocking",
+            "delay_parallel",
+            "io",
+            "alarm_reset",
+        }
+
+    @staticmethod
+    def _has_wake_word(text: str) -> bool:
+        return strip_wake_word(str(text or "").strip()) is not None
+
+    @staticmethod
+    def _looks_like_non_execution_question(text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        if any(word in compact for word in ("为什么", "为何", "怎么", "什么", "多少", "查询", "查一下", "坐标", "参数")):
+            return True
+        if "流程" in compact and any(word in compact for word in ("添加", "追加", "创建", "编写", "草案", "步骤", "模板")):
+            return not any(word in compact for word in ("执行", "运行", "启动"))
+        return False
+
+    @staticmethod
+    def _atomic_template_text_requires_wake_word(text: str) -> bool:
+        elements = AtomicParser().parse(f"小正，{text}")
+        family = str(getattr(elements, "family", "") or "")
+        name = str(getattr(elements, "name", "") or "")
+        if family == "position":
+            return name.startswith("move:")
+        return family in {"rest_pose", "history"}
+
+    def _missing_wake_word_result(self, text: str, understanding: Any) -> AgentOrchestratorResult:
+        return AgentOrchestratorResult(
+            kind="clarification",
+            message="生产执行指令缺少“小正或小兵”唤醒词，未执行。请带唤醒词重新下发生产指令。",
+            payload={
+                "reason": "missing_wake_word",
+                "needs_model": False,
+                "generates_command": False,
+                "understanding": self._serialize_understanding(understanding, text),
+            },
+        )
 
     @staticmethod
     def _should_keep_legacy_atomic_step(text: str, understanding: Any) -> bool:

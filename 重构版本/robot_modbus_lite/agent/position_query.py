@@ -19,11 +19,17 @@ class PositionQueryAgent:
         if any(word in compact for word in ("移动到", "走到", "去", "保存", "删除")):
             return None
         match = re.search(r"位置([A-Za-z0-9_\-\u4e00-\u9fff]+)(?:的)?(?:坐标|参数)(?:是多少|多少|呢)?", compact)
+        bare_query = False
+        if not match:
+            match = re.fullmatch(r"位置([A-Za-z0-9_\-\u4e00-\u9fff]+)", compact)
+            bare_query = match is not None
         if not match:
             return None
         name = str(match.group(1)).strip()
         pose = self._lookup(name)
         if pose is None:
+            if bare_query:
+                return None
             return {
                 "kind": "position_query_answer",
                 "position_name": name,

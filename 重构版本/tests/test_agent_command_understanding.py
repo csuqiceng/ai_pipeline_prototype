@@ -33,6 +33,20 @@ def test_understands_partial_cartesian_move_for_inheritance():
     assert result.needs_model is False
 
 
+def test_understands_lowercase_equal_comma_cartesian_move_for_inheritance():
+    result = CommandUnderstandingAgent().understand("小正，移动到x=1000,y=0,z=1500")
+
+    assert result.intent == "move_linear"
+    assert result.func_id == 108
+    assert result.extracted_params == {
+        "target_x": 1000.0,
+        "target_y": 0.0,
+        "target_z": 1500.0,
+        "position_increment": 0,
+    }
+    assert result.needs_model is False
+
+
 def test_understands_incremental_cartesian_move_without_model():
     left = CommandUnderstandingAgent().understand("向左移动200")
     up = CommandUnderstandingAgent().understand("升高100")
@@ -104,6 +118,15 @@ def test_understands_emergency_fast_path_intent():
     result = CommandUnderstandingAgent().understand("急停")
 
     assert result.intent == "sys_estop"
+    assert result.func_id == 104
+    assert result.needs_model is False
+    assert result.bypass_completion is True
+
+
+def test_understands_cancel_current_action_alias():
+    result = CommandUnderstandingAgent().understand("取消当前动作")
+
+    assert result.intent == "sys_cancel"
     assert result.func_id == 104
     assert result.needs_model is False
     assert result.bypass_completion is True

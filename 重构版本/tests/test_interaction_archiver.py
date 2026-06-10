@@ -71,3 +71,65 @@ def test_interaction_archive_writer_can_mirror_daily_dialog(tmp_path):
     files = list((tmp_path / "dialog").glob("dialog_*.jsonl"))
     assert len(files) == 1
     assert "小正，状态" in files[0].read_text(encoding="utf-8")
+
+
+def test_interaction_archive_writer_writes_complete_dialogue_record(tmp_path):
+    path = tmp_path / "session_interactions.jsonl"
+    dialogue_path = tmp_path / "dialogue_session_session-1.jsonl"
+    writer = InteractionArchiveWriter(
+        path=path,
+        dialogue_path=dialogue_path,
+        session_id="session-1",
+        clock=lambda: "2026-06-10T20:46:47.041",
+    )
+
+    record = writer.append_input_record(
+        source="text",
+        raw_text="小正，移动到位置A",
+        normalized_text="小正，移动到位置A",
+        input_event={
+            "time": "20:46:46.996",
+            "ts": "2026-06-10T20:46:46.996",
+            "session_id": "session-1",
+            "host": "10.168.3.21",
+            "controller_mode": "real",
+            "thread": "MainThread",
+            "category": "自然语言",
+            "action": "用户输入",
+            "result": "收到",
+            "detail": "小正，移动到位置A",
+        },
+    )
+    writer.update_record(
+        record.msg_id,
+        {
+            "execution": {"result": "skipped", "non_execution_result": "clarification"},
+            "response": {"ack": "收到，正在处理。", "ack_delay_ms": 0, "final": "请明确位置A的坐标。", "final_delay_ms": 45},
+            "_dialogue_response_event": {
+                "time": "20:46:47.041",
+                "ts": "2026-06-10T20:46:47.041",
+                "session_id": "session-1",
+                "host": "10.168.3.21",
+                "controller_mode": "real",
+                "thread": "MainThread",
+                "category": "自然语言",
+                "action": "澄清提示",
+                "result": "提示",
+                "detail": "请明确位置A的坐标。",
+            },
+        },
+    )
+
+    payload = json.loads(dialogue_path.read_text(encoding="utf-8").splitlines()[0])
+    assert payload["msg_type"] == "dialogue_record"
+    assert payload["session_id"] == "session-1"
+    assert payload["seq"] == 1
+    assert payload["host"] == "10.168.3.21"
+    assert payload["category"] == "自然语言"
+    assert payload["action"] == "澄清提示"
+    assert payload["result"] == "提示"
+    assert payload["detail"] == "请明确位置A的坐标。"
+    assert payload["user"]["raw_text"] == "小正，移动到位置A"
+    assert payload["user"]["normalized_text"] == "小正，移动到位置A"
+    assert payload["assistant"]["final_text"] == "请明确位置A的坐标。"
+    assert payload["response"]["final"] == "请明确位置A的坐标。"

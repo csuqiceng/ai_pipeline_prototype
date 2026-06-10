@@ -232,6 +232,8 @@ def test_parse_blocks_when_precheck_fails():
     assert result.draft is not None
     assert result.precheck_result["valid"] is False
     assert "L1预检未通过" in result.message
+    assert "建议" in result.message
+    assert "请处理失败项后再执行计划" in result.message
 
 
 def test_parse_blocks_inner_cylinder_and_hemisphere_space_model_failures():

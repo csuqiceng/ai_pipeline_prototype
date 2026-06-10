@@ -130,6 +130,25 @@ def test_completion_blocks_when_controller_is_moving():
         ParameterCompletionAgent(lambda: snapshot).complete(understanding)
 
 
+def test_completion_reports_moving_state_sources_when_available():
+    understanding = CommandUnderstandingAgent().understand("走到 X1000")
+    snapshot = ControllerSnapshot(
+        current_pose={},
+        safety_params={},
+        is_moving=True,
+        read_ok=True,
+        moving_reasons=("motion_percent=运动中", "flow_running=True"),
+    )
+
+    with pytest.raises(ParameterCompletionError) as exc:
+        ParameterCompletionAgent(lambda: snapshot).complete(understanding)
+
+    message = str(exc.value)
+    assert "当前设备运动中" in message
+    assert "motion_percent=运动中" in message
+    assert "flow_running=True" in message
+
+
 def test_completion_blocks_when_controller_read_failed():
     understanding = CommandUnderstandingAgent().understand("走到 X1000")
     snapshot = ControllerSnapshot(

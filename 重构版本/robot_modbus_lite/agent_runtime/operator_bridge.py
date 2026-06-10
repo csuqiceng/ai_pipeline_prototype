@@ -195,10 +195,19 @@ class OperatorAgentRuntimeBridge:
         legacy_fallback: LegacyFallback,
     ) -> AgentOrchestratorResult:
         normalized_text = self.apply_active_memory_to_text(text, thread_id=thread_id)
-        result = self.tool_calling_runtime().handle(
+        runtime = self.tool_calling_runtime()
+        result = runtime.handle(
             normalized_text,
             session_state=self.session_state(thread_id),
         )
+        if self._should_retry_raw_text(result, raw_text=text, normalized_text=normalized_text):
+            raw_result = runtime.handle(
+                str(text or ""),
+                session_state=self.session_state(thread_id),
+                apply_memory=False,
+            )
+            if not self._should_keep_normalized_result(raw_result):
+                result = raw_result
         if self.result_requires_legacy_fallback(result):
             fallback_result = legacy_fallback(normalized_text)
             self._record_last_agent_result(
@@ -222,6 +231,16 @@ class OperatorAgentRuntimeBridge:
         self._record_restricted_agent_result(result, thread_id=thread_id)
         self._record_last_agent_result(result, thread_id=thread_id)
         return result
+
+    @staticmethod
+    def _should_retry_raw_text(result: AgentOrchestratorResult, *, raw_text: str, normalized_text: str) -> bool:
+        if str(raw_text or "") == str(normalized_text or ""):
+            return False
+        return getattr(result, "kind", "") == "clarification"
+
+    @classmethod
+    def _should_keep_normalized_result(cls, result: AgentOrchestratorResult) -> bool:
+        return getattr(result, "kind", "") == "clarification" or cls.result_requires_legacy_fallback(result)
 
     @staticmethod
     def result_requires_legacy_fallback(result: Any) -> bool:

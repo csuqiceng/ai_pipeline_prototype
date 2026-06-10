@@ -388,7 +388,8 @@ class AgentPlanAdapter:
                 },
             )
 
-        if getattr(result, "kind", "") == "confirm_rejected":
+        if getattr(result, "kind", "") in {"confirm_rejected", "followup_rejected"}:
+            agent_kind = str(getattr(result, "kind", "") or "confirm_rejected")
             payload = getattr(result, "payload", {}) or {}
             payload = dict(payload or {}) if isinstance(payload, dict) else {}
             tool_result = payload.get("tool_result")
@@ -408,7 +409,7 @@ class AgentPlanAdapter:
                 priority="normal",
                 nlp_engine="agent_orchestrator",
                 flow_draft={
-                    "agent_kind": "confirm_rejected",
+                    "agent_kind": agent_kind,
                     "tool_name": str(payload.get("tool_name", "") or ""),
                     "tool_state": str(tool_result.get("state", "") or ""),
                     "safe_to_execute": False,
