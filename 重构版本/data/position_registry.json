@@ -1,7 +1,25 @@
 {
   "version": "1.1",
-  "updated_at": "2026-05-27T20:36:02.003917",
+  "updated_at": "2026-06-10T23:05:15.772045",
   "positions": [
+    {
+      "name": "a在移动到位置b",
+      "pose": [
+        475.0,
+        0.0,
+        545.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "spd": 50,
+      "move_type": 0,
+      "locked": false,
+      "is_system": false,
+      "created_by": "operator",
+      "created_at": "2026-06-10T23:05:15.771045",
+      "updated_at": "2026-06-10T23:05:15.771045"
+    },
     {
       "name": "home",
       "pose": [
