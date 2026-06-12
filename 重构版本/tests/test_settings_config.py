@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from robot_modbus_lite.settings_mixin import SettingsMixin
-from robot_modbus_lite.system_config import AxisRangeConfig, load_system_config
+from robot_modbus_lite.system_config import AxisRangeConfig, load_system_config, validate_system_config
 
 
 class DummySettings(SettingsMixin):
@@ -17,6 +17,37 @@ def test_runtime_system_config_enables_nonzero_safety_limits():
     assert config.safe_speed_max > 0
     assert config.safe_acc_max > 0
     assert config.safe_dec_max > 0
+    assert config.default_spd_pct == 50.0
+    assert config.default_acc_pct == 50.0
+    assert config.default_dec_pct == 50.0
+
+
+def test_motion_defaults_are_separate_from_safety_maxima():
+    config = AxisRangeConfig.from_dict(
+        {
+            "x": [-1, 1],
+            "y": [-1, 1],
+            "z": [0, 1],
+            "safe_speed_max": 150.0,
+            "safe_acc_max": 150.0,
+            "safe_dec_max": 150.0,
+        }
+    )
+
+    assert config.default_spd_pct == 50.0
+    assert config.default_acc_pct == 50.0
+    assert config.default_dec_pct == 50.0
+
+
+def test_validate_system_config_rejects_motion_defaults_outside_tool_schema_range():
+    config = AxisRangeConfig(
+        x=(-1, 1),
+        y=(-1, 1),
+        z=(0, 1),
+        default_spd_pct=150.0,
+    )
+
+    assert validate_system_config(config) == "默认速度必须大于 0 且不超过 100%。"
 
 
 def edit(value: object):
@@ -81,6 +112,9 @@ def test_collect_system_config_preserves_non_form_runtime_fields():
     dummy.safe_speed_max_edit = edit(8)
     dummy.safe_acc_max_edit = edit(9)
     dummy.safe_dec_max_edit = edit(10)
+    dummy.default_spd_pct_edit = edit(31)
+    dummy.default_acc_pct_edit = edit(32)
+    dummy.default_dec_pct_edit = edit(33)
     dummy.motion_timeout_edit = edit(11)
     dummy.operator_tts_enabled_check = checkbox(False)
     dummy.broadcast_dedupe_window_edit = edit(1)
@@ -96,6 +130,9 @@ def test_collect_system_config_preserves_non_form_runtime_fields():
     assert config.emergency_codes == ("A1B2", "C3D4")
     assert config.operator_tts_enabled is False
     assert config.broadcast_dedupe_window_sec == 1.0
+    assert config.default_spd_pct == 31.0
+    assert config.default_acc_pct == 32.0
+    assert config.default_dec_pct == 33.0
     assert config.tts_retry_delay_sec == 2.0
     assert config.tts_max_failures == 3
     assert config.operator_confirm_timeout_sec == 12.0
@@ -148,6 +185,9 @@ def test_load_system_config_into_form_populates_tts_and_l3_fields(tmp_path):
         "safe_speed_max_edit",
         "safe_acc_max_edit",
         "safe_dec_max_edit",
+        "default_spd_pct_edit",
+        "default_acc_pct_edit",
+        "default_dec_pct_edit",
         "motion_timeout_edit",
         "broadcast_dedupe_window_edit",
         "tts_retry_delay_edit",
@@ -167,6 +207,9 @@ def test_load_system_config_into_form_populates_tts_and_l3_fields(tmp_path):
     assert dummy.tts_retry_delay_edit.text() == "2.5"
     assert dummy.tts_max_failures_edit.text() == "4"
     assert dummy.operator_confirm_timeout_edit.text() == "45"
+    assert dummy.default_spd_pct_edit.text() == "50"
+    assert dummy.default_acc_pct_edit.text() == "50"
+    assert dummy.default_dec_pct_edit.text() == "50"
     assert dummy.l3_min_step_delay_edit.text() == "200"
     assert dummy.l3_cumulative_error_limit_edit.text() == "1.5"
     assert dummy.joint_limit_edits[1][0].text() == "-90"
@@ -190,6 +233,9 @@ def test_save_system_config_syncs_operator_tts_checkbox(tmp_path):
     dummy.safe_speed_max_edit = edit(0)
     dummy.safe_acc_max_edit = edit(0)
     dummy.safe_dec_max_edit = edit(0)
+    dummy.default_spd_pct_edit = edit(50)
+    dummy.default_acc_pct_edit = edit(50)
+    dummy.default_dec_pct_edit = edit(50)
     dummy.motion_timeout_edit = edit(180)
     dummy.operator_tts_enabled_check = checkbox(True)
     dummy.broadcast_dedupe_window_edit = edit(5)
@@ -237,6 +283,9 @@ def test_save_system_config_applies_runtime_timer_intervals(tmp_path):
     dummy.safe_speed_max_edit = edit(0)
     dummy.safe_acc_max_edit = edit(0)
     dummy.safe_dec_max_edit = edit(0)
+    dummy.default_spd_pct_edit = edit(50)
+    dummy.default_acc_pct_edit = edit(50)
+    dummy.default_dec_pct_edit = edit(50)
     dummy.motion_timeout_edit = edit(180)
     dummy.operator_tts_enabled_check = checkbox(False)
     dummy.broadcast_dedupe_window_edit = edit(5)

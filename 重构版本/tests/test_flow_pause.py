@@ -255,6 +255,164 @@ def test_start_flow_answers_unsupported_legacy_jog_template_without_popup(monkey
     assert logs[-1][0][0:3] == ("流程", "流程预检查 demo", "失败")
 
 
+def test_start_flow_blocks_when_qt_flow_precheck_fails(monkeypatch):
+    dummy = DummyFlow()
+    logs = []
+    chats = []
+    callbacks = []
+    flow = FlowDefinition(name="demo", steps=("move_a",))
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": flow},
+            "get_flow": lambda self, name: self.flows[name],
+        },
+    )()
+    dummy.table = {
+        "move_a": QueryRecord(
+            query_key="move_a",
+            func_num=108,
+            description="移动A",
+            params={
+                "target_x": 1000.0,
+                "target_y": 0.0,
+                "target_z": 800.0,
+                "target_rx": 0.0,
+                "target_ry": 90.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "acc_pct": 50.0,
+                "dec_pct": 50.0,
+            },
+        )
+    }
+    dummy.current_flow_name = "demo"
+    dummy.flow_running = False
+    dummy.flow_paused = False
+    dummy.flow_step_index = 0
+    dummy.flow_current_step = "-"
+    dummy.flow_status = "空闲"
+    dummy.flow_run_id = 0
+    dummy.host_edit = type("Host", (), {"text": lambda self: "127.0.0.1"})()
+    dummy._show_info = lambda *args: None
+    dummy._show_warning = lambda title, text: logs.append(("warning", title, text))
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._refresh_flow_steps = lambda: None
+    dummy._refresh_flow_status_panel = lambda: None
+    dummy._append_log = lambda *args, **kwargs: logs.append((args, kwargs))
+    dummy._pause_polling = lambda: callbacks.append("pause")
+    dummy._run_in_background = lambda *_args, **_kwargs: callbacks.append("background")
+    dummy._operator_run_qt_flow_precheck = lambda flow: {
+        "status": "fail",
+        "flow_name": flow.name,
+        "items": [{"label": "第1步 L2 预演", "status": "fail", "message": "move_a: L2 运动规划预演未通过。"}],
+        "suggestion": "请修复失败步骤后再执行流程。",
+    }
+    monkeypatch.setattr("robot_modbus_lite.flow_execution_mixin.QTimer.singleShot", lambda _ms, callback: callback())
+
+    dummy._start_flow(on_done=lambda ok: callbacks.append(("done", ok)))
+
+    assert dummy.flow_running is False
+    assert callbacks == [("done", False)]
+    assert chats
+    assert chats[-1][0] == "assistant"
+    assert chats[-1][2]["kind"] == "warn"
+    assert "流程预检未通过" in chats[-1][1]
+    assert any(entry[0][0:3] == ("流程", "流程预检查 demo", "失败") for entry in logs if isinstance(entry, tuple) and entry)
+
+
+def test_start_flow_precheck_warning_prefers_robot_safety_detail(monkeypatch):
+    dummy = DummyFlow()
+    chats = []
+    callbacks = []
+    flow = FlowDefinition(name="demo", steps=("move_a",))
+    dummy.service = type(
+        "Service",
+        (),
+        {
+            "flows": {"demo": flow},
+            "get_flow": lambda self, name: self.flows[name],
+        },
+    )()
+    dummy.table = {"move_a": QueryRecord(query_key="move_a", func_num=108, params={})}
+    dummy.current_flow_name = "demo"
+    dummy.flow_running = False
+    dummy.flow_paused = False
+    dummy.flow_step_index = 0
+    dummy.flow_current_step = "-"
+    dummy.flow_status = "空闲"
+    dummy.flow_run_id = 0
+    dummy.host_edit = type("Host", (), {"text": lambda self: "127.0.0.1"})()
+    dummy._show_info = lambda *args: None
+    dummy._show_warning = lambda *args: None
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chats.append((role, text, kwargs))
+    dummy._refresh_flow_steps = lambda: None
+    dummy._refresh_flow_status_panel = lambda: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._pause_polling = lambda: callbacks.append("pause")
+    dummy._run_in_background = lambda *_args, **_kwargs: callbacks.append("background")
+    dummy._operator_run_qt_flow_precheck = lambda _flow: {
+        "status": "fail",
+        "flow_name": "demo",
+        "items": [
+            {
+                "label": "第1步 L2 预演",
+                "status": "fail",
+                "message": "move_a: L2 运动规划预演未通过。",
+                "robot_safety": {
+                    "detail_zh": "L2逆解预判未通过：未找到满足关节限位的 FSTATUS。",
+                    "suggestion_zh": "请调整目标位姿或补充中间点后重试。",
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr("robot_modbus_lite.flow_execution_mixin.QTimer.singleShot", lambda _ms, callback: callback())
+
+    dummy._start_flow(on_done=lambda ok: callbacks.append(("done", ok)))
+
+    assert callbacks == [("done", False)]
+    assert "L2逆解预判未通过" in chats[-1][1]
+    assert "请调整目标位姿" in chats[-1][1]
+
+
+def test_qt_flow_precheck_stores_l3_result_and_archives(monkeypatch):
+    dummy = DummyFlow()
+    archived = []
+    flow = FlowDefinition(name="demo", steps=("move_a",))
+    expected = {
+        "status": "fail",
+        "flow_name": "demo",
+        "items": [{"label": "第1步 L2 预演", "status": "fail", "message": "move_a: 越界。"}],
+        "suggestion": "请修复失败步骤后再执行流程。",
+    }
+
+    class FakeProcessPrecheckService:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def run_l3(self, *, flow, table, snapshot):
+            assert flow.name == "demo"
+            assert "move_a" in table
+            assert snapshot == {"snapshot": True}
+            return expected
+
+    dummy.table = {"move_a": QueryRecord(query_key="move_a", func_num=108, params={})}
+    dummy.axis_ranges = type("AxisRanges", (), {"l3_cumulative_error_limit_mm": 0.0, "l3_min_step_delay_ms": 0})()
+    dummy._operator_dashboard_snapshot_dict = lambda: {"snapshot": True}
+    dummy._operator_l1_result_for_record_key = lambda _key, _snapshot: {"status": "pass", "items": []}
+    dummy._operator_l2_result_for_record = lambda _record: {"status": "fail", "items": []}
+    dummy._operator_archive_safety_check = lambda: archived.append(dummy._operator_last_process_precheck_result) or True
+    dummy._append_log = lambda *args, **kwargs: None
+    monkeypatch.setattr("robot_modbus_lite.flow_execution_mixin.ProcessPrecheckService", FakeProcessPrecheckService)
+
+    result = dummy._operator_run_qt_flow_precheck(flow)
+
+    assert result is expected
+    assert dummy._operator_last_process_precheck_result is expected
+    assert archived == [expected]
+
+
 def test_reset_flow_clears_flow_pause_state():
     dummy = DummyFlow()
     logs = []

@@ -1,0 +1,6249 @@
+{
+  "session_id": "20260610_234817_7c744787",
+  "source_jsonl": "C:\\Users\\KY\\Desktop\\yjcao\\RobotModbusLite优化对话\\RobotModbusLite\\data\\exported_logs\\session_20260610_234817_7c744787.jsonl",
+  "entries": [
+    {
+      "time": "23:48:18.143",
+      "ts": "2026-06-10T23:48:18.143",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 1,
+      "monotonic_ms": 406,
+      "host": "192.168.1.11",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "语音",
+      "action": "刷新麦克风设备",
+      "result": "成功",
+      "detail": "检测到 3 个输入设备"
+    },
+    {
+      "time": "23:48:18.453",
+      "ts": "2026-06-10T23:48:18.453",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 2,
+      "monotonic_ms": 717,
+      "host": "192.168.1.11",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "连接",
+      "action": "检测连接",
+      "result": "失败",
+      "detail": "connect(192.168.1.11) failed with code 20008",
+      "error_type": "ZMotionClientError",
+      "error_message": "connect(192.168.1.11) failed with code 20008",
+      "traceback": "Traceback (most recent call last):\n  File \"robot_modbus_lite\\command_dispatch_mixin.py\", line 25, in _check_connection\n  File \"robot_modbus_lite\\controller_runtime_mixin.py\", line 40, in _get_client\n  File \"robot_modbus_lite\\zmotion_client.py\", line 64, in connect\n  File \"robot_modbus_lite\\zmotion_client.py\", line 213, in _ensure_ok\nrobot_modbus_lite.zmotion_client.ZMotionClientError: connect(192.168.1.11) failed with code 20008\n"
+    },
+    {
+      "time": "23:48:19.142",
+      "ts": "2026-06-10T23:48:19.142",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 3,
+      "monotonic_ms": 1406,
+      "host": "192.168.1.11",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "反馈",
+      "action": "实时监控",
+      "result": "失败",
+      "detail": "connect(192.168.1.11) failed with code 20008",
+      "error_type": "ZMotionClientError",
+      "error_message": "connect(192.168.1.11) failed with code 20008",
+      "traceback": "Traceback (most recent call last):\n  File \"robot_modbus_lite\\controller_runtime_mixin.py\", line 150, in _poll_feedback_silent\n  File \"robot_modbus_lite\\controller_runtime_mixin.py\", line 40, in _get_client\n  File \"robot_modbus_lite\\zmotion_client.py\", line 64, in connect\n  File \"robot_modbus_lite\\zmotion_client.py\", line 213, in _ensure_ok\nrobot_modbus_lite.zmotion_client.ZMotionClientError: connect(192.168.1.11) failed with code 20008\n"
+    },
+    {
+      "time": "23:48:38.486",
+      "ts": "2026-06-10T23:48:38.486",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 4,
+      "monotonic_ms": 20750,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "连接",
+      "action": "检测连接",
+      "result": "成功",
+      "detail": "真实连接成功: 10.168.3.21"
+    },
+    {
+      "time": "23:48:38.495",
+      "ts": "2026-06-10T23:48:38.495",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 5,
+      "monotonic_ms": 20759,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "反馈",
+      "action": "实时监控轮询",
+      "result": "成功",
+      "detail": "首次轮询成功，定时轮询已运行"
+    },
+    {
+      "time": "23:49:17.740",
+      "ts": "2026-06-10T23:49:17.740",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 6,
+      "monotonic_ms": 60003,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346399.718
+    },
+    {
+      "time": "23:49:17.833",
+      "ts": "2026-06-10T23:49:17.833",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 7,
+      "monotonic_ms": 60096,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346399.812
+    },
+    {
+      "time": "23:49:17.834",
+      "ts": "2026-06-10T23:49:17.834",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 8,
+      "monotonic_ms": 60098,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "23:49:19.440",
+      "ts": "2026-06-10T23:49:19.440",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 9,
+      "monotonic_ms": 61705,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 346401.421
+    },
+    {
+      "time": "23:49:19.454",
+      "ts": "2026-06-10T23:49:19.454",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 10,
+      "monotonic_ms": 61718,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "确认执行",
+      "result": "成功",
+      "detail": "移动到位置A"
+    },
+    {
+      "time": "23:49:19.455",
+      "ts": "2026-06-10T23:49:19.455",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 11,
+      "monotonic_ms": 61719,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "执行解析",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置A"
+    },
+    {
+      "time": "23:49:19.456",
+      "ts": "2026-06-10T23:49:19.456",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 12,
+      "monotonic_ms": 61719,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步开始",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "23:49:19.456",
+      "ts": "2026-06-10T23:49:19.456",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 13,
+      "monotonic_ms": 61720,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送准备 位置A",
+      "result": "成功",
+      "detail": "未命中规避规则，直接发送",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_total": 1,
+      "plan_reason": "未命中规避规则，直接发送",
+      "plan_records": [
+        {
+          "query_key": "位置A",
+          "func_num": 108,
+          "description": "移动到位置A",
+          "params": {
+            "target_x": 1000.0,
+            "target_y": 0.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 90.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0
+          },
+          "writes": [
+            {
+              "start_vr": 0,
+              "values": [
+                108.0
+              ]
+            },
+            {
+              "start_vr": 2,
+              "values": [
+                1000.0
+              ]
+            },
+            {
+              "start_vr": 4,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 6,
+              "values": [
+                800.0
+              ]
+            },
+            {
+              "start_vr": 8,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 10,
+              "values": [
+                90.0
+              ]
+            },
+            {
+              "start_vr": 12,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 14,
+              "values": [
+                50.0
+              ]
+            },
+            {
+              "start_vr": 16,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 18,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 20,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 22,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 24,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 26,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 28,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 30,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 32,
+              "values": [
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "time": "23:49:19.458",
+      "ts": "2026-06-10T23:49:19.458",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 14,
+      "monotonic_ms": 61722,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "Func108 参数说明 位置A",
+      "result": "成功",
+      "detail": "stop_cmd=0(正常) | fuzzy_pos=0 fuzzy_spd=0 fuzzy_acc=0 fuzzy_dec=0 | move_type=0(直线插补)",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.459",
+      "ts": "2026-06-10T23:49:19.459",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 15,
+      "monotonic_ms": 61723,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[108.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.461",
+      "ts": "2026-06-10T23:49:19.461",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 16,
+      "monotonic_ms": 61724,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[1000.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.465",
+      "ts": "2026-06-10T23:49:19.465",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 17,
+      "monotonic_ms": 61728,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.465",
+      "ts": "2026-06-10T23:49:19.465",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 18,
+      "monotonic_ms": 61729,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[800.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.466",
+      "ts": "2026-06-10T23:49:19.466",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 19,
+      "monotonic_ms": 61730,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.467",
+      "ts": "2026-06-10T23:49:19.467",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 20,
+      "monotonic_ms": 61730,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(10)",
+      "result": "成功",
+      "detail": "values=[90.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.471",
+      "ts": "2026-06-10T23:49:19.471",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 21,
+      "monotonic_ms": 61734,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(12)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.471",
+      "ts": "2026-06-10T23:49:19.471",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 22,
+      "monotonic_ms": 61734,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(14)",
+      "result": "成功",
+      "detail": "values=[50.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.472",
+      "ts": "2026-06-10T23:49:19.472",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 23,
+      "monotonic_ms": 61736,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(16)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.472",
+      "ts": "2026-06-10T23:49:19.472",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 24,
+      "monotonic_ms": 61736,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(18)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.473",
+      "ts": "2026-06-10T23:49:19.473",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 25,
+      "monotonic_ms": 61737,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(20)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.474",
+      "ts": "2026-06-10T23:49:19.474",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 26,
+      "monotonic_ms": 61737,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(22)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.474",
+      "ts": "2026-06-10T23:49:19.474",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 27,
+      "monotonic_ms": 61738,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(24)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.475",
+      "ts": "2026-06-10T23:49:19.475",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 28,
+      "monotonic_ms": 61739,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(26)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.476",
+      "ts": "2026-06-10T23:49:19.476",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 29,
+      "monotonic_ms": 61739,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(28)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.478",
+      "ts": "2026-06-10T23:49:19.478",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 30,
+      "monotonic_ms": 61742,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(30)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.478",
+      "ts": "2026-06-10T23:49:19.478",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 31,
+      "monotonic_ms": 61742,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 位置A",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.504",
+      "ts": "2026-06-10T23:49:19.504",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 32,
+      "monotonic_ms": 61767,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 位置A",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.016s, attempts=1, snapshot=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.507",
+      "ts": "2026-06-10T23:49:19.507",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 33,
+      "monotonic_ms": 61770,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 位置A",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.598",
+      "ts": "2026-06-10T23:49:19.598",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 34,
+      "monotonic_ms": 61861,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "接受确认 位置A",
+      "result": "成功",
+      "detail": "IEEE(312)=0, LONG(34)=268435520, LONG(36)=1024",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.661",
+      "ts": "2026-06-10T23:49:19.661",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 35,
+      "monotonic_ms": 61925,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "收到确认 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:19.661",
+      "ts": "2026-06-10T23:49:19.661",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 36,
+      "monotonic_ms": 61925,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "执行中确认 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108, IEEE(56)=270",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:21.681",
+      "ts": "2026-06-10T23:49:21.681",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 37,
+      "monotonic_ms": 63945,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "执行完成 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:21.690",
+      "ts": "2026-06-10T23:49:21.690",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 38,
+      "monotonic_ms": 63953,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "回传数据",
+      "result": "成功",
+      "detail": "X=1000.0 Y=0.0 Z=800.0 Rx=0.0 Ry=90.0 Rz=0.0 | 运动状态=270 | J1=-0.0 J2=-19.0 J3=30.8 J4=0.0 J5=56.5 J6=-0.0 | 可选反馈(待固件确认): IEEE(52)=150.0, IEEE(54)=132.0, IEEE(70)=-125, IEEE(72)=-450, IEEE(314)=268435456, IEEE(316)=0, IEEE(318)=0, IEEE(320)=10",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:49:21.712",
+      "ts": "2026-06-10T23:49:21.712",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 39,
+      "monotonic_ms": 63975,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-56 (wrapper)",
+      "category": "六轴",
+      "action": "命令最终快照 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, LONG(38)=0, IEEE(312)=0.0, IEEE(324)=108, state=2",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "six_long34": 268435584,
+      "six_long36": 0,
+      "six_long38": 0,
+      "six_ieee312": 0.0,
+      "six_ieee324": 108,
+      "six_ieee56": 270,
+      "six_func_num": 108,
+      "six_func_state": 2,
+      "six_slot": "motion",
+      "six_ready": true,
+      "six_alarm": false,
+      "six_estop": false,
+      "six_paused": false,
+      "six_cancelled": false
+    },
+    {
+      "time": "23:49:21.717",
+      "ts": "2026-06-10T23:49:21.717",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 40,
+      "monotonic_ms": 63981,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送指令 位置A",
+      "result": "成功",
+      "detail": "任务1001",
+      "dispatch_id": "dispatch_015fd70962",
+      "task_id": 1001,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "command_snapshot": {
+        "query_key": "位置A",
+        "func_num": 108,
+        "description": "移动到位置A",
+        "params": {
+          "target_x": 1000.0,
+          "target_y": 0.0,
+          "target_z": 800.0,
+          "target_rx": 0.0,
+          "target_ry": 90.0,
+          "target_rz": 0.0,
+          "spd_pct": 50.0,
+          "acc_pct": 60.0,
+          "dec_pct": 60.0,
+          "stop_cmd": 0,
+          "fuzzy_pos": 0,
+          "fuzzy_spd": 0,
+          "fuzzy_acc": 0,
+          "fuzzy_dec": 0,
+          "move_type": 0
+        },
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              108.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              1000.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              800.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 10,
+            "values": [
+              90.0
+            ]
+          },
+          {
+            "start_vr": 12,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 14,
+            "values": [
+              50.0
+            ]
+          },
+          {
+            "start_vr": 16,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 18,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 20,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 22,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 24,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 26,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 28,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 30,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "23:49:21.752",
+      "ts": "2026-06-10T23:49:21.752",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 41,
+      "monotonic_ms": 64016,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步成功",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "23:49:21.807",
+      "ts": "2026-06-10T23:49:21.807",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 42,
+      "monotonic_ms": 64071,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346403.796
+    },
+    {
+      "time": "23:49:21.809",
+      "ts": "2026-06-10T23:49:21.809",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 43,
+      "monotonic_ms": 64072,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列完成",
+      "result": "成功",
+      "detail": "共执行 1 步"
+    },
+    {
+      "time": "23:49:35.291",
+      "ts": "2026-06-10T23:49:35.291",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 44,
+      "monotonic_ms": 77555,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346417.281
+    },
+    {
+      "time": "23:49:35.337",
+      "ts": "2026-06-10T23:49:35.337",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 45,
+      "monotonic_ms": 77601,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346417.328
+    },
+    {
+      "time": "23:49:35.352",
+      "ts": "2026-06-10T23:49:35.352",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 46,
+      "monotonic_ms": 77616,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "23:52:37.822",
+      "ts": "2026-06-10T23:52:37.822",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 47,
+      "monotonic_ms": 260085,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346599.812
+    },
+    {
+      "time": "23:52:37.861",
+      "ts": "2026-06-10T23:52:37.861",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 48,
+      "monotonic_ms": 260125,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346599.843
+    },
+    {
+      "time": "23:52:37.879",
+      "ts": "2026-06-10T23:52:37.879",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 49,
+      "monotonic_ms": 260142,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "23:53:43.132",
+      "ts": "2026-06-10T23:53:43.132",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 50,
+      "monotonic_ms": 325395,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346665.109
+    },
+    {
+      "time": "23:53:43.173",
+      "ts": "2026-06-10T23:53:43.173",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 51,
+      "monotonic_ms": 325436,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346665.156
+    },
+    {
+      "time": "23:53:43.191",
+      "ts": "2026-06-10T23:53:43.191",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 52,
+      "monotonic_ms": 325455,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "23:54:09.151",
+      "ts": "2026-06-10T23:54:09.151",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 53,
+      "monotonic_ms": 351414,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "系统",
+      "action": "系统命令准备 sys_pause",
+      "result": "成功",
+      "detail": "code=4003",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003,
+      "command_snapshot": {
+        "action_key": "sys_pause",
+        "code": 4003,
+        "func_num": 104,
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              104.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              1.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "23:54:09.172",
+      "ts": "2026-06-10T23:54:09.172",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 54,
+      "monotonic_ms": 351435,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[104.0]",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.173",
+      "ts": "2026-06-10T23:54:09.173",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 55,
+      "monotonic_ms": 351437,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.174",
+      "ts": "2026-06-10T23:54:09.174",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 56,
+      "monotonic_ms": 351437,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[1.0]",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.174",
+      "ts": "2026-06-10T23:54:09.174",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 57,
+      "monotonic_ms": 351438,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.175",
+      "ts": "2026-06-10T23:54:09.175",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 58,
+      "monotonic_ms": 351439,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.175",
+      "ts": "2026-06-10T23:54:09.175",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 59,
+      "monotonic_ms": 351439,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 sys_pause",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=104, 282=0, 284=1, 286=0, 288=0",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.203",
+      "ts": "2026-06-10T23:54:09.203",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 60,
+      "monotonic_ms": 351467,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 sys_pause",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.031s, attempts=1, snapshot=280=104, 282=0, 284=1, 286=0, 288=0",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.204",
+      "ts": "2026-06-10T23:54:09.204",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 61,
+      "monotonic_ms": 351468,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 sys_pause",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003
+    },
+    {
+      "time": "23:54:09.293",
+      "ts": "2026-06-10T23:54:09.293",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 62,
+      "monotonic_ms": 351556,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-60 (wrapper)",
+      "category": "六轴",
+      "action": "系统命令 sys_pause",
+      "result": "成功",
+      "detail": "func=104",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003,
+      "func_num": 104
+    },
+    {
+      "time": "23:54:11.251",
+      "ts": "2026-06-10T23:54:11.251",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 63,
+      "monotonic_ms": 353515,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "系统",
+      "action": "系统命令准备 sys_resume",
+      "result": "成功",
+      "detail": "code=4004",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004,
+      "command_snapshot": {
+        "action_key": "sys_resume",
+        "code": 4004,
+        "func_num": 104,
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              104.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              2.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "23:54:11.281",
+      "ts": "2026-06-10T23:54:11.281",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 64,
+      "monotonic_ms": 353544,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[104.0]",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.283",
+      "ts": "2026-06-10T23:54:11.283",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 65,
+      "monotonic_ms": 353547,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.284",
+      "ts": "2026-06-10T23:54:11.284",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 66,
+      "monotonic_ms": 353548,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[2.0]",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.285",
+      "ts": "2026-06-10T23:54:11.285",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 67,
+      "monotonic_ms": 353548,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.285",
+      "ts": "2026-06-10T23:54:11.285",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 68,
+      "monotonic_ms": 353549,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.285",
+      "ts": "2026-06-10T23:54:11.285",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 69,
+      "monotonic_ms": 353549,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 sys_resume",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=104, 282=0, 284=2, 286=0, 288=0",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.311",
+      "ts": "2026-06-10T23:54:11.311",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 70,
+      "monotonic_ms": 353574,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 sys_resume",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.031s, attempts=1, snapshot=280=104, 282=0, 284=2, 286=0, 288=0",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.313",
+      "ts": "2026-06-10T23:54:11.313",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 71,
+      "monotonic_ms": 353577,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 sys_resume",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004
+    },
+    {
+      "time": "23:54:11.403",
+      "ts": "2026-06-10T23:54:11.403",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 72,
+      "monotonic_ms": 353666,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-61 (wrapper)",
+      "category": "六轴",
+      "action": "系统命令 sys_resume",
+      "result": "成功",
+      "detail": "func=104",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004,
+      "func_num": 104
+    },
+    {
+      "time": "23:54:18.822",
+      "ts": "2026-06-10T23:54:18.822",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 73,
+      "monotonic_ms": 361085,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 346700.812
+    },
+    {
+      "time": "23:54:18.871",
+      "ts": "2026-06-10T23:54:18.871",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 74,
+      "monotonic_ms": 361134,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346700.859
+    },
+    {
+      "time": "23:54:18.893",
+      "ts": "2026-06-10T23:54:18.893",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 75,
+      "monotonic_ms": 361156,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "23:54:37.271",
+      "ts": "2026-06-10T23:54:37.271",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 76,
+      "monotonic_ms": 379535,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "上下文查询",
+      "result": "成功",
+      "detail": "当前下位机状态：空闲。当前函数：-。通讯：异常，就绪：否；急停：关，暂停：关，报警：有，报警码：ERR_000。当前位置：X=1000，Y=0，Z=800。"
+    },
+    {
+      "time": "23:55:28.162",
+      "ts": "2026-06-10T23:55:28.162",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 77,
+      "monotonic_ms": 430425,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 346770.14
+    },
+    {
+      "time": "23:55:28.220",
+      "ts": "2026-06-10T23:55:28.220",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 78,
+      "monotonic_ms": 430483,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346770.203
+    },
+    {
+      "time": "23:55:28.222",
+      "ts": "2026-06-10T23:55:28.222",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 79,
+      "monotonic_ms": 430487,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "23:55:29.670",
+      "ts": "2026-06-10T23:55:29.670",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 80,
+      "monotonic_ms": 431934,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 346771.656
+    },
+    {
+      "time": "23:55:29.685",
+      "ts": "2026-06-10T23:55:29.685",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 81,
+      "monotonic_ms": 431949,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "确认执行",
+      "result": "成功",
+      "detail": "移动到位置A"
+    },
+    {
+      "time": "23:55:29.688",
+      "ts": "2026-06-10T23:55:29.688",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 82,
+      "monotonic_ms": 431952,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "执行解析",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置A"
+    },
+    {
+      "time": "23:55:29.690",
+      "ts": "2026-06-10T23:55:29.690",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 83,
+      "monotonic_ms": 431954,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步开始",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "23:55:29.693",
+      "ts": "2026-06-10T23:55:29.693",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 84,
+      "monotonic_ms": 431957,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送准备 位置A",
+      "result": "成功",
+      "detail": "未命中规避规则，直接发送",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_total": 1,
+      "plan_reason": "未命中规避规则，直接发送",
+      "plan_records": [
+        {
+          "query_key": "位置A",
+          "func_num": 108,
+          "description": "移动到位置A",
+          "params": {
+            "target_x": 1000.0,
+            "target_y": 0.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 90.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0
+          },
+          "writes": [
+            {
+              "start_vr": 0,
+              "values": [
+                108.0
+              ]
+            },
+            {
+              "start_vr": 2,
+              "values": [
+                1000.0
+              ]
+            },
+            {
+              "start_vr": 4,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 6,
+              "values": [
+                800.0
+              ]
+            },
+            {
+              "start_vr": 8,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 10,
+              "values": [
+                90.0
+              ]
+            },
+            {
+              "start_vr": 12,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 14,
+              "values": [
+                50.0
+              ]
+            },
+            {
+              "start_vr": 16,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 18,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 20,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 22,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 24,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 26,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 28,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 30,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 32,
+              "values": [
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "time": "23:55:29.696",
+      "ts": "2026-06-10T23:55:29.696",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 85,
+      "monotonic_ms": 431960,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "Func108 参数说明 位置A",
+      "result": "成功",
+      "detail": "stop_cmd=0(正常) | fuzzy_pos=0 fuzzy_spd=0 fuzzy_acc=0 fuzzy_dec=0 | move_type=0(直线插补)",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.698",
+      "ts": "2026-06-10T23:55:29.698",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 86,
+      "monotonic_ms": 431962,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[108.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.699",
+      "ts": "2026-06-10T23:55:29.699",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 87,
+      "monotonic_ms": 431962,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[1000.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.701",
+      "ts": "2026-06-10T23:55:29.701",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 88,
+      "monotonic_ms": 431964,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.703",
+      "ts": "2026-06-10T23:55:29.703",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 89,
+      "monotonic_ms": 431967,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[800.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.705",
+      "ts": "2026-06-10T23:55:29.705",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 90,
+      "monotonic_ms": 431968,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.712",
+      "ts": "2026-06-10T23:55:29.712",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 91,
+      "monotonic_ms": 431975,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(10)",
+      "result": "成功",
+      "detail": "values=[90.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.712",
+      "ts": "2026-06-10T23:55:29.712",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 92,
+      "monotonic_ms": 431976,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(12)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.713",
+      "ts": "2026-06-10T23:55:29.713",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 93,
+      "monotonic_ms": 431977,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(14)",
+      "result": "成功",
+      "detail": "values=[50.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.714",
+      "ts": "2026-06-10T23:55:29.714",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 94,
+      "monotonic_ms": 431977,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(16)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.715",
+      "ts": "2026-06-10T23:55:29.715",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 95,
+      "monotonic_ms": 431978,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(18)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.718",
+      "ts": "2026-06-10T23:55:29.718",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 96,
+      "monotonic_ms": 431982,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(20)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.736",
+      "ts": "2026-06-10T23:55:29.736",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 97,
+      "monotonic_ms": 432000,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(22)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.740",
+      "ts": "2026-06-10T23:55:29.740",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 98,
+      "monotonic_ms": 432004,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(24)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.742",
+      "ts": "2026-06-10T23:55:29.742",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 99,
+      "monotonic_ms": 432005,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(26)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.742",
+      "ts": "2026-06-10T23:55:29.742",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 100,
+      "monotonic_ms": 432006,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(28)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.743",
+      "ts": "2026-06-10T23:55:29.743",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 101,
+      "monotonic_ms": 432007,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(30)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.743",
+      "ts": "2026-06-10T23:55:29.743",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 102,
+      "monotonic_ms": 432007,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 位置A",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.781",
+      "ts": "2026-06-10T23:55:29.781",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 103,
+      "monotonic_ms": 432044,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 位置A",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.031s, attempts=1, snapshot=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.785",
+      "ts": "2026-06-10T23:55:29.785",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 104,
+      "monotonic_ms": 432049,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 位置A",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.877",
+      "ts": "2026-06-10T23:55:29.877",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 105,
+      "monotonic_ms": 432140,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "接受确认 位置A",
+      "result": "成功",
+      "detail": "IEEE(312)=0, LONG(34)=268435584, LONG(36)=0",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.943",
+      "ts": "2026-06-10T23:55:29.943",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 106,
+      "monotonic_ms": 432207,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "收到确认 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, IEEE(324)=108",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.943",
+      "ts": "2026-06-10T23:55:29.943",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 107,
+      "monotonic_ms": 432207,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "执行完成 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.962",
+      "ts": "2026-06-10T23:55:29.962",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 108,
+      "monotonic_ms": 432225,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "回传数据",
+      "result": "成功",
+      "detail": "X=1000.0 Y=0.0 Z=800.0 Rx=0.0 Ry=90.0 Rz=0.0 | 运动状态=270 | J1=-0.0 J2=-18.1 J3=30.8 J4=0.0 J5=59.2 J6=-0.0 | 可选反馈(待固件确认): IEEE(52)=150.0, IEEE(54)=132.0, IEEE(70)=-125, IEEE(72)=-450, IEEE(314)=268435456, IEEE(316)=0, IEEE(318)=0, IEEE(320)=10",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:55:29.969",
+      "ts": "2026-06-10T23:55:29.969",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 109,
+      "monotonic_ms": 432233,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-64 (wrapper)",
+      "category": "六轴",
+      "action": "命令最终快照 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, LONG(38)=0, IEEE(312)=0.0, IEEE(324)=108, state=2",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "six_long34": 268435584,
+      "six_long36": 0,
+      "six_long38": 0,
+      "six_ieee312": 0.0,
+      "six_ieee324": 108,
+      "six_ieee56": 270,
+      "six_func_num": 108,
+      "six_func_state": 2,
+      "six_slot": "motion",
+      "six_ready": true,
+      "six_alarm": false,
+      "six_estop": false,
+      "six_paused": false,
+      "six_cancelled": false
+    },
+    {
+      "time": "23:55:29.973",
+      "ts": "2026-06-10T23:55:29.973",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 110,
+      "monotonic_ms": 432237,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送指令 位置A",
+      "result": "成功",
+      "detail": "任务1002",
+      "dispatch_id": "dispatch_ec3e276e08",
+      "task_id": 1002,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "command_snapshot": {
+        "query_key": "位置A",
+        "func_num": 108,
+        "description": "移动到位置A",
+        "params": {
+          "target_x": 1000.0,
+          "target_y": 0.0,
+          "target_z": 800.0,
+          "target_rx": 0.0,
+          "target_ry": 90.0,
+          "target_rz": 0.0,
+          "spd_pct": 50.0,
+          "acc_pct": 60.0,
+          "dec_pct": 60.0,
+          "stop_cmd": 0,
+          "fuzzy_pos": 0,
+          "fuzzy_spd": 0,
+          "fuzzy_acc": 0,
+          "fuzzy_dec": 0,
+          "move_type": 0
+        },
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              108.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              1000.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              800.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 10,
+            "values": [
+              90.0
+            ]
+          },
+          {
+            "start_vr": 12,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 14,
+            "values": [
+              50.0
+            ]
+          },
+          {
+            "start_vr": 16,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 18,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 20,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 22,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 24,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 26,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 28,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 30,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "23:55:30.009",
+      "ts": "2026-06-10T23:55:30.009",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 111,
+      "monotonic_ms": 432273,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步成功",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "23:55:30.043",
+      "ts": "2026-06-10T23:55:30.043",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 112,
+      "monotonic_ms": 432307,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346772.031
+    },
+    {
+      "time": "23:55:30.048",
+      "ts": "2026-06-10T23:55:30.048",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 113,
+      "monotonic_ms": 432312,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列完成",
+      "result": "成功",
+      "detail": "共执行 1 步"
+    },
+    {
+      "time": "23:56:22.460",
+      "ts": "2026-06-10T23:56:22.460",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 114,
+      "monotonic_ms": 484723,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346824.437
+    },
+    {
+      "time": "23:56:25.730",
+      "ts": "2026-06-10T23:56:25.730",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 115,
+      "monotonic_ms": 487994,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346827.718
+    },
+    {
+      "time": "23:56:25.759",
+      "ts": "2026-06-10T23:56:25.759",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 116,
+      "monotonic_ms": 488023,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "澄清提示",
+      "result": "提示",
+      "detail": "请补充目标位置的名称或坐标，例如“位置A”、“位置B”或具体X、Y、Z数值。"
+    },
+    {
+      "time": "23:56:32.168",
+      "ts": "2026-06-10T23:56:32.168",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 117,
+      "monotonic_ms": 494432,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh_typing",
+      "changed_at": 346834.156
+    },
+    {
+      "time": "23:56:32.225",
+      "ts": "2026-06-10T23:56:32.225",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 118,
+      "monotonic_ms": 494489,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346834.203
+    },
+    {
+      "time": "23:56:32.230",
+      "ts": "2026-06-10T23:56:32.230",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 119,
+      "monotonic_ms": 494494,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "23:56:33.908",
+      "ts": "2026-06-10T23:56:33.908",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 120,
+      "monotonic_ms": 496172,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 346835.89
+    },
+    {
+      "time": "23:56:33.926",
+      "ts": "2026-06-10T23:56:33.926",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 121,
+      "monotonic_ms": 496190,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "确认执行",
+      "result": "成功",
+      "detail": "移动到位置b"
+    },
+    {
+      "time": "23:56:33.930",
+      "ts": "2026-06-10T23:56:33.930",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 122,
+      "monotonic_ms": 496193,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "执行解析",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置b"
+    },
+    {
+      "time": "23:56:33.933",
+      "ts": "2026-06-10T23:56:33.933",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 123,
+      "monotonic_ms": 496197,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步开始",
+      "result": "成功",
+      "detail": "atomic_template | flowdraft:测试:01 | agent_orchestrator"
+    },
+    {
+      "time": "23:56:33.937",
+      "ts": "2026-06-10T23:56:33.937",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 124,
+      "monotonic_ms": 496201,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送准备 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "未命中规避规则，直接发送",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_total": 1,
+      "plan_reason": "未命中规避规则，直接发送",
+      "plan_records": [
+        {
+          "query_key": "flowdraft:测试:01",
+          "func_num": 108,
+          "description": "移动到位置b",
+          "params": {
+            "target_x": 475.0,
+            "target_y": 0.0,
+            "target_z": 545.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 30.0,
+            "acc_pct": 30.0,
+            "dec_pct": 30.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0
+          },
+          "writes": [
+            {
+              "start_vr": 0,
+              "values": [
+                108.0
+              ]
+            },
+            {
+              "start_vr": 2,
+              "values": [
+                475.0
+              ]
+            },
+            {
+              "start_vr": 4,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 6,
+              "values": [
+                545.0
+              ]
+            },
+            {
+              "start_vr": 8,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 10,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 12,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 14,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 16,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 18,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 20,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 22,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 24,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 26,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 28,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 30,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 32,
+              "values": [
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "time": "23:56:33.941",
+      "ts": "2026-06-10T23:56:33.941",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 125,
+      "monotonic_ms": 496205,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "Func108 参数说明 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "stop_cmd=0(正常) | fuzzy_pos=0 fuzzy_spd=0 fuzzy_acc=0 fuzzy_dec=0 | move_type=0(直线插补)",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.950",
+      "ts": "2026-06-10T23:56:33.950",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 126,
+      "monotonic_ms": 496213,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[108.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.951",
+      "ts": "2026-06-10T23:56:33.951",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 127,
+      "monotonic_ms": 496214,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[475.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.951",
+      "ts": "2026-06-10T23:56:33.951",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 128,
+      "monotonic_ms": 496215,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.952",
+      "ts": "2026-06-10T23:56:33.952",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 129,
+      "monotonic_ms": 496215,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[545.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.953",
+      "ts": "2026-06-10T23:56:33.953",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 130,
+      "monotonic_ms": 496217,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.957",
+      "ts": "2026-06-10T23:56:33.957",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 131,
+      "monotonic_ms": 496220,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(10)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.957",
+      "ts": "2026-06-10T23:56:33.957",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 132,
+      "monotonic_ms": 496221,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(12)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.958",
+      "ts": "2026-06-10T23:56:33.958",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 133,
+      "monotonic_ms": 496222,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(14)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.959",
+      "ts": "2026-06-10T23:56:33.959",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 134,
+      "monotonic_ms": 496222,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(16)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.960",
+      "ts": "2026-06-10T23:56:33.960",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 135,
+      "monotonic_ms": 496223,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(18)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.970",
+      "ts": "2026-06-10T23:56:33.970",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 136,
+      "monotonic_ms": 496233,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(20)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.983",
+      "ts": "2026-06-10T23:56:33.983",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 137,
+      "monotonic_ms": 496247,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(22)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.988",
+      "ts": "2026-06-10T23:56:33.988",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 138,
+      "monotonic_ms": 496251,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(24)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.993",
+      "ts": "2026-06-10T23:56:33.993",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 139,
+      "monotonic_ms": 496256,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(26)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:33.997",
+      "ts": "2026-06-10T23:56:33.997",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 140,
+      "monotonic_ms": 496260,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(28)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.001",
+      "ts": "2026-06-10T23:56:34.001",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 141,
+      "monotonic_ms": 496265,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(30)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.002",
+      "ts": "2026-06-10T23:56:34.002",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 142,
+      "monotonic_ms": 496265,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 flowdraft:测试:01",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=108, 282=475, 284=0, 286=545, 288=0, 290=0, 292=0, 294=30, 296=30, 298=30, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.056",
+      "ts": "2026-06-10T23:56:34.056",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 143,
+      "monotonic_ms": 496320,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.062s, attempts=1, snapshot=280=108, 282=475, 284=0, 286=545, 288=0, 290=0, 292=0, 294=30, 296=30, 298=30, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.065",
+      "ts": "2026-06-10T23:56:34.065",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 144,
+      "monotonic_ms": 496329,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.152",
+      "ts": "2026-06-10T23:56:34.152",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 145,
+      "monotonic_ms": 496416,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "接受确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "IEEE(312)=0, LONG(34)=268435520, LONG(36)=1024",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.215",
+      "ts": "2026-06-10T23:56:34.215",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 146,
+      "monotonic_ms": 496479,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "收到确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:34.215",
+      "ts": "2026-06-10T23:56:34.215",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 147,
+      "monotonic_ms": 496479,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "执行中确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108, IEEE(56)=270",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:40.779",
+      "ts": "2026-06-10T23:56:40.779",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 148,
+      "monotonic_ms": 503042,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "执行完成 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435584",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:40.802",
+      "ts": "2026-06-10T23:56:40.802",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 149,
+      "monotonic_ms": 503065,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "回传数据",
+      "result": "成功",
+      "detail": "X=475.0 Y=0.0 Z=545.0 Rx=0.0 Ry=0.0 Rz=0.0 | 运动状态=270 | J1=-0.0 J2=-80.0 J3=6.5 J4=0.0 J5=34.6 J6=-0.0 | 可选反馈(待固件确认): IEEE(52)=150.0, IEEE(54)=132.0, IEEE(70)=-125, IEEE(72)=-450, IEEE(314)=268435456, IEEE(316)=0, IEEE(318)=0, IEEE(320)=10",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "23:56:40.810",
+      "ts": "2026-06-10T23:56:40.810",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 150,
+      "monotonic_ms": 503074,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-67 (wrapper)",
+      "category": "六轴",
+      "action": "命令最终快照 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, LONG(38)=0, IEEE(312)=0.0, IEEE(324)=108, state=2",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "six_long34": 268435584,
+      "six_long36": 0,
+      "six_long38": 0,
+      "six_ieee312": 0.0,
+      "six_ieee324": 108,
+      "six_ieee56": 270,
+      "six_func_num": 108,
+      "six_func_state": 2,
+      "six_slot": "motion",
+      "six_ready": true,
+      "six_alarm": false,
+      "six_estop": false,
+      "six_paused": false,
+      "six_cancelled": false
+    },
+    {
+      "time": "23:56:40.815",
+      "ts": "2026-06-10T23:56:40.815",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 151,
+      "monotonic_ms": 503079,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送指令 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "任务1003",
+      "dispatch_id": "dispatch_3da7556ba8",
+      "task_id": 1003,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "command_snapshot": {
+        "query_key": "flowdraft:测试:01",
+        "func_num": 108,
+        "description": "移动到位置b",
+        "params": {
+          "target_x": 475.0,
+          "target_y": 0.0,
+          "target_z": 545.0,
+          "target_rx": 0.0,
+          "target_ry": 0.0,
+          "target_rz": 0.0,
+          "spd_pct": 30.0,
+          "acc_pct": 30.0,
+          "dec_pct": 30.0,
+          "stop_cmd": 0,
+          "fuzzy_pos": 0,
+          "fuzzy_spd": 0,
+          "fuzzy_acc": 0,
+          "fuzzy_dec": 0,
+          "move_type": 0
+        },
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              108.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              475.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              545.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 10,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 12,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 14,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 16,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 18,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 20,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 22,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 24,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 26,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 28,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 30,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "23:56:40.854",
+      "ts": "2026-06-10T23:56:40.854",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 152,
+      "monotonic_ms": 503118,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步成功",
+      "result": "成功",
+      "detail": "atomic_template | flowdraft:测试:01 | agent_orchestrator"
+    },
+    {
+      "time": "23:56:40.895",
+      "ts": "2026-06-10T23:56:40.895",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 153,
+      "monotonic_ms": 503158,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346842.875
+    },
+    {
+      "time": "23:56:40.900",
+      "ts": "2026-06-10T23:56:40.900",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 154,
+      "monotonic_ms": 503163,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列完成",
+      "result": "成功",
+      "detail": "共执行 1 步"
+    },
+    {
+      "time": "23:57:00.337",
+      "ts": "2026-06-10T23:57:00.337",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 155,
+      "monotonic_ms": 522601,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "上下文查询",
+      "result": "成功",
+      "detail": "当前下位机状态：空闲。当前函数：-。通讯：正常，就绪：否；急停：关，暂停：关，报警：无，报警码：ERR_000。当前位置：X=475，Y=0，Z=545。"
+    },
+    {
+      "time": "23:57:09.689",
+      "ts": "2026-06-10T23:57:09.689",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 156,
+      "monotonic_ms": 531953,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 346871.671
+    },
+    {
+      "time": "23:57:09.748",
+      "ts": "2026-06-10T23:57:09.748",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 157,
+      "monotonic_ms": 532011,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 346871.734
+    },
+    {
+      "time": "23:57:09.780",
+      "ts": "2026-06-10T23:57:09.780",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 158,
+      "monotonic_ms": 532044,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "00:00:10.802",
+      "ts": "2026-06-11T00:00:10.802",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 159,
+      "monotonic_ms": 713066,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "系统",
+      "action": "系统命令 sys_resume",
+      "result": "失败",
+      "detail": "控制器未连接。",
+      "dispatch_id": "dispatch_40c1d4a9e6",
+      "task_id": 1002,
+      "system_action": "sys_resume",
+      "command_code": 4004,
+      "error_type": "ZMotionClientError",
+      "error_message": "控制器未连接。",
+      "traceback": "Traceback (most recent call last):\n  File \"robot_modbus_lite\\background_tasks.py\", line 20, in wrapper\n  File \"robot_modbus_lite\\gui_system_mixin.py\", line 103, in work\n  File \"robot_modbus_lite\\six_axis_command_mixin.py\", line 712, in _wait_func104_done\n  File \"robot_modbus_lite\\zmotion_client.py\", line 186, in read_modbus_long\nrobot_modbus_lite.zmotion_client.ZMotionClientError: 控制器未连接。\n"
+    },
+    {
+      "time": "00:00:11.576",
+      "ts": "2026-06-11T00:00:11.576",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 160,
+      "monotonic_ms": 713839,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "系统",
+      "action": "系统命令 sys_pause",
+      "result": "失败",
+      "detail": "Func104 执行超时: sys_pause | timeout=180s",
+      "dispatch_id": "dispatch_7d89d191c5",
+      "task_id": 1002,
+      "system_action": "sys_pause",
+      "command_code": 4003,
+      "error_type": "RuntimeError",
+      "error_message": "Func104 执行超时: sys_pause | timeout=180s",
+      "traceback": "Traceback (most recent call last):\n  File \"robot_modbus_lite\\background_tasks.py\", line 20, in wrapper\n  File \"robot_modbus_lite\\gui_system_mixin.py\", line 103, in work\n  File \"robot_modbus_lite\\six_axis_command_mixin.py\", line 727, in _wait_func104_done\nRuntimeError: Func104 执行超时: sys_pause | timeout=180s\n"
+    },
+    {
+      "time": "00:00:18.199",
+      "ts": "2026-06-11T00:00:18.199",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 161,
+      "monotonic_ms": 720463,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "上下文查询",
+      "result": "成功",
+      "detail": "当前下位机状态：空闲。当前函数：-。通讯：正常，就绪：否；急停：关，暂停：关，报警：无，报警码：ERR_000。当前位置：X=475，Y=0，Z=545。"
+    },
+    {
+      "time": "00:00:27.442",
+      "ts": "2026-06-11T00:00:27.442",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 162,
+      "monotonic_ms": 729706,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347069.421
+    },
+    {
+      "time": "00:00:27.517",
+      "ts": "2026-06-11T00:00:27.517",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 163,
+      "monotonic_ms": 729781,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347069.5
+    },
+    {
+      "time": "00:00:27.524",
+      "ts": "2026-06-11T00:00:27.524",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 164,
+      "monotonic_ms": 729787,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "00:00:29.510",
+      "ts": "2026-06-11T00:00:29.510",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 165,
+      "monotonic_ms": 731773,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 347071.5
+    },
+    {
+      "time": "00:00:29.530",
+      "ts": "2026-06-11T00:00:29.530",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 166,
+      "monotonic_ms": 731794,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "确认执行",
+      "result": "成功",
+      "detail": "移动到位置A"
+    },
+    {
+      "time": "00:00:29.535",
+      "ts": "2026-06-11T00:00:29.535",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 167,
+      "monotonic_ms": 731799,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "执行解析",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置A"
+    },
+    {
+      "time": "00:00:29.539",
+      "ts": "2026-06-11T00:00:29.539",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 168,
+      "monotonic_ms": 731803,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步开始",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "00:00:29.545",
+      "ts": "2026-06-11T00:00:29.545",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 169,
+      "monotonic_ms": 731808,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送准备 位置A",
+      "result": "成功",
+      "detail": "未命中规避规则，直接发送",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_total": 1,
+      "plan_reason": "未命中规避规则，直接发送",
+      "plan_records": [
+        {
+          "query_key": "位置A",
+          "func_num": 108,
+          "description": "移动到位置A",
+          "params": {
+            "target_x": 1000.0,
+            "target_y": 0.0,
+            "target_z": 800.0,
+            "target_rx": 0.0,
+            "target_ry": 90.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "acc_pct": 60.0,
+            "dec_pct": 60.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0
+          },
+          "writes": [
+            {
+              "start_vr": 0,
+              "values": [
+                108.0
+              ]
+            },
+            {
+              "start_vr": 2,
+              "values": [
+                1000.0
+              ]
+            },
+            {
+              "start_vr": 4,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 6,
+              "values": [
+                800.0
+              ]
+            },
+            {
+              "start_vr": 8,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 10,
+              "values": [
+                90.0
+              ]
+            },
+            {
+              "start_vr": 12,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 14,
+              "values": [
+                50.0
+              ]
+            },
+            {
+              "start_vr": 16,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 18,
+              "values": [
+                60.0
+              ]
+            },
+            {
+              "start_vr": 20,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 22,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 24,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 26,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 28,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 30,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 32,
+              "values": [
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "time": "00:00:29.550",
+      "ts": "2026-06-11T00:00:29.550",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 170,
+      "monotonic_ms": 731813,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "Func108 参数说明 位置A",
+      "result": "成功",
+      "detail": "stop_cmd=0(正常) | fuzzy_pos=0 fuzzy_spd=0 fuzzy_acc=0 fuzzy_dec=0 | move_type=0(直线插补)",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.551",
+      "ts": "2026-06-11T00:00:29.551",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 171,
+      "monotonic_ms": 731815,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[108.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.552",
+      "ts": "2026-06-11T00:00:29.552",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 172,
+      "monotonic_ms": 731816,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[1000.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.553",
+      "ts": "2026-06-11T00:00:29.553",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 173,
+      "monotonic_ms": 731816,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.555",
+      "ts": "2026-06-11T00:00:29.555",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 174,
+      "monotonic_ms": 731818,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[800.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.560",
+      "ts": "2026-06-11T00:00:29.560",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 175,
+      "monotonic_ms": 731823,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.561",
+      "ts": "2026-06-11T00:00:29.561",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 176,
+      "monotonic_ms": 731824,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(10)",
+      "result": "成功",
+      "detail": "values=[90.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.561",
+      "ts": "2026-06-11T00:00:29.561",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 177,
+      "monotonic_ms": 731825,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(12)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.562",
+      "ts": "2026-06-11T00:00:29.562",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 178,
+      "monotonic_ms": 731825,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(14)",
+      "result": "成功",
+      "detail": "values=[50.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.563",
+      "ts": "2026-06-11T00:00:29.563",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 179,
+      "monotonic_ms": 731826,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(16)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.563",
+      "ts": "2026-06-11T00:00:29.563",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 180,
+      "monotonic_ms": 731827,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(18)",
+      "result": "成功",
+      "detail": "values=[60.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.563",
+      "ts": "2026-06-11T00:00:29.563",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 181,
+      "monotonic_ms": 731827,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(20)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.564",
+      "ts": "2026-06-11T00:00:29.564",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 182,
+      "monotonic_ms": 731828,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(22)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.565",
+      "ts": "2026-06-11T00:00:29.565",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 183,
+      "monotonic_ms": 731829,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(24)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.565",
+      "ts": "2026-06-11T00:00:29.565",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 184,
+      "monotonic_ms": 731829,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(26)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.566",
+      "ts": "2026-06-11T00:00:29.566",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 185,
+      "monotonic_ms": 731830,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(28)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.571",
+      "ts": "2026-06-11T00:00:29.571",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 186,
+      "monotonic_ms": 731834,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(30)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.571",
+      "ts": "2026-06-11T00:00:29.571",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 187,
+      "monotonic_ms": 731835,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 位置A",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.673",
+      "ts": "2026-06-11T00:00:29.673",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 188,
+      "monotonic_ms": 731937,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 位置A",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.094s, attempts=1, snapshot=280=108, 282=1000, 284=0, 286=800, 288=0, 290=90, 292=0, 294=50, 296=60, 298=60, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.679",
+      "ts": "2026-06-11T00:00:29.679",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 189,
+      "monotonic_ms": 731943,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 位置A",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.763",
+      "ts": "2026-06-11T00:00:29.763",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 190,
+      "monotonic_ms": 732026,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "接受确认 位置A",
+      "result": "成功",
+      "detail": "IEEE(312)=0, LONG(34)=268435520, LONG(36)=1024",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.826",
+      "ts": "2026-06-11T00:00:29.826",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 191,
+      "monotonic_ms": 732089,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "收到确认 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:29.826",
+      "ts": "2026-06-11T00:00:29.826",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 192,
+      "monotonic_ms": 732089,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "执行中确认 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108, IEEE(56)=270",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:33.318",
+      "ts": "2026-06-11T00:00:33.318",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 193,
+      "monotonic_ms": 735581,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "执行完成 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:33.344",
+      "ts": "2026-06-11T00:00:33.344",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 194,
+      "monotonic_ms": 735608,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "回传数据",
+      "result": "成功",
+      "detail": "X=1000.0 Y=0.0 Z=800.0 Rx=0.0 Ry=90.0 Rz=0.0 | 运动状态=270 | J1=-0.0 J2=-18.3 J3=30.8 J4=0.0 J5=59.2 J6=-0.0 | 可选反馈(待固件确认): IEEE(52)=150.0, IEEE(54)=132.0, IEEE(70)=-125, IEEE(72)=-450, IEEE(314)=268435456, IEEE(316)=0, IEEE(318)=0, IEEE(320)=10",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:00:33.354",
+      "ts": "2026-06-11T00:00:33.354",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 195,
+      "monotonic_ms": 735617,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-70 (wrapper)",
+      "category": "六轴",
+      "action": "命令最终快照 位置A",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, LONG(38)=0, IEEE(312)=0.0, IEEE(324)=108, state=2",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "six_long34": 268435584,
+      "six_long36": 0,
+      "six_long38": 0,
+      "six_ieee312": 0.0,
+      "six_ieee324": 108,
+      "six_ieee56": 270,
+      "six_func_num": 108,
+      "six_func_state": 2,
+      "six_slot": "motion",
+      "six_ready": true,
+      "six_alarm": false,
+      "six_estop": false,
+      "six_paused": false,
+      "six_cancelled": false
+    },
+    {
+      "time": "00:00:33.360",
+      "ts": "2026-06-11T00:00:33.360",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 196,
+      "monotonic_ms": 735624,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送指令 位置A",
+      "result": "成功",
+      "detail": "任务1004",
+      "dispatch_id": "dispatch_d4d0170ca4",
+      "task_id": 1004,
+      "root_query_key": "位置A",
+      "query_key": "位置A",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "command_snapshot": {
+        "query_key": "位置A",
+        "func_num": 108,
+        "description": "移动到位置A",
+        "params": {
+          "target_x": 1000.0,
+          "target_y": 0.0,
+          "target_z": 800.0,
+          "target_rx": 0.0,
+          "target_ry": 90.0,
+          "target_rz": 0.0,
+          "spd_pct": 50.0,
+          "acc_pct": 60.0,
+          "dec_pct": 60.0,
+          "stop_cmd": 0,
+          "fuzzy_pos": 0,
+          "fuzzy_spd": 0,
+          "fuzzy_acc": 0,
+          "fuzzy_dec": 0,
+          "move_type": 0
+        },
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              108.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              1000.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              800.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 10,
+            "values": [
+              90.0
+            ]
+          },
+          {
+            "start_vr": 12,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 14,
+            "values": [
+              50.0
+            ]
+          },
+          {
+            "start_vr": 16,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 18,
+            "values": [
+              60.0
+            ]
+          },
+          {
+            "start_vr": 20,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 22,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 24,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 26,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 28,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 30,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "00:00:33.404",
+      "ts": "2026-06-11T00:00:33.404",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 197,
+      "monotonic_ms": 735668,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步成功",
+      "result": "成功",
+      "detail": "atomic_template | 位置A | agent_orchestrator"
+    },
+    {
+      "time": "00:00:33.444",
+      "ts": "2026-06-11T00:00:33.444",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 198,
+      "monotonic_ms": 735708,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347075.421
+    },
+    {
+      "time": "00:00:33.450",
+      "ts": "2026-06-11T00:00:33.450",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 199,
+      "monotonic_ms": 735714,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列完成",
+      "result": "成功",
+      "detail": "共执行 1 步"
+    },
+    {
+      "time": "00:00:53.295",
+      "ts": "2026-06-11T00:00:53.295",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 200,
+      "monotonic_ms": 755559,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347095.281
+    },
+    {
+      "time": "00:00:53.345",
+      "ts": "2026-06-11T00:00:53.345",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 201,
+      "monotonic_ms": 755610,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347095.328
+    },
+    {
+      "time": "00:00:53.386",
+      "ts": "2026-06-11T00:00:53.386",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 202,
+      "monotonic_ms": 755650,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "00:01:21.078",
+      "ts": "2026-06-11T00:01:21.078",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 203,
+      "monotonic_ms": 783342,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "日志",
+      "action": "清空日志",
+      "result": "成功",
+      "detail": "已清空 200 条日志，快照: C:\\Users\\KY\\Desktop\\yjcao\\RobotModbusLite优化对话\\RobotModbusLite\\data\\exported_logs\\robot_qt_logs_before_clear_20260611_000121.json"
+    },
+    {
+      "time": "00:01:25.735",
+      "ts": "2026-06-11T00:01:25.735",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 204,
+      "monotonic_ms": 787999,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> precheck",
+      "current": "precheck",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347127.718
+    },
+    {
+      "time": "00:01:25.817",
+      "ts": "2026-06-11T00:01:25.817",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 205,
+      "monotonic_ms": 788080,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "解析文本",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 工具参数不符合 schema。"
+    },
+    {
+      "time": "00:01:25.821",
+      "ts": "2026-06-11T00:01:25.821",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 206,
+      "monotonic_ms": 788085,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "precheck -> idle",
+      "current": "idle",
+      "previous": "precheck",
+      "reason": "operator_refresh",
+      "changed_at": 347127.812
+    },
+    {
+      "time": "00:01:31.415",
+      "ts": "2026-06-11T00:01:31.415",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 207,
+      "monotonic_ms": 793679,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347133.406
+    },
+    {
+      "time": "00:01:31.444",
+      "ts": "2026-06-11T00:01:31.444",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 208,
+      "monotonic_ms": 793708,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347133.421
+    },
+    {
+      "time": "00:01:31.481",
+      "ts": "2026-06-11T00:01:31.481",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 209,
+      "monotonic_ms": 793744,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "未识别动作",
+      "result": "失败",
+      "detail": "当前设备运动中，触发字段：nlp_sequence_running=True。请等待停止后再生成点动草案。没有触发机械手动作。"
+    },
+    {
+      "time": "00:02:04.153",
+      "ts": "2026-06-11T00:02:04.153",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 210,
+      "monotonic_ms": 826416,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> precheck",
+      "current": "precheck",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347166.14
+    },
+    {
+      "time": "00:02:04.243",
+      "ts": "2026-06-11T00:02:04.243",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 211,
+      "monotonic_ms": 826506,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "安全预检",
+      "action": "L1预检",
+      "result": "失败",
+      "detail": "L1预检未通过：\n- 目标球面半径在上限内：目标球面半径 1280.6mm 超过上限 1200.0mm。"
+    },
+    {
+      "time": "00:02:04.266",
+      "ts": "2026-06-11T00:02:04.266",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 212,
+      "monotonic_ms": 826530,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "precheck -> confirm",
+      "current": "confirm",
+      "previous": "precheck",
+      "reason": "operator_refresh",
+      "changed_at": 347166.25
+    },
+    {
+      "time": "00:02:04.267",
+      "ts": "2026-06-11T00:02:04.267",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 213,
+      "monotonic_ms": 826531,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "解析文本",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置A"
+    },
+    {
+      "time": "00:02:05.412",
+      "ts": "2026-06-11T00:02:05.412",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 214,
+      "monotonic_ms": 827675,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> idle",
+      "current": "idle",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 347167.39
+    },
+    {
+      "time": "00:02:05.414",
+      "ts": "2026-06-11T00:02:05.414",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 215,
+      "monotonic_ms": 827678,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "idle -> execute",
+      "current": "execute",
+      "previous": "idle",
+      "reason": "operator_refresh",
+      "changed_at": 347167.406
+    },
+    {
+      "time": "00:02:05.474",
+      "ts": "2026-06-11T00:02:05.474",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 216,
+      "monotonic_ms": 827738,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347167.453
+    },
+    {
+      "time": "00:02:05.476",
+      "ts": "2026-06-11T00:02:05.476",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 217,
+      "monotonic_ms": 827739,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "00:02:18.885",
+      "ts": "2026-06-11T00:02:18.885",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 218,
+      "monotonic_ms": 841149,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 347180.875
+    },
+    {
+      "time": "00:02:18.950",
+      "ts": "2026-06-11T00:02:18.950",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 219,
+      "monotonic_ms": 841214,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> confirm",
+      "current": "confirm",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347180.937
+    },
+    {
+      "time": "00:02:18.952",
+      "ts": "2026-06-11T00:02:18.952",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 220,
+      "monotonic_ms": 841215,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "等待确认",
+      "result": "提示",
+      "detail": "等待安全确认，请说“确认执行”或点击确认执行。"
+    },
+    {
+      "time": "00:02:41.056",
+      "ts": "2026-06-11T00:02:41.056",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 221,
+      "monotonic_ms": 863319,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "confirm -> execute",
+      "current": "execute",
+      "previous": "confirm",
+      "reason": "operator_refresh",
+      "changed_at": 347203.046
+    },
+    {
+      "time": "00:02:41.072",
+      "ts": "2026-06-11T00:02:41.072",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 222,
+      "monotonic_ms": 863336,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "确认执行",
+      "result": "成功",
+      "detail": "移动到位置b"
+    },
+    {
+      "time": "00:02:41.073",
+      "ts": "2026-06-11T00:02:41.073",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 223,
+      "monotonic_ms": 863337,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "执行解析",
+      "result": "成功",
+      "detail": "agent_orchestrator | 1步 | 移动到位置b"
+    },
+    {
+      "time": "00:02:41.074",
+      "ts": "2026-06-11T00:02:41.074",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 224,
+      "monotonic_ms": 863338,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步开始",
+      "result": "成功",
+      "detail": "atomic_template | flowdraft:测试:01 | agent_orchestrator"
+    },
+    {
+      "time": "00:02:41.076",
+      "ts": "2026-06-11T00:02:41.076",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 225,
+      "monotonic_ms": 863340,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送准备 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "未命中规避规则，直接发送",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_total": 1,
+      "plan_reason": "未命中规避规则，直接发送",
+      "plan_records": [
+        {
+          "query_key": "flowdraft:测试:01",
+          "func_num": 108,
+          "description": "移动到位置b",
+          "params": {
+            "target_x": 475.0,
+            "target_y": 0.0,
+            "target_z": 545.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 30.0,
+            "acc_pct": 30.0,
+            "dec_pct": 30.0,
+            "stop_cmd": 0,
+            "fuzzy_pos": 0,
+            "fuzzy_spd": 0,
+            "fuzzy_acc": 0,
+            "fuzzy_dec": 0,
+            "move_type": 0
+          },
+          "writes": [
+            {
+              "start_vr": 0,
+              "values": [
+                108.0
+              ]
+            },
+            {
+              "start_vr": 2,
+              "values": [
+                475.0
+              ]
+            },
+            {
+              "start_vr": 4,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 6,
+              "values": [
+                545.0
+              ]
+            },
+            {
+              "start_vr": 8,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 10,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 12,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 14,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 16,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 18,
+              "values": [
+                30.0
+              ]
+            },
+            {
+              "start_vr": 20,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 22,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 24,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 26,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 28,
+              "values": [
+                0
+              ]
+            },
+            {
+              "start_vr": 30,
+              "values": [
+                0.0
+              ]
+            },
+            {
+              "start_vr": 32,
+              "values": [
+                1.0
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "time": "00:02:41.077",
+      "ts": "2026-06-11T00:02:41.077",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 226,
+      "monotonic_ms": 863341,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "Func108 参数说明 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "stop_cmd=0(正常) | fuzzy_pos=0 fuzzy_spd=0 fuzzy_acc=0 fuzzy_dec=0 | move_type=0(直线插补)",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.081",
+      "ts": "2026-06-11T00:02:41.081",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 227,
+      "monotonic_ms": 863345,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(0)",
+      "result": "成功",
+      "detail": "values=[108.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.082",
+      "ts": "2026-06-11T00:02:41.082",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 228,
+      "monotonic_ms": 863346,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(2)",
+      "result": "成功",
+      "detail": "values=[475.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.082",
+      "ts": "2026-06-11T00:02:41.082",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 229,
+      "monotonic_ms": 863346,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(4)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.083",
+      "ts": "2026-06-11T00:02:41.083",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 230,
+      "monotonic_ms": 863347,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(6)",
+      "result": "成功",
+      "detail": "values=[545.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.084",
+      "ts": "2026-06-11T00:02:41.084",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 231,
+      "monotonic_ms": 863348,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(8)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.084",
+      "ts": "2026-06-11T00:02:41.084",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 232,
+      "monotonic_ms": 863348,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(10)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.086",
+      "ts": "2026-06-11T00:02:41.086",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 233,
+      "monotonic_ms": 863350,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(12)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.087",
+      "ts": "2026-06-11T00:02:41.087",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 234,
+      "monotonic_ms": 863351,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(14)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.087",
+      "ts": "2026-06-11T00:02:41.087",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 235,
+      "monotonic_ms": 863352,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(16)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.089",
+      "ts": "2026-06-11T00:02:41.089",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 236,
+      "monotonic_ms": 863353,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(18)",
+      "result": "成功",
+      "detail": "values=[30.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.090",
+      "ts": "2026-06-11T00:02:41.090",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 237,
+      "monotonic_ms": 863354,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(20)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.091",
+      "ts": "2026-06-11T00:02:41.091",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 238,
+      "monotonic_ms": 863355,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(22)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.092",
+      "ts": "2026-06-11T00:02:41.092",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 239,
+      "monotonic_ms": 863356,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(24)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.094",
+      "ts": "2026-06-11T00:02:41.094",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 240,
+      "monotonic_ms": 863357,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(26)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.095",
+      "ts": "2026-06-11T00:02:41.095",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 241,
+      "monotonic_ms": 863359,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(28)",
+      "result": "成功",
+      "detail": "values=[0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.097",
+      "ts": "2026-06-11T00:02:41.097",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 242,
+      "monotonic_ms": 863360,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入IEEE(30)",
+      "result": "成功",
+      "detail": "values=[0.0]",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.097",
+      "ts": "2026-06-11T00:02:41.097",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 243,
+      "monotonic_ms": 863360,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待开始 flowdraft:测试:01",
+      "result": "进行中",
+      "detail": "round=1, retry_interval=0.005s, max_retries=3, fail_threshold=3, epsilon=0.001, derived_wait=0.015s, expected=280=108, 282=475, 284=0, 286=545, 288=0, 290=0, 292=0, 294=30, 296=30, 298=30, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.117",
+      "ts": "2026-06-11T00:02:41.117",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 244,
+      "monotonic_ms": 863381,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "回显等待成功 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "round=1, elapsed=0.031s, attempts=1, snapshot=280=108, 282=475, 284=0, 286=545, 288=0, 290=0, 292=0, 294=30, 296=30, 298=30, 300=0, 302=0, 304=0, 306=0, 308=0, 310=0",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.120",
+      "ts": "2026-06-11T00:02:41.120",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 245,
+      "monotonic_ms": 863383,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "写入触发 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "IEEE(32)=1",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.217",
+      "ts": "2026-06-11T00:02:41.217",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 246,
+      "monotonic_ms": 863481,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "接受确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "IEEE(312)=0, LONG(34)=268435520, LONG(36)=1024",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.278",
+      "ts": "2026-06-11T00:02:41.278",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 247,
+      "monotonic_ms": 863542,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "收到确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:41.279",
+      "ts": "2026-06-11T00:02:41.279",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 248,
+      "monotonic_ms": 863542,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "执行中确认 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435520, LONG(36)=1024, IEEE(324)=108, IEEE(56)=270",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:47.793",
+      "ts": "2026-06-11T00:02:47.793",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 249,
+      "monotonic_ms": 870056,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "执行完成 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435584",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:47.811",
+      "ts": "2026-06-11T00:02:47.811",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 250,
+      "monotonic_ms": 870075,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "回传数据",
+      "result": "成功",
+      "detail": "X=475.0 Y=0.0 Z=545.0 Rx=0.0 Ry=0.0 Rz=0.0 | 运动状态=270 | J1=-0.0 J2=-80.0 J3=6.5 J4=0.0 J5=34.6 J6=-0.0 | 可选反馈(待固件确认): IEEE(52)=150.0, IEEE(54)=132.0, IEEE(70)=-125, IEEE(72)=-450, IEEE(314)=268435456, IEEE(316)=0, IEEE(318)=0, IEEE(320)=10",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1
+    },
+    {
+      "time": "00:02:47.815",
+      "ts": "2026-06-11T00:02:47.815",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 251,
+      "monotonic_ms": 870079,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "Thread-81 (wrapper)",
+      "category": "六轴",
+      "action": "命令最终快照 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "LONG(34)=268435584, LONG(36)=0, LONG(38)=0, IEEE(312)=0.0, IEEE(324)=108, state=2",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "six_long34": 268435584,
+      "six_long36": 0,
+      "six_long38": 0,
+      "six_ieee312": 0.0,
+      "six_ieee324": 108,
+      "six_ieee56": 270,
+      "six_func_num": 108,
+      "six_func_state": 2,
+      "six_slot": "motion",
+      "six_ready": true,
+      "six_alarm": false,
+      "six_estop": false,
+      "six_paused": false,
+      "six_cancelled": false
+    },
+    {
+      "time": "00:02:47.826",
+      "ts": "2026-06-11T00:02:47.826",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 252,
+      "monotonic_ms": 870089,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "执行",
+      "action": "发送指令 flowdraft:测试:01",
+      "result": "成功",
+      "detail": "任务1005",
+      "dispatch_id": "dispatch_1d56e64c20",
+      "task_id": 1005,
+      "root_query_key": "flowdraft:测试:01",
+      "query_key": "flowdraft:测试:01",
+      "func_num": 108,
+      "plan_step_index": 1,
+      "plan_step_total": 1,
+      "command_snapshot": {
+        "query_key": "flowdraft:测试:01",
+        "func_num": 108,
+        "description": "移动到位置b",
+        "params": {
+          "target_x": 475.0,
+          "target_y": 0.0,
+          "target_z": 545.0,
+          "target_rx": 0.0,
+          "target_ry": 0.0,
+          "target_rz": 0.0,
+          "spd_pct": 30.0,
+          "acc_pct": 30.0,
+          "dec_pct": 30.0,
+          "stop_cmd": 0,
+          "fuzzy_pos": 0,
+          "fuzzy_spd": 0,
+          "fuzzy_acc": 0,
+          "fuzzy_dec": 0,
+          "move_type": 0
+        },
+        "writes": [
+          {
+            "start_vr": 0,
+            "values": [
+              108.0
+            ]
+          },
+          {
+            "start_vr": 2,
+            "values": [
+              475.0
+            ]
+          },
+          {
+            "start_vr": 4,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 6,
+            "values": [
+              545.0
+            ]
+          },
+          {
+            "start_vr": 8,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 10,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 12,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 14,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 16,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 18,
+            "values": [
+              30.0
+            ]
+          },
+          {
+            "start_vr": 20,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 22,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 24,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 26,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 28,
+            "values": [
+              0
+            ]
+          },
+          {
+            "start_vr": 30,
+            "values": [
+              0.0
+            ]
+          },
+          {
+            "start_vr": 32,
+            "values": [
+              1.0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "time": "00:02:47.867",
+      "ts": "2026-06-11T00:02:47.867",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 253,
+      "monotonic_ms": 870130,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列第1步成功",
+      "result": "成功",
+      "detail": "atomic_template | flowdraft:测试:01 | agent_orchestrator"
+    },
+    {
+      "time": "00:02:47.899",
+      "ts": "2026-06-11T00:02:47.899",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 254,
+      "monotonic_ms": 870163,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "用户页面",
+      "action": "场景切换",
+      "result": "成功",
+      "detail": "execute -> idle",
+      "current": "idle",
+      "previous": "execute",
+      "reason": "operator_refresh",
+      "changed_at": 347209.89
+    },
+    {
+      "time": "00:02:47.901",
+      "ts": "2026-06-11T00:02:47.901",
+      "session_id": "20260610_234817_7c744787",
+      "seq": 255,
+      "monotonic_ms": 870165,
+      "host": "10.168.3.21",
+      "controller_mode": "real",
+      "thread": "MainThread",
+      "category": "自然语言",
+      "action": "动作序列完成",
+      "result": "成功",
+      "detail": "共执行 1 步"
+    }
+  ]
+}

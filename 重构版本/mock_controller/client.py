@@ -22,6 +22,7 @@ class MockZMotionVrClient:
             ctrl_kwargs["y_range"] = axis_ranges.get("y")
             ctrl_kwargs["z_range"] = axis_ranges.get("z")
         self._ctrl = MockController(**ctrl_kwargs)
+        self._tables: dict[int, float] = {}
 
     def connect(self) -> None:
         """连接相关数据。"""
@@ -89,3 +90,39 @@ class MockZMotionVrClient:
     def set_on_command(self, callback: Any) -> None:
         """设置命令。"""
         self._ctrl.set_on_command(callback)
+
+    def set_table(self, index: int, value: float) -> None:
+        """写入模拟 TABLE 值，供 FRAME_TRANS2 预演使用。"""
+        if not self.connected:
+            raise RuntimeError("控制器未连接。")
+        self._tables[int(index)] = float(value)
+
+    def get_table(self, index: int) -> float:
+        """读取模拟 TABLE 值，供 FRAME_TRANS2 预演使用。"""
+        if not self.connected:
+            raise RuntimeError("控制器未连接。")
+        return float(self._tables.get(int(index), 0.0))
+
+    def frame_trans2(self, axis_list: tuple[int, ...], table_in: int, table_out: int, mode: int) -> None:
+        """模拟 ZAux_Direct_FrameTrans2 逆解接口。"""
+        if not self.connected:
+            raise RuntimeError("控制器未连接。")
+        if int(mode) != 2:
+            raise RuntimeError(f"模拟控制器仅支持 FrameTrans2 mode=2，当前 mode={mode}")
+        x = float(self._tables.get(int(table_in), 0.0))
+        y = float(self._tables.get(int(table_in) + 1, 0.0))
+        z = float(self._tables.get(int(table_in) + 2, 0.0))
+        rx = float(self._tables.get(int(table_in) + 3, 0.0))
+        ry = float(self._tables.get(int(table_in) + 4, 0.0))
+        rz = float(self._tables.get(int(table_in) + 5, 0.0))
+        fstatus = float(self._tables.get(int(table_in) + 6, 0.0))
+        joints = (
+            max(-180.0, min(180.0, x / 10.0)),
+            max(-90.0, min(90.0, z / 20.0 - 45.0)),
+            max(-120.0, min(120.0, y / 10.0)),
+            max(-180.0, min(180.0, 30.0 + fstatus)),
+            max(-120.0, min(120.0, ry + rx * 0.1)),
+            max(-360.0, min(360.0, rz)),
+        )
+        for offset, value in enumerate(joints):
+            self._tables[int(table_out) + offset] = float(value)

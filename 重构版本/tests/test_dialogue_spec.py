@@ -179,16 +179,18 @@ class TestParameterInheritance:
 
     # ── 4.3 单参数指令 ──
     def test_single_param_z_only_inherits_rest(self):
-        """单参数指令：只改高度Z，其余全部继承当前"""
+        """单参数增量指令：按Func108增量模式传入相对量"""
         text = "高度降低100"
         understanding = CommandUnderstandingAgent().understand(text)
         snapshot = _idle_snapshot(target_z=600.0)
 
         draft = ParameterCompletionAgent(lambda: snapshot).complete(understanding)
 
-        assert draft.params["target_z"] == 500.0  # 600 - 100
-        assert draft.params["target_x"] == 500.0
+        assert draft.params["target_z"] == -100.0
+        assert draft.params["target_x"] == 0.0
         assert draft.params["target_y"] == 0.0
+        assert draft.params["fuzzy_pos"] == 1
+        assert draft.params["position_increment"] == 1
         assert draft.param_sources["target_z"] == "incremental"
         assert draft.param_sources["target_x"] == "inherited"
 
@@ -200,7 +202,7 @@ class TestParameterInheritance:
 
         draft = ParameterCompletionAgent(lambda: snapshot).complete(understanding)
 
-        assert draft.params["target_x"] == 700.0
+        assert draft.params["target_x"] == 200.0
         assert draft.params["position_increment"] == 1
 
     def test_single_param_incremental_forward_100(self):
@@ -221,7 +223,8 @@ class TestParameterInheritance:
 
         draft = ParameterCompletionAgent(lambda: snapshot).complete(understanding)
 
-        assert draft.params["target_z"] == 650.0
+        assert draft.params["target_z"] == 50.0
+        assert draft.params["position_increment"] == 1
 
     def test_single_param_pose_change_ry_to_45(self):
         """只改姿态：RY转到45度"""
@@ -285,13 +288,14 @@ class TestConfirmationProtocol:
         """复述格式必须包含 【复述确认】FuncXXX 函数名"""
         text = ConfirmationAgent().render_confirmation_text(self._full_linear_draft())
 
-        assert "【复述确认】Func108 直线插补" in text
+        assert "【复述确认】Func108 直线插补/PTP" in text
 
     def test_confirmation_text_labels_specified_params(self):
         """明确指定的参数标注「指定」"""
         text = ConfirmationAgent().render_confirmation_text(self._full_linear_draft())
 
-        assert "X=1000.0mm（指定）" in text
+        assert "X=1000.0（指定）" in text
+        assert "模式：绝对定位" in text
 
     def test_confirmation_text_labels_inherited_params(self):
         """从控制器继承的参数标注「继承当前」"""

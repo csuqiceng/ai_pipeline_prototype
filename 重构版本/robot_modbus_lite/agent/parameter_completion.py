@@ -49,7 +49,7 @@ class ParameterCompletionAgent:
 
     def complete(self, result: CommandUnderstandingResult) -> CommandDraft:
         if result.func_id in {106, 107}:
-            return self._complete_jog(result)
+            raise ParameterCompletionError("当前阶段不支持 Func106/107 点动草案，请使用 Func108 笛卡尔运动。")
         if result.func_id in {109, 110, 120}:
             return self._complete_auxiliary(result)
         motion_func_ids = {self._address_resolver.absolute_motion_func, self._address_resolver.continuous_path_func}
@@ -159,10 +159,15 @@ class ParameterCompletionAgent:
         sources: dict[str, str],
     ) -> None:
         missing: list[str] = []
+        relative_template_style = int(result.extracted_params.get("position_increment", 0) or 0) == 1
         for key in POSE_KEYS:
             if key in result.extracted_params:
                 params[key] = result.extracted_params[key]
-                sources[key] = "specified"
+                value = float(result.extracted_params[key])
+                if relative_template_style:
+                    sources[key] = "incremental" if value != 0.0 else "inherited"
+                else:
+                    sources[key] = "specified"
                 continue
             delta_key = DELTA_KEYS[key]
             if delta_key in result.extracted_params:
@@ -212,6 +217,8 @@ class ParameterCompletionAgent:
             "move_type": 0,
         }
         for key, value in defaults.items():
+            if key in params:
+                continue
             params[key] = value
             sources[key] = "default"
 
@@ -223,3 +230,9 @@ class ParameterCompletionAgent:
     ) -> None:
         params["position_increment"] = int(result.extracted_params.get("position_increment", 0) or 0)
         sources["position_increment"] = "specified" if "position_increment" in result.extracted_params else "default"
+        if "fuzzy_pos" in result.extracted_params:
+            params["fuzzy_pos"] = int(result.extracted_params.get("fuzzy_pos", 0) or 0)
+            sources["fuzzy_pos"] = "specified"
+        elif int(params["position_increment"] or 0) == 1:
+            params["fuzzy_pos"] = 1
+            sources["fuzzy_pos"] = "specified"

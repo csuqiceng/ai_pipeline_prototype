@@ -5,8 +5,6 @@ from __future__ import annotations
 FUNC_OPTIONS = {
     "Func11 多点插补": 11,
     "Func104 系统控制": 104,
-    "Func106 关节轴点动": 106,
-    "Func107 虚拟轴点动": 107,
     "Func108 直线插补/PTP": 108,
     "Func109 定时检测": 109,
     "Func110 延时": 110,

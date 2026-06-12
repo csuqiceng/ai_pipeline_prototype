@@ -284,6 +284,9 @@ class RobotModbusService:
         params = record.params
         func_num = record.func_num
 
+        if func_num == 11:
+            raise ValueError("当前 zbasic-GLM 协议不支持 Func11，请改用 Func112 或已验证流程。")
+
         if func_num == 104:
             estop_ctrl = int(float(params.get("estop_ctrl", 0)))
             pause_ctrl = int(float(params.get("pause_ctrl", 0)))

@@ -121,8 +121,8 @@ def test_parse_incremental_motion_returns_waiting_confirmation_without_execution
 
     assert result.kind == "waiting_confirmation"
     assert result.draft is not None
-    assert result.draft.params["target_z"] == 130.0
-    assert result.draft.params["fuzzy_pos"] == 0
+    assert result.draft.params["target_z"] == 100.0
+    assert result.draft.params["fuzzy_pos"] == 1
     assert result.draft.param_sources["target_z"] == "incremental"
     assert "增量计算" in result.confirmation_text
     assert result.query_record is None
@@ -186,24 +186,14 @@ def test_parse_delay_and_io_return_waiting_confirmation():
     assert io_on.draft.params == {"io_no": 1, "io_action": 1}
 
 
-def test_parse_joint_jog_returns_waiting_confirmation_and_confirm_record():
+def test_parse_joint_jog_is_rejected_by_current_func108_policy():
     service = _service()
 
     result = service.parse("小正，J1转到45度30%速度")
 
-    assert result.kind == "waiting_confirmation"
-    assert result.intent == "joint_jog"
-    assert result.func_id == 106
-    assert result.draft.params["axis_no"] == 0
-    assert result.draft.params["pos_val"] == 45.0
-    assert result.draft.params["spd_pct"] == 30.0
-    assert "Func106" in result.confirmation_text
-
-    record = service.confirm(result.draft.draft_id)
-
-    assert record.func_num == 106
-    assert record.params["axis_no"] == 0
-    assert record.params["pos_val"] == 45.0
+    assert result.kind == "clarification"
+    assert result.intent == "unknown"
+    assert "当前阶段不使用Func106/107" in result.message
 
 
 def test_parse_unclear_text_returns_clarification():

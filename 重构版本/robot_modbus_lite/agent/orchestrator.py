@@ -179,6 +179,8 @@ class AgentOrchestrator:
     def _missing_wake_word_for_execution_text(self, text: str, understanding: Any) -> AgentOrchestratorResult | None:
         if self._has_wake_word(text):
             return None
+        if self._looks_like_flow_draft_non_execution(text):
+            return None
         if self._execution_intent_requires_wake_word(understanding):
             return self._missing_wake_word_result(text, understanding)
         if self._looks_like_non_execution_question(text):
@@ -296,8 +298,6 @@ class AgentOrchestrator:
         return intent in {
             "alarm_query",
             "status_query",
-            "joint_jog",
-            "virtual_jog",
             "move_linear",
             "continuous_path",
             "delay_blocking",
@@ -314,8 +314,6 @@ class AgentOrchestrator:
     def _execution_intent_requires_wake_word(understanding: Any) -> bool:
         intent = str(getattr(understanding, "intent", "") or "")
         return intent in {
-            "joint_jog",
-            "virtual_jog",
             "move_linear",
             "continuous_path",
             "delay_blocking",
@@ -338,6 +336,19 @@ class AgentOrchestrator:
         if "流程" in compact and any(word in compact for word in ("添加", "追加", "创建", "编写", "草案", "步骤", "模板")):
             return not any(word in compact for word in ("执行", "运行", "启动"))
         return False
+
+    @staticmethod
+    def _looks_like_flow_draft_non_execution(text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(text or ""))
+        if not compact:
+            return False
+        if any(word in compact for word in ("执行", "运行", "启动")):
+            return False
+        if any(word in compact for word in ("创建流程", "新建流程", "流程名字", "流程名称", "保存草案", "查看流程")):
+            return True
+        return bool(re.search(r"(?:添加|追加|修改|删除)?第?[一二三四五六七八九十\d]+步", compact)) or any(
+            marker in compact for marker in ("添加一步", "添加下一步", "添加第一步", "添加第1步")
+        )
 
     @staticmethod
     def _atomic_template_text_requires_wake_word(text: str) -> bool:

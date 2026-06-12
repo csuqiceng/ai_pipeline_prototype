@@ -86,6 +86,25 @@ class AtomicMemory:
                     direction=1 if pos_val > 0 else -1,
                     step=abs(pos_val),
                 )
+        elif record.func_num == 108 and int(float(record.params.get("position_increment", 0))) == 1:
+            axis_map = (
+                ("target_y", 6),
+                ("target_x", 7),
+                ("target_z", 8),
+                ("target_rx", 9),
+                ("target_ry", 10),
+                ("target_rz", 11),
+            )
+            for key, axis_no in axis_map:
+                pos_val = float(record.params.get(key, 0.0) or 0.0)
+                if pos_val != 0.0:
+                    self.record_direction(
+                        func_num=108,
+                        axis_no=axis_no,
+                        direction=1 if pos_val > 0 else -1,
+                        step=abs(pos_val),
+                    )
+                    break
 
     def record_direction(self, *, func_num: int, axis_no: int, direction: int, step: float) -> None:
         normalized_direction = -1.0 if int(direction) < 0 else 1.0

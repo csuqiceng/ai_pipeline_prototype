@@ -187,11 +187,24 @@ class LocalToolCallingRunner:
                 session_state=session_state,
             )
         if _looks_like_flow_creation(route_text):
+            flow_name = _extract_inline_flow_name(route_text)
             result = self.registry.call(
                 "start_flow_draft",
                 text=route_text,
-                flow_name=_extract_inline_flow_name(route_text),
+                flow_name=flow_name,
             )
+            inline_steps = _extract_inline_flow_creation_steps(route_text)
+            if result.ok and inline_steps:
+                draft = dict(result.data.get("draft", {}) or {})
+                for step_text in inline_steps:
+                    result = self.registry.call(
+                        "append_flow_step",
+                        step_text=step_text,
+                        draft=draft,
+                    )
+                    draft = dict(result.data.get("draft", {}) or draft)
+                    if not result.ok and result.state != "flow_draft_needs_clarification":
+                        break
             return _flow_result(
                 result,
                 raw_text=raw_text,
@@ -654,6 +667,10 @@ def _pending_confirm_draft_id(session_state: SessionState) -> str:
 def _is_waiting_flow_name(session_state: SessionState) -> bool:
     if "flow_name" not in tuple(session_state.pending_missing_fields or ()):
         return False
+    draft = dict(session_state.current_flow_draft or {})
+    current_name = str(draft.get("flow_name", "") or "").strip()
+    if current_name and current_name != "未命名流程":
+        return False
     if str(session_state.current_intent or "") == "create_flow":
         return True
     return bool(session_state.current_flow_draft)
@@ -680,7 +697,7 @@ def _looks_like_append_flow_step(text: str) -> bool:
     has_step_marker = has_step_marker or bool(re.search(r"(?:步骤|第)(?:[一二三四五六七八九十]+|\d+)(?:步)?", compact))
     if not has_step_marker:
         return False
-    return any(word in compact for word in ("移动", "走到", "到位置", "等待", "延时", "IO", "输出"))
+    return any(word in compact for word in ("移动", "走到", "到位置", "位置", "等待", "延时", "IO", "输出"))
 
 
 def _looks_like_save_flow(text: str) -> bool:
@@ -741,6 +758,35 @@ def _extract_inline_flow_name(text: str) -> str:
             if name and name not in {"新", "新的", "一个", "新的一个"}:
                 return name
     return ""
+
+
+def _extract_inline_flow_creation_steps(text: str) -> list[str]:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return []
+    match = re.search(r"(?:步骤为|步骤是|动作为|动作是|流程为|流程是)(?P<steps>.+)$", compact)
+    if not match:
+        return []
+    step_text = match.group("steps").strip("，。,.；;")
+    if not step_text:
+        return []
+    step_text = re.sub(r"^(?:先|首先|第一步)", "", step_text)
+    parts = [part.strip("，。,.；;") for part in re.split(r"然后|接着|之后|再", step_text) if part.strip("，。,.；;")]
+    return [_normalize_inline_flow_step(part) for part in parts if _normalize_inline_flow_step(part)]
+
+
+def _normalize_inline_flow_step(text: str) -> str:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    compact = compact.strip("，。,.；;")
+    compact = re.sub(r"^(?:先|首先|第一步|第1步)", "", compact)
+    compact = compact.replace("移动为位置", "移动到位置")
+    compact = compact.replace("移动至位置", "移动到位置")
+    match = re.fullmatch(r"(?:移动到|移动|走到|到|去)位置([A-Za-z0-9]+)", compact, flags=re.IGNORECASE)
+    if match:
+        name = match.group(1)
+        normalized = name.upper() if re.fullmatch(r"[A-Za-z0-9]+", name) else name
+        return f"移动到位置{normalized}"
+    return compact
 
 
 def _extract_flow_name(text: str) -> str:

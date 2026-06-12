@@ -7,6 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 from robot_modbus_lite.agent_tools.tool_result import ToolResult
 
 
+_MOTION_PERCENT_FIELDS = {"spd_pct", "acc_pct", "dec_pct"}
+_MOTION_PERCENT_LABELS = {
+    "spd_pct": "速度",
+    "acc_pct": "加速度",
+    "dec_pct": "减速度",
+}
+
+
 class _BaseToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=True)
 
@@ -583,7 +591,7 @@ def validate_tool_args(tool_name: str, args: dict[str, Any] | None) -> ToolResul
         fields = _validation_fields(exc)
         return ToolResult.failure(
             state="tool_args_invalid",
-            message="工具参数不符合 schema。",
+            message=_tool_args_invalid_message(args or {}, fields),
             code="TOOL_ARGS_INVALID",
             data={"tool_name": name},
             fields=fields,
@@ -621,6 +629,57 @@ def _tool_output_invalid(
         fields=fields,
         validation_errors=list(validation_errors or []),
     )
+
+
+def _tool_args_invalid_message(args: dict[str, Any], fields: list[str]) -> str:
+    motion_fields = [field for field in fields if field.rsplit(".", 1)[-1] in _MOTION_PERCENT_FIELDS]
+    if not motion_fields:
+        return "工具参数不符合 schema。"
+    invalid_values: list[tuple[str, float]] = []
+    for field in motion_fields:
+        key = field.rsplit(".", 1)[-1]
+        value = _lookup_field_value(args, field)
+        try:
+            percent = float(value)
+        except (TypeError, ValueError):
+            continue
+        if percent <= 0.0 or percent > 100.0:
+            invalid_values.append((key, percent))
+    if not invalid_values:
+        return "工具参数不符合 schema。"
+    keys = [key for key, _value in invalid_values]
+    labels = [_MOTION_PERCENT_LABELS[key] for key in keys if key in _MOTION_PERCENT_LABELS]
+    label_text = "/".join(labels) if labels else "速度/加速度/减速度"
+    values = [value for _key, value in invalid_values]
+    if len({round(value, 6) for value in values}) == 1:
+        current_text = f"{_format_percent(values[0])}%"
+    else:
+        current_text = "、".join(
+            f"{_MOTION_PERCENT_LABELS.get(key, key)} {_format_percent(value)}%" for key, value in invalid_values
+        )
+    return f"{label_text}参数超出范围：当前 {current_text}，允许 0~100%。请降低速度后重试。"
+
+
+def _lookup_field_value(data: Any, field_path: str) -> Any:
+    current = data
+    for part in field_path.split("."):
+        if isinstance(current, dict):
+            current = current.get(part)
+            continue
+        if isinstance(current, list):
+            try:
+                current = current[int(part)]
+            except (TypeError, ValueError, IndexError):
+                return None
+            continue
+        return None
+    return current
+
+
+def _format_percent(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:g}"
 
 
 def _validation_fields(exc: ValidationError) -> list[str]:

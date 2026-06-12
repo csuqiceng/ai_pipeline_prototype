@@ -225,6 +225,25 @@ def test_local_tool_runner_starts_flow_creation_by_asking_for_name():
     assert "名称" in result.message
 
 
+def test_local_tool_runner_creates_named_flow_and_inline_position_steps_in_one_turn():
+    service = ExecutionPlanService()
+    runner = LocalToolCallingRunner(LocalToolRegistry(execution_plan_service=service))
+
+    result = runner(
+        "我想创建一个新的流程，流程的名字叫测试，步骤为先移动为位置a 然后移动到位置b",
+        SessionState(thread_id="session-1"),
+        build_local_tool_specs(),
+    )
+
+    assert result.kind == "flow_draft"
+    assert result.payload["tool_name"] == "start_flow_draft"
+    assert result.payload["draft"]["flow_name"] == "测试"
+    steps = result.payload["draft"]["expanded_steps"]
+    assert [step["action"] for step in steps] == ["移动到位置A", "移动到位置B"]
+    assert result.payload["tool_result"]["state"] == "flow_draft_needs_clarification"
+    assert result.payload["tool_result"]["data"]["missing_fields"] == ["target_pose"]
+
+
 def test_local_tool_runner_sets_flow_name_from_clarifying_session_state():
     runner = LocalToolCallingRunner(LocalToolRegistry())
     state = SessionState(
@@ -243,6 +262,26 @@ def test_local_tool_runner_sets_flow_name_from_clarifying_session_state():
     assert result.payload["tool_result"]["state"] == "flow_draft_updated"
     assert result.payload["tool_result"]["data"]["draft"]["flow_name"] == "测试"
     assert "测试" in result.message
+
+
+def test_local_tool_runner_does_not_rename_flow_after_name_is_set_when_missing_field_is_stale():
+    service = ExecutionPlanService()
+    runner = LocalToolCallingRunner(LocalToolRegistry(execution_plan_service=service))
+    state = SessionState(
+        thread_id="session-1",
+        mode="clarifying",
+        current_intent="create_flow",
+        current_flow_draft={"flow_name": "测试", "expanded_steps": []},
+        pending_missing_fields=("flow_name",),
+    )
+
+    result = runner("添加一个位置", state, build_local_tool_specs())
+
+    assert result.kind == "flow_draft"
+    assert result.payload["tool_name"] == "append_flow_step"
+    assert result.payload["tool_result"]["state"] == "flow_draft_needs_clarification"
+    assert result.payload["draft"]["flow_name"] == "测试"
+    assert result.payload["draft"]["expanded_steps"][0]["action"] == "移动到位置"
 
 
 def test_local_tool_runner_appends_flow_step_to_current_flow_draft():

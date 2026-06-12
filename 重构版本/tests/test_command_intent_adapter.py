@@ -39,8 +39,18 @@ def test_command_intent_from_template_plan_uses_query_record_params():
 def test_command_intent_from_atomic_template_plan_uses_atomic_record_params():
     record = QueryRecord(
         query_key="atomic:virtual:8:1:3",
-        func_num=107,
-        params={"axis_no": 8, "pos_val": 3.0, "spd_pct": 50.0, "fuzzy_pos": 1},
+        func_num=108,
+        params={
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 3.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": 50.0,
+            "fuzzy_pos": 1,
+            "position_increment": 1,
+        },
     )
     plan = VoiceNlpPlan(
         actions=(VoiceNlpAction("atomic_template", record.query_key, "atomic_rule", "上升3毫米", "原子动作"),),
@@ -62,9 +72,9 @@ def test_command_intent_from_atomic_template_plan_uses_atomic_record_params():
 
     assert intent["intent"] == "command"
     assert intent["semantic_level"] == 3
-    assert intent["func_id"] == 107
-    assert intent["params"]["axis_no"] == 8
-    assert intent["params"]["pos_val"] == 3.0
+    assert intent["func_id"] == 108
+    assert intent["params"]["target_z"] == 3.0
+    assert intent["params"]["position_increment"] == 1
     assert intent["fuzzy"]["pos"] == 1
     assert validate_command_intent(intent) is None
 

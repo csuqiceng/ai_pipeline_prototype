@@ -34,6 +34,12 @@ class SettingsMixin:
         self.safe_speed_max_edit.setText(self._fmt(self.axis_ranges.safe_speed_max))
         self.safe_acc_max_edit.setText(self._fmt(self.axis_ranges.safe_acc_max))
         self.safe_dec_max_edit.setText(self._fmt(self.axis_ranges.safe_dec_max))
+        if hasattr(self, "default_spd_pct_edit"):
+            self.default_spd_pct_edit.setText(self._fmt(self.axis_ranges.default_spd_pct))
+        if hasattr(self, "default_acc_pct_edit"):
+            self.default_acc_pct_edit.setText(self._fmt(self.axis_ranges.default_acc_pct))
+        if hasattr(self, "default_dec_pct_edit"):
+            self.default_dec_pct_edit.setText(self._fmt(self.axis_ranges.default_dec_pct))
         self.motion_timeout_edit.setText(self._fmt(self.axis_ranges.motion_timeout_sec))
         if hasattr(self, "operator_tts_enabled_check"):
             self.operator_tts_enabled_check.setChecked(bool(self.axis_ranges.operator_tts_enabled))
@@ -82,6 +88,21 @@ class SettingsMixin:
             safe_speed_max=num(self.safe_speed_max_edit.text()),
             safe_acc_max=num(self.safe_acc_max_edit.text()),
             safe_dec_max=num(self.safe_dec_max_edit.text()),
+            default_spd_pct=(
+                num(self.default_spd_pct_edit.text())
+                if hasattr(self, "default_spd_pct_edit")
+                else self.axis_ranges.default_spd_pct
+            ),
+            default_acc_pct=(
+                num(self.default_acc_pct_edit.text())
+                if hasattr(self, "default_acc_pct_edit")
+                else self.axis_ranges.default_acc_pct
+            ),
+            default_dec_pct=(
+                num(self.default_dec_pct_edit.text())
+                if hasattr(self, "default_dec_pct_edit")
+                else self.axis_ranges.default_dec_pct
+            ),
             motion_timeout_sec=num(self.motion_timeout_edit.text()),
             six_accept_timeout_sec=self.axis_ranges.six_accept_timeout_sec,
             six_busy_timeout_sec=self.axis_ranges.six_busy_timeout_sec,
@@ -217,6 +238,9 @@ class SettingsMixin:
             safe_speed_max=limits["safe_speed_max"],
             safe_acc_max=limits["safe_acc_max"],
             safe_dec_max=limits["safe_dec_max"],
+            default_spd_pct=self.axis_ranges.default_spd_pct,
+            default_acc_pct=self.axis_ranges.default_acc_pct,
+            default_dec_pct=self.axis_ranges.default_dec_pct,
             motion_timeout_sec=self.axis_ranges.motion_timeout_sec,
             six_accept_timeout_sec=self.axis_ranges.six_accept_timeout_sec,
             six_busy_timeout_sec=self.axis_ranges.six_busy_timeout_sec,

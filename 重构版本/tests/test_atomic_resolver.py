@@ -17,26 +17,24 @@ def record_from(text: str, memory: AtomicMemory | None = None) -> QueryRecord:
     return record
 
 
-def test_resolver_maps_virtual_nudge_to_func107_with_defaults():
+def test_resolver_maps_virtual_nudge_to_func108_relative_defaults():
     record = record_from("小正，上升3毫米")
 
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 8
-    assert record.params["pos_val"] == 3.0
+    assert record.func_num == 108
+    assert record.params["target_z"] == 3.0
+    assert record.params["target_x"] == 0.0
     assert record.params["spd_pct"] == 50.0
     assert record.params["acc_pct"] == 50.0
     assert record.params["dec_pct"] == 50.0
     assert record.params["fuzzy_pos"] == 1
+    assert record.params["position_increment"] == 1
 
 
-def test_resolver_maps_joint_absolute_to_func106():
-    record = record_from("小正，J1转到45度30%速度")
+def test_resolver_rejects_joint_absolute_current_policy():
+    result = resolve("小正，J1转到45度30%速度")
 
-    assert record.func_num == 106
-    assert record.params["axis_no"] == 0
-    assert record.params["pos_val"] == 45.0
-    assert record.params["spd_pct"] == 30.0
-    assert record.params["fuzzy_pos"] == 0
+    assert result.kind == "unsupported"
+    assert "当前阶段不支持 Func106" in result.reason
 
 
 def test_resolver_maps_delay_and_io_to_func110_and_120():
@@ -74,8 +72,9 @@ def test_resolver_records_last_direction_for_virtual_jog():
 
     record = record_from("小正，前进3毫米", memory)
 
-    assert record.func_num == 107
-    assert memory.last_direction == (107.0, 6.0, 1.0)
+    assert record.func_num == 108
+    assert record.params["target_y"] == 3.0
+    assert memory.last_direction == (108.0, 6.0, 1.0)
     assert memory.last_step == 3.0
 
 
@@ -85,20 +84,18 @@ def test_resolver_continues_last_direction_with_last_step():
 
     record = record_from("小正，继续", memory)
 
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 6
-    assert record.params["pos_val"] == 3.0
+    assert record.func_num == 108
+    assert record.params["target_y"] == 3.0
 
 
-def test_resolver_continues_last_joint_direction_with_explicit_step():
+def test_resolver_rejects_continuing_last_joint_direction_with_explicit_step():
     memory = AtomicMemory()
-    record_from("小正，J2反转15度", memory)
+    memory.record_direction(func_num=106, axis_no=1, direction=-1, step=15.0)
 
-    record = record_from("小正，继续5度", memory)
+    result = resolve("小正，继续5度", memory)
 
-    assert record.func_num == 106
-    assert record.params["axis_no"] == 1
-    assert record.params["pos_val"] == -5.0
+    assert result.kind == "unsupported"
+    assert "当前阶段不支持继续 Func106" in result.reason
 
 
 def test_resolver_rejects_unknown_atomic_command():
@@ -108,28 +105,27 @@ def test_resolver_rejects_unknown_atomic_command():
     assert result.action_type == "unknown"
 
 
-def test_resolver_grades_small_low_speed_virtual_motion_as_low_risk():
+def test_resolver_keeps_relative_func108_motion_high_risk():
     memory = AtomicMemory(confirm_mode="skilled")
 
     result = resolve("小正，10%速度上升1毫米", memory)
     record = result.params["record"]
 
-    assert result.risk_level == "low"
-    assert result.requires_confirmation is False
-    assert record.params["atomic_risk_level"] == "low"
-    assert "小步长低速" in record.params["atomic_risk_reason"]
+    assert result.risk_level == "high"
+    assert result.requires_confirmation is True
+    assert record.params["atomic_risk_level"] == "high"
+    assert "完整预检确认" in record.params["atomic_risk_reason"]
 
 
 def test_resolver_keeps_fast_or_absolute_motion_high_risk():
     memory = AtomicMemory(confirm_mode="skilled")
 
     fast = resolve("小正，100%速度上升1毫米", memory)
-    absolute = resolve("小正，J1转到45度", memory)
+    joint = resolve("小正，J1转到45度", memory)
 
     assert fast.risk_level == "high"
     assert fast.requires_confirmation is True
-    assert absolute.risk_level == "high"
-    assert absolute.requires_confirmation is True
+    assert joint.kind == "unsupported"
 
 
 def test_resolver_prefers_structured_position_registry(tmp_path):

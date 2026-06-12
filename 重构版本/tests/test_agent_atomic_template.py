@@ -20,6 +20,35 @@ def test_atomic_template_agent_builds_named_position_move_record():
     assert result["requires_confirmation"] is True
 
 
+def test_atomic_template_query_table_position_lookup_ignores_flowdraft_name_collisions():
+    table = {
+        "flowdraft:home点头流程:06": QueryRecord(
+            query_key="flowdraft:home点头流程:06",
+            func_num=107,
+            description="小臂上下点头:Ry正转",
+            params={"axis_no": 10, "pos_val": 15.0},
+        ),
+        "home": QueryRecord(
+            query_key="home",
+            func_num=108,
+            description="移动到home",
+            keywords="home 位置home",
+            params={"target_x": 1400.0, "target_y": 0.0, "target_z": 1270.0},
+        ),
+    }
+    agent = AtomicTemplateAgent(
+        memory=AtomicMemory(),
+        template_lookup=AtomicTemplateAgent.query_table_position_template_lookup(table),
+    )
+
+    result = agent.apply("小正，移动到位置home")
+
+    assert result is not None
+    record = result["record"]
+    assert record.query_key == "home"
+    assert record.func_num == 108
+
+
 def test_atomic_template_agent_builds_rest_pose_record():
     memory = AtomicMemory(default_rest_pose=(900.0, 0.0, 1000.0, 0.0, 0.0, 0.0))
 
@@ -37,9 +66,21 @@ def test_atomic_template_agent_repeats_last_record_without_mutating_memory():
     memory = AtomicMemory()
     last_record = QueryRecord(
         query_key="atomic:virtual:8:1:3",
-        func_num=107,
-        description="原子函数：虚拟轴点动",
-        params={"axis_no": 8, "pos_val": 3.0, "fuzzy_pos": 1, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+        func_num=108,
+        description="原子函数：Func108相对位移/姿态",
+        params={
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 3.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "fuzzy_pos": 1,
+            "position_increment": 1,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+        },
     )
     memory.remember_record(last_record)
 
@@ -48,15 +89,14 @@ def test_atomic_template_agent_repeats_last_record_without_mutating_memory():
     assert result is not None
     record = result["record"]
     assert record.query_key == "atomic:repeat:atomic:virtual:8:1:3"
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 8
-    assert record.params["pos_val"] == 3.0
+    assert record.func_num == 108
+    assert record.params["target_z"] == 3.0
     assert memory.last_record is last_record
 
 
 def test_atomic_template_agent_continues_last_direction_without_mutating_memory():
     memory = AtomicMemory()
-    memory.record_direction(func_num=107, axis_no=6, direction=1, step=3.0)
+    memory.record_direction(func_num=108, axis_no=6, direction=1, step=3.0)
     before_direction = memory.last_direction
     before_record = memory.last_record
 
@@ -64,9 +104,8 @@ def test_atomic_template_agent_continues_last_direction_without_mutating_memory(
 
     assert result is not None
     record = result["record"]
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 6
-    assert record.params["pos_val"] == 3.0
+    assert record.func_num == 108
+    assert record.params["target_y"] == 3.0
     assert memory.last_direction == before_direction
     assert memory.last_record is before_record
 

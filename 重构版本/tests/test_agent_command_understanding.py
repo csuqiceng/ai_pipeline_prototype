@@ -53,11 +53,29 @@ def test_understands_incremental_cartesian_move_without_model():
 
     assert left.intent == "move_linear"
     assert left.func_id == 108
-    assert left.extracted_params == {"delta_x": 200.0, "position_increment": 1}
+    assert left.extracted_params == {
+        "target_x": 200.0,
+        "target_y": 0.0,
+        "target_z": 0.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "fuzzy_pos": 1,
+        "position_increment": 1,
+    }
     assert left.needs_model is False
     assert up.intent == "move_linear"
     assert up.func_id == 108
-    assert up.extracted_params == {"delta_z": 100.0, "position_increment": 1}
+    assert up.extracted_params == {
+        "target_x": 0.0,
+        "target_y": 0.0,
+        "target_z": 100.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "fuzzy_pos": 1,
+        "position_increment": 1,
+    }
     assert up.needs_model is False
 
 
@@ -178,37 +196,45 @@ def test_understands_delay_and_io_commands_without_model():
     assert io_on.extracted_params == {"io_no": 1, "io_action": 1}
 
 
-def test_understands_joint_and_virtual_jog_without_model():
+def test_rejects_joint_jog_and_maps_orientation_increment_to_func108():
     joint = CommandUnderstandingAgent().understand("小正，J1转到45度30%速度")
     virtual = CommandUnderstandingAgent().understand("小正，RY反转15度")
-    linear_virtual = CommandUnderstandingAgent().understand("小正，上升3毫米")
 
-    assert joint.intent == "joint_jog"
-    assert joint.func_id == 106
-    assert joint.extracted_params == {
-        "axis_no": 0,
-        "pos_val": 45.0,
-        "spd_pct": 30.0,
-        "fuzzy_pos": 0,
-        "fuzzy_spd": 0,
-    }
-    assert joint.needs_model is False
-    assert virtual.intent == "virtual_jog"
-    assert virtual.func_id == 107
+    assert joint.intent == "unknown"
+    assert joint.func_id is None
+    assert "当前阶段不使用Func106/107" in joint.clarification
+    assert virtual.intent == "move_linear"
+    assert virtual.func_id == 108
     assert virtual.extracted_params == {
-        "axis_no": 10,
-        "pos_val": -15.0,
+        "target_x": 0.0,
+        "target_y": 0.0,
+        "target_z": 0.0,
+        "target_rx": 0.0,
+        "target_ry": -15.0,
+        "target_rz": 0.0,
         "fuzzy_pos": 1,
-        "fuzzy_spd": 1,
+        "position_increment": 1,
     }
-    assert linear_virtual.intent == "virtual_jog"
-    assert linear_virtual.func_id == 107
-    assert linear_virtual.extracted_params == {
-        "axis_no": 8,
-        "pos_val": 3.0,
-        "fuzzy_pos": 1,
-        "fuzzy_spd": 1,
-    }
+
+
+def test_understands_linear_up_moves_as_func108_template_style():
+    upward = CommandUnderstandingAgent().understand("小正，上升50mm")
+    up_move = CommandUnderstandingAgent().understand("小正，上移50mm")
+
+    for result in (upward, up_move):
+        assert result.intent == "move_linear"
+        assert result.func_id == 108
+        assert result.extracted_params == {
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 50.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "fuzzy_pos": 1,
+            "position_increment": 1,
+        }
+        assert result.needs_model is False
 
 
 def test_rejects_compound_command_instead_of_dropping_later_steps():

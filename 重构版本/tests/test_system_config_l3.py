@@ -63,6 +63,34 @@ def test_axis_range_config_round_trips_joint_soft_limits():
     assert config.to_dict()["joint_limits"][5] == [-360.0, 360.0]
 
 
+def test_axis_range_config_round_trips_pose_angle_limits():
+    config = AxisRangeConfig.from_dict(
+        {
+            "x": [-1, 1],
+            "y": [-2, 2],
+            "z": [0, 3],
+            "pose_upper_angle": 11,
+            "pose_lower_angle": 22,
+            "pose_cw_angle": 33,
+            "pose_ccw_angle": 44,
+        }
+    )
+
+    assert config.pose_upper_angle == 11.0
+    assert config.pose_lower_angle == 22.0
+    assert config.pose_cw_angle == 33.0
+    assert config.pose_ccw_angle == 44.0
+    assert config.to_dict()["pose_upper_angle"] == 11.0
+    assert config.to_dict()["pose_ccw_angle"] == 44.0
+
+
+def test_validate_system_config_rejects_negative_pose_angle_limits():
+    assert (
+        validate_system_config(AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), pose_upper_angle=-1))
+        == "姿态上夹角 不能小于 0。"
+    )
+
+
 def test_validate_system_config_rejects_invalid_joint_soft_limits():
     assert (
         validate_system_config(

@@ -7,7 +7,8 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QTimer
 
-from .models import QueryRecord, SIX_MOTION_FUNCS
+from .models import FlowDefinition, QueryRecord, SIX_MOTION_FUNCS
+from .process_precheck import ProcessPrecheckService
 
 
 class FlowExecutionMixin:
@@ -188,6 +189,14 @@ class FlowExecutionMixin:
             if on_done:
                 on_done(False)
             return
+        precheck = self._operator_run_qt_flow_precheck(flow)
+        if self._qt_flow_precheck_failed(precheck):
+            detail = self._qt_flow_precheck_failure_text(precheck)
+            self._answer_flow_precheck_warning(f"流程预检未通过：{detail}")
+            self._append_log("流程", f"流程预检查 {flow.name}", "失败", detail)
+            if on_done:
+                on_done(False)
+            return
         self.flow_step_index = 0
         host = self.host_edit.text().strip()
         if not host:
@@ -294,6 +303,14 @@ class FlowExecutionMixin:
             return
         if self.flow_step_index >= len(flow.steps):
             self.flow_step_index = 0
+        current_step_index = int(self.flow_step_index)
+        precheck_flow = self._single_step_flow_for_precheck(flow, current_step_index)
+        precheck = self._operator_run_qt_flow_precheck(precheck_flow)
+        if self._qt_flow_precheck_failed(precheck):
+            detail = self._qt_flow_precheck_failure_text(precheck)
+            self._answer_flow_precheck_warning(f"流程预检未通过：{detail}")
+            self._append_log("流程", f"流程单步预检查 {flow.name}", "失败", detail)
+            return
         run_id = self._next_flow_run_id()
         self._mark_flow_run_started(run_id)
         self._flow_done_callback = None
@@ -703,6 +720,127 @@ class FlowExecutionMixin:
                     pass
             return
         self._show_warning("流程异常", str(message or ""))
+
+    def _operator_run_qt_flow_precheck(self, flow) -> dict[str, Any]:
+        required = (
+            "_operator_dashboard_snapshot_dict",
+            "_operator_l1_result_for_record_key",
+            "_operator_l2_result_for_record",
+        )
+        if not all(callable(getattr(self, name, None)) for name in required):
+            return {
+                "status": "pass",
+                "flow_name": str(getattr(flow, "name", "flow") or "flow"),
+                "items": [],
+                "suggestion": "Qt流程预检依赖未配置，按兼容路径放行。",
+            }
+        try:
+            snapshot = self._operator_dashboard_snapshot_dict()
+            axis_ranges = getattr(self, "axis_ranges", None)
+            cumulative_error_limit = getattr(axis_ranges, "l3_cumulative_error_limit_mm", 0.0) if axis_ranges else 0.0
+            result = ProcessPrecheckService(
+                l1_runner=lambda source_snapshot, plan_dict: self._operator_l1_result_for_record_key(
+                    str(plan_dict.get("plan_id", "")), source_snapshot
+                ),
+                l2_runner=self._operator_l2_result_for_record,
+                progress_callback=getattr(self, "_operator_publish_l3_progress", None),
+                min_step_delay_ms=getattr(axis_ranges, "l3_min_step_delay_ms", 0) if axis_ranges else 0,
+                cumulative_error_limit_mm=float(cumulative_error_limit) if float(cumulative_error_limit or 0.0) > 0 else None,
+            ).run_l3(flow=flow, table=getattr(self, "table", {}), snapshot=snapshot)
+            self._operator_last_process_precheck_result = result
+            if hasattr(self, "_append_log"):
+                self._append_log(
+                    "流程预演",
+                    f"L3流程预演 {getattr(flow, 'name', '-')}",
+                    "成功" if result.get("status") == "pass" else "失败",
+                    str(result.get("suggestion") or result.get("status") or "-"),
+                )
+            if hasattr(self, "_operator_archive_safety_check"):
+                self._operator_archive_safety_check()
+            return result
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "flow_name": str(getattr(flow, "name", "flow") or "flow"),
+                "items": [
+                    {
+                        "id": "qt_flow_precheck_error",
+                        "level": "L3",
+                        "label": "Qt流程预检",
+                        "status": "fail",
+                        "message": f"流程预检异常: {exc}",
+                    }
+                ],
+                "suggestion": "流程预检异常，已阻止执行。",
+            }
+            self._operator_last_process_precheck_result = result
+            if hasattr(self, "_operator_archive_safety_check"):
+                self._operator_archive_safety_check()
+            return result
+
+    @staticmethod
+    def _qt_flow_precheck_failed(precheck: dict[str, Any] | None) -> bool:
+        return isinstance(precheck, dict) and str(precheck.get("status", "")).lower() == "fail"
+
+    @staticmethod
+    def _qt_flow_precheck_failure_text(precheck: dict[str, Any] | None) -> str:
+        if not isinstance(precheck, dict):
+            return "流程预检返回为空。"
+        items = list(precheck.get("items", []) or [])
+        failed_messages = []
+        for item in items:
+            if not isinstance(item, dict) or str(item.get("status", "")).lower() != "fail":
+                continue
+            robot_safety_text = FlowExecutionMixin._flow_robot_safety_failure_text(item.get("robot_safety"))
+            if robot_safety_text:
+                failed_messages.append(robot_safety_text)
+                continue
+            label = str(item.get("label") or item.get("id") or "失败项")
+            message = str(item.get("message") or "").strip()
+            failed_messages.append(f"{label}: {message}" if message else label)
+        if failed_messages:
+            return "；".join(failed_messages[:3])
+        return str(precheck.get("suggestion") or "请修复失败步骤后再执行流程。")
+
+    @staticmethod
+    def _flow_robot_safety_failure_text(robot_safety: object) -> str:
+        if not isinstance(robot_safety, dict):
+            return ""
+        detail = str(robot_safety.get("detail_zh") or "").strip()
+        suggestion = str(robot_safety.get("suggestion_zh") or "").strip()
+        if detail and suggestion:
+            return f"{detail} {suggestion}"
+        return detail or suggestion
+
+    @staticmethod
+    def _single_step_flow_for_precheck(flow, step_index: int):
+        steps = list(getattr(flow, "steps", ()) or ())
+        selected = steps[step_index : step_index + 1]
+        name = str(getattr(flow, "name", "flow") or "flow")
+        delay = int(getattr(flow, "step_delay_ms", 1000) or 1000)
+        if isinstance(flow, FlowDefinition):
+            return FlowDefinition(name=name, steps=tuple(selected), step_delay_ms=delay)
+        try:
+            from .flow_registry import FlowEntry
+
+            if isinstance(flow, FlowEntry):
+                return FlowEntry(
+                    name=name,
+                    description=str(getattr(flow, "description", "") or ""),
+                    steps=list(selected),
+                    step_delay_ms=delay,
+                    rehearsal_spd=int(getattr(flow, "rehearsal_spd", 20) or 20),
+                    confirmed=bool(getattr(flow, "confirmed", False)),
+                    created_by=str(getattr(flow, "created_by", "operator") or "operator"),
+                    version=int(getattr(flow, "version", 1) or 1),
+                    state=str(getattr(flow, "state", "idle") or "idle"),
+                    current_step=0,
+                    created_at=str(getattr(flow, "created_at", "") or ""),
+                    updated_at=str(getattr(flow, "updated_at", "") or ""),
+                )
+        except Exception:
+            pass
+        return FlowDefinition(name=name, steps=tuple(selected), step_delay_ms=delay)
 
     @staticmethod
     def _flow_step_key(step, *, flow_name: str = "flow", index: int = 1) -> str:

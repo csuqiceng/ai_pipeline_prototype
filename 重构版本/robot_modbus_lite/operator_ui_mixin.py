@@ -56,6 +56,7 @@ from .interaction_archiver import InteractionArchiveWriter
 from .json_schema import DeviceSnapshot
 from .models import FlowDefinition, QueryRecord
 from .response_builder import ResponseBuilder, ResponseMessage
+from .robot_safety_checker import RobotSafetyChecker
 from .safety_precheck import SafetyPrecheckService
 from .safety_suggestion import SafetySuggestionService
 from .semantic_response_policy import policy_for_plan
@@ -71,7 +72,7 @@ from .operator_voice_commands import OperatorVoiceCommandSpec, match_operator_vo
 from .permission_service import PermissionDenied
 from .process_precheck import ProcessPrecheckService
 from .query_table import save_query_table_json
-from .system_config import save_system_config
+from .system_config import AxisRangeConfig, DEFAULT_SYSTEM_CONFIG, save_system_config
 from .voice_wake_words import configured_wake_words, strip_wake_word_from_compact
 
 
@@ -2000,9 +2001,9 @@ class OperatorUiMixin:
                 "target_rz": float(pose[5]),
             },
             safety_params={
-                "spd_pct": float(getattr(axis_ranges, "safe_speed_max", 50.0) or 50.0),
-                "acc_pct": float(getattr(axis_ranges, "safe_acc_max", 50.0) or 50.0),
-                "dec_pct": float(getattr(axis_ranges, "safe_dec_max", 50.0) or 50.0),
+                "spd_pct": float(getattr(axis_ranges, "default_spd_pct", 50.0) or 50.0),
+                "acc_pct": float(getattr(axis_ranges, "default_acc_pct", 50.0) or 50.0),
+                "dec_pct": float(getattr(axis_ranges, "default_dec_pct", 50.0) or 50.0),
             },
             is_moving=bool(moving_reasons),
             moving_reasons=moving_reasons,
@@ -2010,13 +2011,20 @@ class OperatorUiMixin:
         )
 
     def _operator_safety_review_agent(self):
-        from .agent.pose_angle import PoseAngleSafetyChecker
         from .agent.safety_review import SafetyReviewAgent
+        from .robot_safety_checker import RobotSafetyChecker
 
+        l1_service = SafetyPrecheckService(self.axis_ranges, max_sphere_radius=0.0)
+        motion_plan_service = self._operator_agent_motion_plan_service()
         return SafetyReviewAgent(
-            l1_service=SafetyPrecheckService(self.axis_ranges, max_sphere_radius=0.0),
-            motion_plan_service=self._operator_agent_motion_plan_service(),
-            pose_angle_checker=PoseAngleSafetyChecker(self._operator_agent_pose_angle_limits()),
+            l1_service=l1_service,
+            motion_plan_service=motion_plan_service,
+            robot_safety_checker=RobotSafetyChecker(
+                l1_service=l1_service,
+                motion_plan_service=motion_plan_service,
+                pose_angle_limits=self._operator_agent_pose_angle_limits(),
+                strict_l2=False,
+            ),
         )
 
     def _operator_agent_motion_plan_service(self) -> MotionPlanService:
@@ -2056,7 +2064,7 @@ class OperatorUiMixin:
             reasons.append("busy=运行中")
         if run_state == "运行中":
             reasons.append("run_state=运行中")
-        if getattr(self, "nlp_sequence_running", False):
+        if getattr(self, "nlp_sequence_running", False) and not getattr(self, "_operator_agent_parse_running", False):
             reasons.append("nlp_sequence_running=True")
         if getattr(self, "flow_running", False):
             reasons.append("flow_running=True")
@@ -2578,6 +2586,9 @@ class OperatorUiMixin:
         pending = str(getattr(self, "_operator_pending_interruption_text", "") or "").strip()
         if not pending:
             return False
+        if not self._operator_execution_or_pause_active():
+            self._operator_pending_interruption_text = ""
+            return False
         compact = re.sub(r"\s+", "", text or "")
         if not compact:
             return False
@@ -2684,8 +2695,9 @@ class OperatorUiMixin:
         return bool(
             getattr(self, "nlp_sequence_running", False)
             or getattr(self, "flow_running", False)
-            or getattr(self, "busy", "") in {"运行中", "暂停"}
-            or getattr(self, "run_state", "") in {"运行中", "暂停"}
+            or getattr(self, "busy", "") == "运行中"
+            or getattr(self, "run_state", "") == "运行中"
+            or bool(getattr(self, "pause_active", False))
         )
 
     def _operator_archive_text_input(self, text: str) -> dict[str, Any] | None:
@@ -3937,8 +3949,12 @@ class OperatorUiMixin:
             return
         self._operator_set_pending_confirm_plan(suggested_plan)
         self._operator_prepare_plan_prechecks(suggested_plan)
+        text = "已采纳安全建议，请重新核对右侧待确认参数、安全预检结果和建议改写内容，再确认执行。"
+        if hasattr(self, "status_label"):
+            self.status_label.setText("已采纳安全建议，请重新核对后确认执行。")
+        self._operator_add_chat_message("assistant", text, kind="warn")
         self._append_log("用户页面", "采纳建议", "成功", self._operator_current_blocking_summary() or "已采纳安全建议")
-        self._operator_confirm_execute()
+        self._refresh_operator_view()
 
     def _operator_current_blocking_summary(self) -> str:
         precheck = getattr(self, "_operator_last_precheck_result", None)
@@ -5561,6 +5577,8 @@ class OperatorUiMixin:
         )
 
     def _operator_position_context_answer(self, compact_text: str) -> str:
+        if self._operator_position_context_is_format_question(compact_text):
+            return ""
         try:
             registry = self._position_registry() if hasattr(self, "_position_registry") else None
         except Exception:
@@ -5602,6 +5620,13 @@ class OperatorUiMixin:
             f"ry={self._operator_compact_number(ry)}，rz={self._operator_compact_number(rz)}；"
             f"速度={spd}%，move_type={move_type}，locked={locked}。"
         )
+
+    @staticmethod
+    def _operator_position_context_is_format_question(compact_text: str) -> bool:
+        compact = re.sub(r"\s+", "", str(compact_text or ""))
+        if not compact:
+            return False
+        return "位置" in compact and any(word in compact for word in ("要什么样", "是什么样", "格式", "怎么填", "怎么写"))
 
     def _operator_pending_flow_position_context_answer(self, compact_text: str) -> str:
         draft = getattr(self, "_operator_pending_flow_draft", None)
@@ -7536,8 +7561,25 @@ class OperatorUiMixin:
                 continue
             pose = record.pose_tuple()
             if pose is not None:
-                return tuple(float(value) for value in pose)
+                pose_tuple = tuple(float(value) for value in pose)
+                if self._operator_record_uses_incremental_pose(record):
+                    current = self._operator_current_pose_tuple()
+                    return tuple(current[index] + pose_tuple[index] for index in range(6))  # type: ignore[return-value]
+                return pose_tuple
         return None
+
+    @staticmethod
+    def _operator_record_uses_incremental_pose(record) -> bool:
+        params = getattr(record, "params", {}) or {}
+        try:
+            if int(float(params.get("position_increment", 0) or 0)) == 1:
+                return True
+        except (TypeError, ValueError):
+            pass
+        try:
+            return int(float(params.get("fuzzy_pos", 0) or 0)) == 1
+        except (TypeError, ValueError):
+            return False
 
     def _operator_current_pose_tuple(self) -> tuple[float, float, float, float, float, float]:
         rotation = [part.strip() for part in str(getattr(self, "robot_r", "0/0/0")).replace(",", "/").split("/")]
@@ -7767,10 +7809,38 @@ class OperatorUiMixin:
                 "suggestion": "未找到可用于 L2 预演的目标位姿。",
             }
         engine = getattr(self, "operator_kinematics_engine", None)
+        start_pose = self._operator_current_pose_tuple()
         result = MotionPlanService(
             engine=engine,
             progress_callback=self._operator_publish_l2_progress,
-        ).plan(target_pose=pose, start_pose=self._operator_current_pose_tuple())
+        ).plan(target_pose=pose, start_pose=start_pose)
+        result = dict(result)
+        try:
+            snapshot = self._operator_dashboard_snapshot_dict()
+        except Exception:
+            snapshot = {}
+        action = next(iter(tuple(getattr(plan, "actions", ()) or ())), None)
+        record = self._operator_record_for_action(plan, action) if action is not None else None
+        speed = {
+            "spd_pct": record.spd_pct_value(),
+            "acc_pct": record.acc_pct_value(),
+            "dec_pct": record.dec_pct_value(),
+        } if record is not None else {}
+        axis_ranges = getattr(self, "axis_ranges", None) or AxisRangeConfig.from_dict(DEFAULT_SYSTEM_CONFIG)
+        if snapshot:
+            robot_safety = RobotSafetyChecker(
+                l1_service=SafetyPrecheckService(axis_ranges, max_sphere_radius=0.0),
+                motion_plan_service=MotionPlanService(engine=engine),
+                strict_l2=False,
+            ).check_target(
+                target_pose=pose,
+                snapshot=snapshot,
+                speed=speed,
+                start_pose=start_pose,
+                plan_id=str(getattr(plan, "raw_text", "") or getattr(record, "query_key", "") or "qt-l2"),
+                func_id=int(getattr(record, "func_num", 108) or 108),
+            )
+            result["robot_safety"] = robot_safety
         self._operator_last_motion_plan_result = result
         if hasattr(self, "_append_log"):
             self._append_log(
@@ -7789,6 +7859,22 @@ class OperatorUiMixin:
     def _operator_l2_summary(result: dict[str, Any] | None) -> str:
         if not isinstance(result, dict):
             return "L2运动规划预演尚未执行。"
+        robot_safety = result.get("robot_safety")
+        if isinstance(robot_safety, dict):
+            status_line = (
+                "机器人安全预判："
+                f"位置={OperatorUiMixin._operator_bool_status_text(robot_safety.get('position_ok'))}，"
+                f"逆解={OperatorUiMixin._operator_bool_status_text(robot_safety.get('ik_ok'))}，"
+                f"姿态={OperatorUiMixin._operator_bool_status_text(robot_safety.get('pose_ok'))}。"
+            )
+            detail = str(robot_safety.get("detail_zh") or "").strip()
+            suggestion = str(robot_safety.get("suggestion_zh") or "").strip()
+            parts = [status_line]
+            if detail:
+                parts.append(detail)
+            if suggestion:
+                parts.append(suggestion)
+            return "\n".join(parts)
         if result.get("status") == "pass":
             return f"L2运动规划预演通过，FSTATUS={result.get('selected_fstatus')}。"
         if result.get("status") == "unavailable":
@@ -7802,6 +7888,14 @@ class OperatorUiMixin:
         for item in failed[:5]:
             lines.append(f"- {item.get('label', '-')}：{item.get('message', '-')}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _operator_bool_status_text(value: object) -> str:
+        if value is True:
+            return "通过"
+        if value is False:
+            return "未通过"
+        return "未检查"
 
     @staticmethod
     def _operator_l3_should_block(result: dict[str, Any] | None) -> bool:
@@ -10064,6 +10158,11 @@ class OperatorUiMixin:
         action = str(entry.get("action", ""))
         result = str(entry.get("result", ""))
         detail = str(entry.get("detail", ""))
+        if category == "自然语言" and (
+            (action == "动作序列完成" and result == "成功") or action == "动作序列终止"
+        ):
+            if getattr(self, "nlp_sequence_running", False):
+                self._set_nlp_execute_busy(False)
         message = self.operator_response_builder.from_log_entry(entry)
         if message is None:
             self._operator_archive_execution_from_log(entry, str(entry.get("detail", "") or ""))
@@ -10079,9 +10178,13 @@ class OperatorUiMixin:
             return
         if category == "自然语言":
             if action == "动作序列完成" and result == "成功":
+                if getattr(self, "nlp_sequence_running", False):
+                    self._set_nlp_execute_busy(False)
                 self._operator_add_chat_message("assistant", detail or "执行完成。")
                 return
             if action == "动作序列终止":
+                if getattr(self, "nlp_sequence_running", False):
+                    self._set_nlp_execute_busy(False)
                 self._operator_add_chat_message("assistant", f"执行失败：{detail or '动作序列已终止'}")
                 return
 

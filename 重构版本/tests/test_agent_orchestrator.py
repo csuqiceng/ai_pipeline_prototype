@@ -198,16 +198,20 @@ def test_orchestrator_blocks_llm_candidate_without_original_wake_word():
     assert result.payload["reason"] == "missing_wake_word"
 
 
-def test_orchestrator_keeps_short_vertical_step_on_legacy_atomic_path():
+def test_orchestrator_routes_short_vertical_step_to_restricted_agent():
     class FakeRestrictedService:
         def parse(self, text):
-            raise AssertionError(f"short vertical atomic step should stay legacy: {text}")
+            self.text = text
+            return "restricted-result"
 
-    orchestrator = AgentOrchestrator(restricted_service=FakeRestrictedService(), chat_agent=None)
+    service = FakeRestrictedService()
+    orchestrator = AgentOrchestrator(restricted_service=service, chat_agent=None)
 
     result = orchestrator.handle("小正，Z上升50")
 
-    assert result.kind == "fallback_legacy"
+    assert result.kind == "restricted_agent"
+    assert result.payload == "restricted-result"
+    assert service.text == "小正，Z上升50"
 
 
 def test_orchestrator_still_routes_forward_step_to_restricted_service():
@@ -226,20 +230,17 @@ def test_orchestrator_still_routes_forward_step_to_restricted_service():
     assert service.text == "小正，X前进50"
 
 
-def test_orchestrator_routes_supported_joint_jog_to_restricted_service():
+def test_orchestrator_does_not_route_joint_jog_to_restricted_service():
     class FakeRestrictedService:
         def parse(self, text):
-            self.text = text
-            return "joint-result"
+            raise AssertionError(f"joint jog should not be routed: {text}")
 
-    service = FakeRestrictedService()
-    orchestrator = AgentOrchestrator(restricted_service=service, chat_agent=None)
+    orchestrator = AgentOrchestrator(restricted_service=FakeRestrictedService(), chat_agent=None)
 
     result = orchestrator.handle("小正，J1转到45度")
 
-    assert result.kind == "restricted_agent"
-    assert result.payload == "joint-result"
-    assert service.text == "小正，J1转到45度"
+    assert result.kind == "fallback_legacy"
+    assert result.payload["understanding"]["intent"] == "unknown"
 
 
 def test_orchestrator_routes_l2_question_to_chat_agent():

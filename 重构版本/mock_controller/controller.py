@@ -578,6 +578,8 @@ class MockController:
     # ── 六轴机械手命令分发 ─────────────────────────────────────────
 
     _SIX_FUNC_STATE_FIELDS = {
+        FuncSixAxis.ABSOLUTE_MOVE: (22, 0x00C00000),
+        FuncSixAxis.ABSOLUTE_MOVE_102: (22, 0x00C00000),
         FuncSixAxis.MULTI_POINT_INTERP: (14, 0x0000C000),
         FuncSixAxis.STOP: (0, 0x00000003),
         FuncSixAxis.JOINT_JOG: (2, 0x0000000C),
@@ -585,6 +587,7 @@ class MockController:
         FuncSixAxis.LINE_MOVE: (6, 0x000000C0),
         FuncSixAxis.TIMER_CHECK: (8, 0x00000300),
         FuncSixAxis.DELAY: (10, 0x00000C00),
+        FuncSixAxis.CONTINUOUS_PATH: (16, 0x00030000),
         FuncSixAxis.IO_CTRL: (18, 0x000C0000),
     }
     _SIX_STATE_IDLE = 0
@@ -593,11 +596,14 @@ class MockController:
     _SIX_STATE_ERR = 3
     _SIX_READY_BIT = 1 << 28
     _SIX_MOTION_FUNCS = {
+        FuncSixAxis.ABSOLUTE_MOVE,
+        FuncSixAxis.ABSOLUTE_MOVE_102,
         FuncSixAxis.MULTI_POINT_INTERP,
         FuncSixAxis.JOINT_JOG,
         FuncSixAxis.VIRTUAL_JOG,
         FuncSixAxis.LINE_MOVE,
         FuncSixAxis.TIMER_CHECK,
+        FuncSixAxis.CONTINUOUS_PATH,
     }
     _SIX_PROGRAM_FUNCS = {
         FuncSixAxis.DELAY,
@@ -773,7 +779,7 @@ class MockController:
                 # 文档要求一一零函数在自身执行中可覆盖延时时间，这是程序槽
                 # 同槽互斥的唯一特例；其它同槽命令仍按指令忙失败。
                 if func_num == FuncSixAxis.DELAY and self._six_func_state_locked(FuncSixAxis.DELAY) == self._SIX_STATE_EXEC:
-                    delay_sec = float(self._modbus_ieee[2])
+                    delay_sec = float(self._modbus_ieee[6])
                     if delay_sec <= 0:
                         self._fail_six_func_locked(func_num, 1 << 9)
                     else:
@@ -808,7 +814,12 @@ class MockController:
                 self._do_six_joint_jog()
             elif func_num == FuncSixAxis.VIRTUAL_JOG:
                 self._do_six_virtual_jog()
-            elif func_num == FuncSixAxis.LINE_MOVE:
+            elif func_num in (
+                FuncSixAxis.ABSOLUTE_MOVE,
+                FuncSixAxis.ABSOLUTE_MOVE_102,
+                FuncSixAxis.LINE_MOVE,
+                FuncSixAxis.CONTINUOUS_PATH,
+            ):
                 self._do_six_line_move()
             elif func_num == FuncSixAxis.TIMER_CHECK:
                 self._do_six_timer_check()
@@ -898,7 +909,7 @@ class MockController:
     def _do_six_timer_check(self) -> None:
         """处理六轴定时器。"""
         with self._lock:
-            delay_sec = float(self._modbus_ieee[2])
+            delay_sec = float(self._modbus_ieee[4])
             if delay_sec <= 0:
                 self._fail_six_func_locked(FuncSixAxis.TIMER_CHECK, 1 << 9)
                 return
@@ -919,7 +930,7 @@ class MockController:
     def _do_six_delay(self) -> None:
         """处理六轴延时。"""
         with self._lock:
-            delay_sec = float(self._modbus_ieee[2])
+            delay_sec = float(self._modbus_ieee[6])
             if delay_sec <= 0:
                 self._fail_six_func_locked(FuncSixAxis.DELAY, 1 << 9)
                 return

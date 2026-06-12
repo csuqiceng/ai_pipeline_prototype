@@ -161,6 +161,39 @@ def test_validate_tool_args_rejects_invalid_motion_draft_params_for_func_id():
     assert set(result.errors[0]["fields"]) == {"draft.params.target_rz", "draft.params.spd_pct"}
 
 
+def test_validate_tool_args_reports_motion_percent_range_message():
+    result = validate_tool_args(
+        "create_pending_confirm",
+        {
+            "draft": {
+                "draft_id": "draft-motion",
+                "func_id": 108,
+                "intent": "cartesian_move",
+                "params": {
+                    "target_x": 0.0,
+                    "target_y": 0.0,
+                    "target_z": 50.0,
+                    "target_rx": 0.0,
+                    "target_ry": 0.0,
+                    "target_rz": 0.0,
+                    "spd_pct": 150.0,
+                    "acc_pct": 150.0,
+                    "dec_pct": 150.0,
+                },
+            }
+        },
+    )
+
+    assert result.ok is False
+    assert result.state == "tool_args_invalid"
+    assert result.message == "速度/加速度/减速度参数超出范围：当前 150%，允许 0~100%。请降低速度后重试。"
+    assert set(result.errors[0]["fields"]) == {
+        "draft.params.spd_pct",
+        "draft.params.acc_pct",
+        "draft.params.dec_pct",
+    }
+
+
 def test_validate_tool_args_rejects_invalid_continuous_path_draft_params_for_func_id():
     result = validate_tool_args(
         "create_pending_confirm",

@@ -59,10 +59,10 @@ def test_completion_applies_incremental_cartesian_offsets_from_current_pose():
 
     draft = ParameterCompletionAgent(lambda: snapshot).complete(understanding)
 
-    assert draft.params["target_x"] == 210.0
-    assert draft.params["target_y"] == 20.0
-    assert draft.params["target_z"] == 30.0
-    assert draft.params["fuzzy_pos"] == 0
+    assert draft.params["target_x"] == 200.0
+    assert draft.params["target_y"] == 0.0
+    assert draft.params["target_z"] == 0.0
+    assert draft.params["fuzzy_pos"] == 1
     assert draft.params["position_increment"] == 1
     assert draft.param_sources["target_x"] == "incremental"
     assert draft.param_sources["target_y"] == "inherited"
@@ -194,36 +194,38 @@ def test_completion_builds_delay_and_io_drafts_without_controller_snapshot():
     assert io_on.params == {"io_no": 1, "io_action": 1}
 
 
-def test_completion_builds_joint_and_virtual_jog_drafts():
+def test_completion_rejects_joint_jog_and_builds_orientation_increment_as_func108():
     snapshot = ControllerSnapshot(
+        current_pose={
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+        },
         safety_params={"spd_pct": 40.0, "acc_pct": 45.0, "dec_pct": 50.0},
         is_moving=False,
         read_ok=True,
     )
     agent = ParameterCompletionAgent(lambda: snapshot)
 
-    joint = agent.complete(CommandUnderstandingAgent().understand("小正，J1转到45度30%速度"))
+    with pytest.raises(ParameterCompletionError, match="Func108/112"):
+        agent.complete(CommandUnderstandingAgent().understand("小正，J1转到45度30%速度"))
+
     virtual = agent.complete(CommandUnderstandingAgent().understand("小正，RY反转15度"))
 
-    assert joint.func_id == 106
-    assert joint.intent == "joint_jog"
-    assert joint.params["axis_no"] == 0
-    assert joint.params["pos_val"] == 45.0
-    assert joint.params["spd_pct"] == 30.0
-    assert joint.params["acc_pct"] == 45.0
-    assert joint.params["dec_pct"] == 50.0
-    assert joint.params["fuzzy_pos"] == 0
-    assert joint.param_sources["spd_pct"] == "specified"
-    assert joint.param_sources["acc_pct"] == "controller"
-    assert virtual.func_id == 107
-    assert virtual.params["axis_no"] == 10
-    assert virtual.params["pos_val"] == -15.0
+    assert virtual.func_id == 108
+    assert virtual.intent == "move_linear"
+    assert virtual.params["target_ry"] == -15.0
+    assert virtual.params["position_increment"] == 1
+    assert virtual.params["fuzzy_pos"] == 1
     assert virtual.params["spd_pct"] == 40.0
 
 
-def test_completion_blocks_joint_jog_when_controller_is_moving():
+def test_completion_rejects_joint_jog_before_motion_state_check():
     understanding = CommandUnderstandingAgent().understand("小正，J1转到45度")
     snapshot = ControllerSnapshot(is_moving=True, read_ok=True)
 
-    with pytest.raises(ParameterCompletionError, match="当前设备运动中"):
+    with pytest.raises(ParameterCompletionError, match="Func108/112"):
         ParameterCompletionAgent(lambda: snapshot).complete(understanding)

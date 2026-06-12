@@ -158,7 +158,13 @@ def test_run_safety_precheck_reuses_safety_review_agent_for_safe_draft():
 
         def review(self, draft, *, snapshot, start_pose=None):
             self.calls.append((draft.draft_id, snapshot, start_pose))
-            return {"valid": True, "status": "pass", "summary": "L1通过。", "items": []}
+            return {
+                "valid": True,
+                "status": "pass",
+                "summary": "L1通过。",
+                "items": [],
+                "robot_safety": {"safe": True, "position_ok": True, "ik_ok": True, "pose_ok": True},
+            }
 
     agent = ReviewAgent()
 
@@ -173,6 +179,7 @@ def test_run_safety_precheck_reuses_safety_review_agent_for_safe_draft():
     assert result.state == "safety_precheck_passed"
     assert result.data["draft_id"] == "draft-1"
     assert result.data["precheck"]["valid"] is True
+    assert result.data["robot_safety"]["ik_ok"] is True
     assert agent.calls == [("draft-1", {"motion": {"running_state": "idle"}}, (0, 0, 0, 0, 0, 0))]
 
 

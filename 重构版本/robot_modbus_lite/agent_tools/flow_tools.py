@@ -487,11 +487,15 @@ def _normalize_step_action(text: str) -> str:
         "添加第一步",
         "添加第1步",
         "添加一步",
+        "添加下一步",
+        "添加一个",
     )
     for prefix in replacements:
         if compact.startswith(prefix):
             compact = compact[len(prefix):]
             break
+    if compact in {"一个位置", "位置"}:
+        return "移动到位置"
     return compact or str(text or "").strip()
 
 
@@ -519,10 +523,19 @@ def _step_func_id(action: str) -> int:
         return 109
     if "IO" in compact.upper() or "输出" in compact:
         return 120
+    parsed = _parse_inline_command_params(action)
+    if parsed:
+        return int(parsed.get("func_id", 108) or 108)
     return 108
 
 
 def _initial_step_params(action: str) -> dict[str, Any]:
+    parsed = _parse_inline_command_params(action)
+    if parsed and int(parsed.get("func_id", 0) or 0) == 108:
+        params = dict(parsed.get("params", {}) or {})
+        if all(key in params for key in ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")):
+            params.setdefault("spd_pct", 50.0)
+            return params
     func_id = _step_func_id(action)
     if func_id == 108:
         return {"spd_pct": 50.0}
@@ -533,6 +546,18 @@ def _initial_step_params(action: str) -> dict[str, Any]:
         return {}
     if func_id == 120:
         return _parse_inline_io(action)
+    return {}
+
+
+def _parse_inline_command_params(action: str) -> dict[str, Any]:
+    result = command_tools.parse_command_params(str(action or ""))
+    if not result.ok:
+        return {}
+    data = dict(result.data or {})
+    func_id = int(data.get("func_id", 0) or 0)
+    params = dict(data.get("params", {}) or {})
+    if func_id == 108 and params:
+        return {"func_id": func_id, "params": params}
     return {}
 
 

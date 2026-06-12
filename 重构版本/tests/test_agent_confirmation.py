@@ -60,12 +60,42 @@ def _linear_draft(**overrides):
 def test_render_confirmation_text_includes_params_sources_and_precheck():
     text = ConfirmationAgent().render_confirmation_text(_linear_draft())
 
-    assert "【复述确认】Func108 直线插补" in text
-    assert "X=1000.0mm（指定）" in text
-    assert "Y=20.0mm（继承当前）" in text
+    assert "【复述确认】Func108 直线插补/PTP" in text
+    assert "X=1000.0（指定）  Y=20.0（继承当前）  Z=300.0（指定）" in text
+    assert "RX=1.0°（继承当前）  RY=2.0°（继承当前）  RZ=3.0°（继承当前）" in text
     assert "速度=60.0%（指定）" in text
     assert "加速度=45.0%（继承安全参数）" in text
+    assert "模式：绝对定位" in text
     assert "安全预检：通过，L1通过，L2待接入。" in text
+    assert text.endswith("确认执行？")
+
+
+def test_render_confirmation_text_marks_incremental_motion_mode():
+    text = ConfirmationAgent().render_confirmation_text(
+        _linear_draft(
+            params={
+                **_linear_draft().params,
+                "target_x": 0.0,
+                "target_y": 0.0,
+                "target_z": 50.0,
+                "position_increment": 1,
+                "fuzzy_pos": 1,
+            },
+            param_sources={
+                **_linear_draft().param_sources,
+                "target_x": "inherited",
+                "target_y": "inherited",
+                "target_z": "incremental",
+                "position_increment": "specified",
+                "fuzzy_pos": "specified",
+            },
+            raw_text="小正，上升50mm",
+        )
+    )
+
+    assert "【复述确认】Func108 直线插补/PTP" in text
+    assert "Z=50.0（增量计算）" in text
+    assert "模式：增量定位" in text
 
 
 def test_render_confirmation_text_includes_auxiliary_params():

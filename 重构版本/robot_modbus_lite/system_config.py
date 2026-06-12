@@ -19,6 +19,13 @@ DEFAULT_SYSTEM_CONFIG = {
     "safe_speed_max": 150.0,
     "safe_acc_max": 150.0,
     "safe_dec_max": 150.0,
+    "default_spd_pct": 50.0,
+    "default_acc_pct": 50.0,
+    "default_dec_pct": 50.0,
+    "pose_upper_angle": 90.0,
+    "pose_lower_angle": 90.0,
+    "pose_cw_angle": 90.0,
+    "pose_ccw_angle": 90.0,
     "motion_timeout_sec": 180.0,
     "six_accept_timeout_sec": 5.0,
     "six_busy_timeout_sec": 5.0,
@@ -62,6 +69,13 @@ class AxisRangeConfig:
     safe_speed_max: float = 150.0
     safe_acc_max: float = 150.0
     safe_dec_max: float = 150.0
+    default_spd_pct: float = 50.0
+    default_acc_pct: float = 50.0
+    default_dec_pct: float = 50.0
+    pose_upper_angle: float = 90.0
+    pose_lower_angle: float = 90.0
+    pose_cw_angle: float = 90.0
+    pose_ccw_angle: float = 90.0
     motion_timeout_sec: float = 180.0
     six_accept_timeout_sec: float = 5.0
     six_busy_timeout_sec: float = 5.0
@@ -104,6 +118,13 @@ class AxisRangeConfig:
             safe_speed_max=float(data.get("safe_speed_max", DEFAULT_SYSTEM_CONFIG["safe_speed_max"])),
             safe_acc_max=float(data.get("safe_acc_max", DEFAULT_SYSTEM_CONFIG["safe_acc_max"])),
             safe_dec_max=float(data.get("safe_dec_max", DEFAULT_SYSTEM_CONFIG["safe_dec_max"])),
+            default_spd_pct=float(data.get("default_spd_pct", DEFAULT_SYSTEM_CONFIG["default_spd_pct"])),
+            default_acc_pct=float(data.get("default_acc_pct", DEFAULT_SYSTEM_CONFIG["default_acc_pct"])),
+            default_dec_pct=float(data.get("default_dec_pct", DEFAULT_SYSTEM_CONFIG["default_dec_pct"])),
+            pose_upper_angle=float(data.get("pose_upper_angle", DEFAULT_SYSTEM_CONFIG["pose_upper_angle"])),
+            pose_lower_angle=float(data.get("pose_lower_angle", DEFAULT_SYSTEM_CONFIG["pose_lower_angle"])),
+            pose_cw_angle=float(data.get("pose_cw_angle", DEFAULT_SYSTEM_CONFIG["pose_cw_angle"])),
+            pose_ccw_angle=float(data.get("pose_ccw_angle", DEFAULT_SYSTEM_CONFIG["pose_ccw_angle"])),
             motion_timeout_sec=float(data.get("motion_timeout_sec", DEFAULT_SYSTEM_CONFIG["motion_timeout_sec"])),
             six_accept_timeout_sec=float(
                 data.get("six_accept_timeout_sec", DEFAULT_SYSTEM_CONFIG["six_accept_timeout_sec"])
@@ -172,6 +193,13 @@ class AxisRangeConfig:
             "safe_speed_max": float(self.safe_speed_max),
             "safe_acc_max": float(self.safe_acc_max),
             "safe_dec_max": float(self.safe_dec_max),
+            "default_spd_pct": float(self.default_spd_pct),
+            "default_acc_pct": float(self.default_acc_pct),
+            "default_dec_pct": float(self.default_dec_pct),
+            "pose_upper_angle": float(self.pose_upper_angle),
+            "pose_lower_angle": float(self.pose_lower_angle),
+            "pose_cw_angle": float(self.pose_cw_angle),
+            "pose_ccw_angle": float(self.pose_ccw_angle),
             "motion_timeout_sec": float(self.motion_timeout_sec),
             "six_accept_timeout_sec": float(self.six_accept_timeout_sec),
             "six_busy_timeout_sec": float(self.six_busy_timeout_sec),
@@ -238,9 +266,20 @@ def validate_system_config(config: AxisRangeConfig) -> str | None:
         ("最大速度", config.safe_speed_max),
         ("最大加速度", config.safe_acc_max),
         ("最大减速度", config.safe_dec_max),
+        ("姿态上夹角", config.pose_upper_angle),
+        ("姿态下夹角", config.pose_lower_angle),
+        ("姿态顺时针夹角", config.pose_cw_angle),
+        ("姿态逆时针夹角", config.pose_ccw_angle),
     ]:
         if value < 0:
             return f"{label} 不能小于 0。"
+    for label, value in [
+        ("默认速度", config.default_spd_pct),
+        ("默认加速度", config.default_acc_pct),
+        ("默认减速度", config.default_dec_pct),
+    ]:
+        if value <= 0 or value > 100:
+            return f"{label}必须大于 0 且不超过 100%。"
     if config.motion_timeout_sec <= 0:
         return "运动超时时间必须大于 0 秒。"
     if config.six_accept_timeout_sec <= 0:

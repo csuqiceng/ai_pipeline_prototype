@@ -135,7 +135,7 @@ def test_nlp_runs_multiple_atomic_actions_in_order(tmp_path, monkeypatch):
 
     dummy._execute_nlp_plan(plan)
 
-    assert [func_num for _, func_num in executed] == [107, 120]
+    assert [func_num for _, func_num in executed] == [108, 120]
     assert len(dummy.table) == 2
 
 
@@ -189,7 +189,7 @@ def test_nlp_successful_atomic_action_updates_memory_params(tmp_path, monkeypatc
 
     memory = MemoryManager(Path(tmp_path) / "data" / "memory_params.json").memory
     assert memory.total_commands == 1
-    assert memory.last_jog_speed_pct == 50
+    assert memory.last_motion_speed_pct == 50
 
 
 def test_command_dispatch_success_updates_memory_params_without_nlp_duplicate(tmp_path):

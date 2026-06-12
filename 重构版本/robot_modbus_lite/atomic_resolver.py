@@ -21,19 +21,13 @@ class AtomicResolver:
         if family == "memory":
             return self._resolve_memory(elements)
         if family == "joint":
-            record = self._joint_record(elements)
-            return self._template_result(
-                elements,
-                record,
-                "关节轴原子动作",
-                risk_level=self._motion_risk_level(record),
-            )
+            return self._unsupported(elements, "当前阶段不支持 Func106 关节轴点动，请改用 Func108 笛卡尔位置/姿态指令。")
         if family == "virtual":
             record = self._virtual_record(elements)
             return self._template_result(
                 elements,
                 record,
-                "虚拟轴原子动作",
+                "Func108 相对位移/姿态原子动作",
                 risk_level=self._motion_risk_level(record),
             )
         if family == "cartesian":
@@ -221,21 +215,23 @@ class AtomicResolver:
             sign = -1 if float(direction[2]) < 0 else 1
             step = float(elements.step if elements.step is not None else (self.memory.last_step or 0.0))
             if step <= 0.0:
-                step = self.memory.current_step_deg if func_num == 106 or axis_no >= 9 else self.memory.current_step_mm
+                step = self.memory.current_step_deg if axis_no >= 9 else self.memory.current_step_mm
+            if func_num == 106:
+                return self._unsupported(elements, "当前阶段不支持继续 Func106 关节轴点动，请改用 Func108 笛卡尔位置/姿态指令。")
             continued = AtomicElements(
                 raw_text=elements.raw_text,
                 command_text=elements.command_text,
-                family="joint" if func_num == 106 else "virtual",
+                family="virtual",
                 axis_no=axis_no,
                 direction=sign,
                 step=step,
                 fuzzy_pos=1,
             )
-            record = self._joint_record(continued) if func_num == 106 else self._virtual_record(continued)
+            record = self._virtual_record(continued)
             return self._template_result(
                 elements,
                 record,
-                "沿上一次方向继续点动",
+                "沿上一次方向继续 Func108 相对位移/姿态",
                 risk_level=self._motion_risk_level(record),
             )
         return self._unsupported(elements, "未识别的历史动作命令。")
@@ -254,14 +250,49 @@ class AtomicResolver:
     def _virtual_record(self, elements: AtomicElements) -> QueryRecord:
         default_step = self.memory.current_step_deg if int(elements.axis_no or 0) >= 9 else self.memory.current_step_mm
         pos_val = self._position_value(elements, default_step)
+        axis_no = int(elements.axis_no or 0)
+        params = self._relative_func108_params(elements, axis_no, pos_val)
         return QueryRecord(
             query_key=self._query_key("virtual", elements.axis_no, elements.fuzzy_pos, pos_val),
-            func_num=107,
+            func_num=108,
             keywords=elements.command_text,
-            description="原子函数：虚拟轴点动",
+            description="原子函数：Func108相对位移/姿态",
             safety_level=5,
-            params=self._jog_params(elements, pos_val),
+            params=params,
         )
+
+    def _relative_func108_params(self, elements: AtomicElements, axis_no: int, pos_val: float) -> dict[str, float | int]:
+        speed = self._pct(elements.spd_pct, self.memory.current_speed)
+        params: dict[str, float | int] = {
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "spd_pct": speed,
+            "acc_pct": self._pct(elements.acc_pct, speed),
+            "dec_pct": self._pct(elements.dec_pct, speed),
+            "stop_cmd": 0,
+            "fuzzy_pos": 1,
+            "position_increment": 1,
+            "fuzzy_spd": 0 if elements.spd_pct is not None else 1,
+            "fuzzy_acc": 0 if elements.acc_pct is not None else 1,
+            "fuzzy_dec": 0 if elements.dec_pct is not None else 1,
+            "move_type": int(elements.move_type),
+        }
+        axis_to_target = {
+            6: "target_y",
+            7: "target_x",
+            8: "target_z",
+            9: "target_rx",
+            10: "target_ry",
+            11: "target_rz",
+        }
+        target_key = axis_to_target.get(axis_no)
+        if target_key is not None:
+            params[target_key] = float(pos_val)
+        return params
 
     def _cartesian_record(self, elements: AtomicElements) -> QueryRecord:
         speed = self._pct(elements.spd_pct, self.memory.current_speed)

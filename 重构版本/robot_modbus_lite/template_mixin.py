@@ -630,8 +630,12 @@ class TemplateMixin:
 
     def _validate_record(self, record: QueryRecord) -> str | None:
         """校验记录。"""
-        if record.func_num not in (11, 104, 106, 107, 108, 109, 110, 120):
-            return "当前仅支持 Func11 / Func104 / Func106 / Func107 / Func108 / Func109 / Func110 / Func120。"
+        if record.func_num in (106, 107):
+            return "当前阶段不支持 Func106/Func107，请改用 Func108/Func112 等受支持动作。"
+        if record.func_num == 11:
+            return "当前 zbasic-GLM 协议不支持 Func11，请改用 Func112 或已验证流程。"
+        if record.func_num not in (104, 108, 109, 110, 112, 120):
+            return "当前仅支持 Func104 / Func108 / Func109 / Func110 / Func112 / Func120。"
         if not (1 <= record.safety_level <= 5):
             return "安全等级必须在 1 到 5 之间。"
         if record.func_num == 104:
@@ -646,7 +650,7 @@ class TemplateMixin:
             if record.int_param("reset_ctrl") not in (0, 1):
                 return "Func104 的 reset_ctrl 只能是 0 / 1。"
             return None
-        if record.func_num in (106, 107, 108):
+        if record.func_num in (108,):
             if record.int_param("stop_cmd") not in (0, 1, 2, 3, 4, 5):
                 return "停止指令必须在 0 到 5 之间。"
             for label, value in [
@@ -670,12 +674,6 @@ class TemplateMixin:
                 return "Func11 的加速度百分比必须在 0 到 100 之间。"
             if not (0 <= record.dec_pct_value() <= 100):
                 return "Func11 的减速度百分比必须在 0 到 100 之间。"
-        if record.func_num == 106:
-            if not (0 <= record.int_param("axis_no") <= 5):
-                return "Func106 的轴号只能是 0 到 5。"
-        if record.func_num == 107:
-            if not (6 <= record.int_param("axis_no") <= 11):
-                return "Func107 的轴号只能是 6 到 11。"
         if record.func_num == 108:
             if record.int_param("move_type") not in (0, 1):
                 return "Func108 的运动模式只能是 0 或 1。"

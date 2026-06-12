@@ -23,6 +23,15 @@ def test_parser_accepts_xiaobing_wake_word_alias():
     assert parsed.step == 3.0
 
 
+def test_parser_accepts_up_move_alias():
+    parsed = AtomicParser().parse("小正，上移50mm")
+
+    assert parsed.family == "virtual"
+    assert parsed.axis_no == 8
+    assert parsed.direction == 1
+    assert parsed.step == 50.0
+
+
 def test_parser_warns_single_emergency_word_without_code():
     parsed = AtomicParser().classify("急停")
 

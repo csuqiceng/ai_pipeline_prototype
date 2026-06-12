@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from .models import QueryRecord
+from .kinematics_engine import FrameTrans2KinematicsEngine
 from .runtime_paths import resolve_runtime_data_file
 from .service import RobotModbusService
 from .six_axis_executor import SixAxisExecutionService
@@ -98,6 +99,19 @@ class WebControlBridge:
                 except Exception:
                     pass
             self._mock_client = None
+
+    def kinematics_engine(self) -> FrameTrans2KinematicsEngine | None:
+        """Return a FrameTrans2-backed kinematics engine when the bridge has a compatible transport."""
+        if self._mode != "mock_controller":
+            return None
+        try:
+            axis_ranges = load_system_config(resolve_runtime_data_file("system_config.json"))
+            client = self._get_mock_client(axis_ranges)
+        except Exception:
+            return None
+        has_table = all(hasattr(client, name) for name in ("set_table", "get_table"))
+        has_trigger = hasattr(client, "frame_trans2") or hasattr(client, "execute")
+        return FrameTrans2KinematicsEngine(client) if has_table and has_trigger else None
 
     def _submit(self, item_payload: dict[str, Any], *, detail: dict[str, Any] | None = None) -> BridgeResult:
         with self._lock:

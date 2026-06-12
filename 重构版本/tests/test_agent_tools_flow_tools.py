@@ -102,6 +102,29 @@ def test_append_flow_step_parses_inline_io_without_clarification():
     assert step["params"]["io_action"] == 1
 
 
+def test_append_flow_step_parses_up_move_like_template_library():
+    service = ExecutionPlanService()
+    set_flow_draft(service, {"flow_name": "测试流程", "expanded_steps": []})
+
+    result = append_flow_step(service, step_text="添加下一步上移50mm。")
+
+    assert result.ok is True
+    assert result.state == "flow_draft_updated"
+    step = result.data["draft"]["expanded_steps"][0]
+    assert step["func_id"] == 108
+    assert {
+        "target_x": 0.0,
+        "target_y": 0.0,
+        "target_z": 50.0,
+        "target_rx": 0.0,
+        "target_ry": 0.0,
+        "target_rz": 0.0,
+        "spd_pct": 50.0,
+        "fuzzy_pos": 1,
+        "position_increment": 1,
+    }.items() <= step["params"].items()
+
+
 def test_append_flow_step_appends_spoken_multi_step_with_inline_delay():
     service = ExecutionPlanService()
     set_flow_draft(service, {"flow_name": "测试流程", "expanded_steps": []})

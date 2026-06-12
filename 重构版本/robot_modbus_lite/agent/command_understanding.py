@@ -166,6 +166,25 @@ class CommandUnderstandingAgent:
                 confidence=0.95,
                 needs_model=False,
             )
+        if elements.family == "joint":
+            return self._unknown(
+                raw,
+                "当前阶段不使用Func106/107关节或虚拟轴点动，请改用Func108笛卡尔位置/姿态指令。",
+                needs_model=False,
+                normalized_text=normalized,
+            )
+        if elements.family == "virtual" and getattr(elements, "axis_no", None) in {6, 7, 8, 9, 10, 11}:
+            linear_params = self._params_from_linear_virtual(elements)
+            if linear_params:
+                return CommandUnderstandingResult(
+                    raw_text=raw,
+                    intent="move_linear",
+                    func_id=MOVE_LINEAR_FUNC_ID,
+                    normalized_text=normalized,
+                    extracted_params=linear_params,
+                    confidence=0.95,
+                    needs_model=False,
+                )
         if elements.family in {"joint", "virtual"} and getattr(elements, "axis_no", None) is not None:
             jog_params = self._params_from_jog(elements)
             if jog_params:
@@ -183,7 +202,9 @@ class CommandUnderstandingAgent:
         incremental_params = self._parse_incremental_params(compact)
         if incremental_params:
             params.update(incremental_params)
-        if params and any(key.startswith("delta_") for key in params):
+        if params and (int(params.get("position_increment", 0) or 0) == 1 or int(params.get("fuzzy_pos", 0) or 0) == 1):
+            params["position_increment"] = 1
+        elif params and any(key.startswith("delta_") for key in params):
             params["position_increment"] = 1
         elif params and any(key in params for key in ("target_x", "target_y", "target_z", "target_rx", "target_ry", "target_rz")):
             params["position_increment"] = 0
@@ -255,6 +276,44 @@ class CommandUnderstandingAgent:
         return params
 
     @staticmethod
+    def _params_from_linear_virtual(elements: Any) -> dict[str, float | int | str]:
+        axis_no = int(getattr(elements, "axis_no", 0) or 0)
+        step = getattr(elements, "step", None)
+        if step is None:
+            return {}
+        direction = int(getattr(elements, "direction", 1) or 1)
+        value = direction * abs(float(step))
+        params: dict[str, float | int | str] = {
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 0.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "fuzzy_pos": int(getattr(elements, "fuzzy_pos", 1) or 1),
+            "position_increment": 1,
+        }
+        if axis_no == 6:
+            params["target_y"] = value
+        elif axis_no == 7:
+            params["target_x"] = value
+        elif axis_no == 8:
+            params["target_z"] = value
+        elif axis_no == 9:
+            params["target_rx"] = value
+        elif axis_no == 10:
+            params["target_ry"] = value
+        elif axis_no == 11:
+            params["target_rz"] = value
+        else:
+            return {}
+        for source_key in ("spd_pct", "acc_pct", "dec_pct"):
+            source_value = getattr(elements, source_key, None)
+            if source_value is not None:
+                params[source_key] = float(source_value)
+        return params
+
+    @staticmethod
     def _parse_cartesian_params(compact: str) -> dict[str, float | int | str]:
         params: dict[str, float | int | str] = {}
         for source_key, target_key in (
@@ -283,19 +342,30 @@ class CommandUnderstandingAgent:
     @classmethod
     def _parse_incremental_params(cls, compact: str) -> dict[str, float | int | str]:
         params: dict[str, float | int | str] = {}
-        for aliases, delta_key, sign in (
-            (("向左", "左移"), "delta_x", 1.0),
-            (("向右", "右移"), "delta_x", -1.0),
-            (("向前", "前进"), "delta_y", 1.0),
-            (("向后", "后退"), "delta_y", -1.0),
-            (("升高", "上升", "向上"), "delta_z", 1.0),
-            (("下降", "降低", "向下"), "delta_z", -1.0),
+        for aliases, target_key, sign in (
+            (("向左", "左移"), "target_x", 1.0),
+            (("向右", "右移"), "target_x", -1.0),
+            (("向前", "前进"), "target_y", 1.0),
+            (("向后", "后退"), "target_y", -1.0),
+            (("升高", "上升", "向上", "上移"), "target_z", 1.0),
+            (("下降", "降低", "向下"), "target_z", -1.0),
         ):
             for alias in aliases:
                 match = re.search(rf"{re.escape(alias)}(?:移动)?(-?\d+(?:\.\d+)?)(?:毫米|mm)?", compact, flags=re.IGNORECASE)
                 if not match:
                     continue
-                params[delta_key] = sign * float(match.group(1))
+                params.update(
+                    {
+                        "target_x": 0.0,
+                        "target_y": 0.0,
+                        "target_z": 0.0,
+                        "target_rx": 0.0,
+                        "target_ry": 0.0,
+                        "target_rz": 0.0,
+                        "fuzzy_pos": 1,
+                    }
+                )
+                params[target_key] = sign * float(match.group(1))
                 return cls._parse_cartesian_params(compact) | params
         return params
 

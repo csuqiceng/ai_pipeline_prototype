@@ -209,23 +209,29 @@ SIX_108_MOVE_TYPE = 30           # 零表示直线插补，一表示点到点运
 
 class FuncSixAxis:
     """六轴协议函数号集合。"""
+    ABSOLUTE_MOVE = 8             # 历史绝对移动
     MULTI_POINT_INTERP = 11       # 多点插补
     STOP = 104                    # 停止(急停/慢停)
+    ABSOLUTE_MOVE_102 = 102       # 历史绝对移动
     JOINT_JOG = 106               # 关节点动
     VIRTUAL_JOG = 107             # 虚拟轴点动
     LINE_MOVE = 108               # 直线插补和点到点运动
     TIMER_CHECK = 109             # 定时检测
     DELAY = 110                   # 延时
+    CONTINUOUS_PATH = 112         # 连续路径运动
     IO_CTRL = 120                 # 输入输出控制
 
     _NAMES = {
+        8: "ABSOLUTE_MOVE",
         11: "MULTI_POINT_INTERP",
         104: "STOP",
+        102: "ABSOLUTE_MOVE_102",
         106: "JOINT_JOG",
         107: "VIRTUAL_JOG",
         108: "LINE_MOVE",
         109: "TIMER_CHECK",
         110: "DELAY",
+        112: "CONTINUOUS_PATH",
         120: "IO_CTRL",
     }
 

@@ -860,7 +860,7 @@ class GuiUiMixin:
         command_toolbar.addWidget(self.command_filter_edit, 1)
         command_toolbar.addWidget(QLabel("类型:"))
         self.command_type_combo = QComboBox()
-        self.command_type_combo.addItems(["全部", "Func104", "Func106", "Func107", "Func108"])
+        self.command_type_combo.addItems(["全部", "Func104", "Func108", "Func109", "Func110", "Func120"])
         self.command_type_combo.currentIndexChanged.connect(self._refresh_command_cards)
         command_toolbar.addWidget(self.command_type_combo)
         self.command_count_label = QLabel("0 项")
@@ -1002,8 +1002,9 @@ class GuiUiMixin:
         self.backend_info = self._make_static_group("功能说明", [
             ("用途", "维护函数号与参数模板"),
             ("支持", "Func104 停止"),
-            ("支持", "Func106/107 点动"),
             ("支持", "Func108 直线/PTP"),
+            ("支持", "Func109/110/120 检测/延时/IO"),
+            ("限制", "当前阶段禁止 Func106/107 点动"),
             ("stop_cmd", "0正常 1急停 2快停 3慢停 4暂停 5恢复"),
             ("fuzzy", "0绝对 1叠加当前值"),
             ("move_type", "0直线插补 1PTP关节"),
@@ -1219,6 +1220,9 @@ class GuiUiMixin:
         self.safe_speed_max_edit = QLineEdit("0")
         self.safe_acc_max_edit = QLineEdit("0")
         self.safe_dec_max_edit = QLineEdit("0")
+        self.default_spd_pct_edit = QLineEdit("50")
+        self.default_acc_pct_edit = QLineEdit("50")
+        self.default_dec_pct_edit = QLineEdit("50")
         self.motion_timeout_edit = QLineEdit("180")
         self.operator_tts_enabled_check = QCheckBox("启用用户页语音播报")
         self.broadcast_dedupe_window_edit = QLineEdit("5")
@@ -1244,6 +1248,9 @@ class GuiUiMixin:
             ("最大速度", self.safe_speed_max_edit),
             ("最大加速度", self.safe_acc_max_edit),
             ("最大减速度", self.safe_dec_max_edit),
+            ("默认速度(%)", self.default_spd_pct_edit),
+            ("默认加速度(%)", self.default_acc_pct_edit),
+            ("默认减速度(%)", self.default_dec_pct_edit),
             ("运动超时(s)", self.motion_timeout_edit),
             ("语音播报", self.operator_tts_enabled_check),
             ("播报去重窗口(s)", self.broadcast_dedupe_window_edit),

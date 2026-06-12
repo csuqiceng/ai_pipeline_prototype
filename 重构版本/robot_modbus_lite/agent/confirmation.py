@@ -180,9 +180,9 @@ class ConfirmationAgent:
             (
                 _linear_motion_title(draft.func_id),
                 (
-                    f"X={p['target_x']}mm（{_source_label(draft, 'target_x')}）  "
-                    f"Y={p['target_y']}mm（{_source_label(draft, 'target_y')}）  "
-                    f"Z={p['target_z']}mm（{_source_label(draft, 'target_z')}）"
+                    f"X={p['target_x']}（{_source_label(draft, 'target_x')}）  "
+                    f"Y={p['target_y']}（{_source_label(draft, 'target_y')}）  "
+                    f"Z={p['target_z']}（{_source_label(draft, 'target_z')}）"
                 ),
                 (
                     f"RX={p['target_rx']}°（{_source_label(draft, 'target_rx')}）  "
@@ -194,6 +194,7 @@ class ConfirmationAgent:
                     f"加速度={p['acc_pct']}%（{_source_label(draft, 'acc_pct')}）  "
                     f"减速度={p['dec_pct']}%（{_source_label(draft, 'dec_pct')}）"
                 ),
+                _position_mode_line(draft),
                 precheck_line,
                 "确认执行？",
             )
@@ -217,4 +218,18 @@ def _linear_motion_title(func_id: int) -> str:
         return "【复述确认】Func112 连续路径运动"
     if int(func_id) in {8, 102}:
         return f"【复述确认】Func{int(func_id)} 绝对运动"
-    return "【复述确认】Func108 直线插补"
+    return "【复述确认】Func108 直线插补/PTP"
+
+
+def _position_mode_line(draft: CommandDraft) -> str:
+    params = draft.params
+    try:
+        incremental = int(float(params.get("position_increment", 0) or 0)) == 1
+    except (TypeError, ValueError):
+        incremental = False
+    if not incremental:
+        try:
+            incremental = int(float(params.get("fuzzy_pos", 0) or 0)) == 1
+        except (TypeError, ValueError):
+            incremental = False
+    return "模式：增量定位" if incremental else "模式：绝对定位"

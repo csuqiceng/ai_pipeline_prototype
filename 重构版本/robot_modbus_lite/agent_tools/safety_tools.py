@@ -21,6 +21,7 @@ def run_safety_precheck(
         "intent": command_draft.intent,
         "func_id": command_draft.func_id,
         "precheck": precheck,
+        "robot_safety": precheck.get("robot_safety"),
     }
     if bool(precheck.get("valid")):
         return ToolResult.success(

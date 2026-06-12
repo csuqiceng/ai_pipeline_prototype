@@ -28,6 +28,6 @@ def test_export_atomic_capability_markdown_is_reviewable():
     markdown = export_atomic_capability_markdown()
 
     assert "# 二次原子函数能力审计清单" in markdown
-    assert "| J 类关节命令 |" in markdown
+    assert "| J 类关节命令保护 |" in markdown
     assert "| Func11 连续插补执行 |" in markdown
     assert "保护性拒绝" in markdown

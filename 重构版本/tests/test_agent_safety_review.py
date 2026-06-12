@@ -92,6 +92,29 @@ def test_l1_review_fails_and_blocks_confirmation():
     assert any(item["id"] == "target_x_range" and item["status"] == "fail" for item in result["items"])
 
 
+def test_l1_review_resolves_incremental_motion_against_start_pose():
+    agent = SafetyReviewAgent(l1_service=SafetyPrecheckService(_config()))
+    draft = _draft(
+        target_x=0.0,
+        target_y=0.0,
+        target_z=50.0,
+        target_rx=0.0,
+        target_ry=0.0,
+        target_rz=0.0,
+        fuzzy_pos=1,
+        position_increment=1,
+    )
+
+    result = agent.review(draft, snapshot=_snapshot(), start_pose=(300.0, 0.0, 100.0, 0.0, 0.0, 0.0))
+
+    assert result["valid"] is True
+    assert result["l1"]["status"] == "pass"
+    assert any(
+        item["id"] == "target_r_range" and item["status"] == "pass" and "内径 300.0mm" in item["message"]
+        for item in result["items"]
+    )
+
+
 def test_l2_review_passes_when_motion_plan_passes():
     engine = FakeKinematicsEngine(
         {0: InverseKinematicsResult(True, (10.0, 20.0, 30.0, 40.0, 0.0, 0.0), 0)}
@@ -109,6 +132,86 @@ def test_l2_review_passes_when_motion_plan_passes():
     assert result["selected_fstatus"] == 0
 
 
+def test_safety_review_uses_unified_robot_safety_checker_for_motion_draft():
+    calls = []
+
+    class FakeRobotSafetyChecker:
+        def check_target(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "safe": True,
+                "position_ok": True,
+                "ik_ok": True,
+                "pose_ok": True,
+                "blocking_level": None,
+                "detail_zh": "安全判定通过。",
+                "suggestion_zh": None,
+                "items": [{"id": "unified", "status": "pass", "message": "统一安全判定通过。"}],
+                "l1": {"status": "pass", "items": []},
+                "l2": {"status": "pass", "selected_fstatus": 2, "items": []},
+                "pose_angles": {"status": "pass", "items": []},
+                "ik_result": {"selected_fstatus": 2, "joints": (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)},
+            }
+
+    agent = SafetyReviewAgent(
+        l1_service=SafetyPrecheckService(_config()),
+        robot_safety_checker=FakeRobotSafetyChecker(),
+    )
+
+    result = agent.review(_draft(), snapshot=_snapshot(), start_pose=(0, 0, 0, 0, 0, 0))
+
+    assert result["valid"] is True
+    assert result["status"] == "pass"
+    assert result["robot_safety"]["ik_ok"] is True
+    assert result["selected_fstatus"] == 2
+    assert result["items"][0]["id"] == "unified"
+    assert calls[0]["target_pose"] == (100.0, 20.0, 300.0, 1.0, 2.0, 3.0)
+    assert calls[0]["start_pose"] == (0, 0, 0, 0, 0, 0)
+
+
+def test_unified_safety_review_resolves_incremental_motion_against_start_pose():
+    calls = []
+
+    class FakeRobotSafetyChecker:
+        def check_target(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "safe": True,
+                "position_ok": True,
+                "ik_ok": True,
+                "pose_ok": True,
+                "blocking_level": None,
+                "detail_zh": "安全判定通过。",
+                "suggestion_zh": None,
+                "items": [],
+                "l1": {"status": "pass", "items": []},
+                "l2": {"status": "pass", "selected_fstatus": 0, "items": []},
+                "pose_angles": None,
+                "ik_result": {"selected_fstatus": 0, "joints": ()},
+            }
+
+    agent = SafetyReviewAgent(
+        l1_service=SafetyPrecheckService(_config()),
+        robot_safety_checker=FakeRobotSafetyChecker(),
+    )
+    draft = _draft(
+        target_x=0.0,
+        target_y=0.0,
+        target_z=50.0,
+        target_rx=0.0,
+        target_ry=0.0,
+        target_rz=0.0,
+        fuzzy_pos=1,
+        position_increment=1,
+    )
+
+    result = agent.review(draft, snapshot=_snapshot(), start_pose=(300.0, 0.0, 100.0, 10.0, 20.0, 30.0))
+
+    assert result["valid"] is True
+    assert calls[0]["target_pose"] == (300.0, 0.0, 150.0, 10.0, 20.0, 30.0)
+    assert calls[0]["start_pose"] == (300.0, 0.0, 100.0, 10.0, 20.0, 30.0)
+
+
 def test_l2_review_failure_blocks_confirmation():
     engine = FakeKinematicsEngine(
         {0: InverseKinematicsResult(True, (10.0, 20.0, 30.0, 1.0, 0.0, 0.0), 0)}
@@ -124,6 +227,10 @@ def test_l2_review_failure_blocks_confirmation():
     assert result["status"] == "fail"
     assert result["blocking_level"] == "L2"
     assert result["l2"]["status"] == "fail"
+    assert "L2逆解失败" in result["summary"]
+    assert "J4=1.0 接近奇异阈值" in result["summary"]
+    assert "优先采用系统建议的中间点绕行" in result["summary"]
+    assert "调整 RX/RY/RZ 姿态" in result["summary"]
 
 
 def test_l2_unavailable_is_warning_by_default():

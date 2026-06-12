@@ -105,8 +105,8 @@ class AvoidanceConfigInput(BaseModel):
 store = MockWebStateStore()
 nlp_service = WebNlpService()
 log_service = WebLogService()
-precheck_service = WebPrecheckService()
 control_bridge = WebControlBridge.from_runtime_files(mode=os.environ.get("ROBOT_WEB_BRIDGE_MODE", "dry_run"))
+precheck_service = WebPrecheckService(kinematics_engine_provider=lambda: control_bridge.kinematics_engine())
 voice_service = WebVoiceService()
 app = FastAPI(title="Robot Modbus Lite Web API", version="0.1.0")
 
@@ -127,8 +127,9 @@ if (web_dist_dir / "assets").exists():
 
 
 def configure_control_bridge(mode: str, controller_host: str = "127.0.0.1") -> None:
-    global control_bridge
+    global control_bridge, precheck_service
     control_bridge = WebControlBridge.from_runtime_files(mode=mode, controller_host=controller_host)
+    precheck_service = WebPrecheckService(kinematics_engine_provider=lambda: control_bridge.kinematics_engine())
 
 
 def _web_snapshot_to_dashboard_snapshot(snapshot: dict[str, Any]) -> DashboardSnapshot:
@@ -350,11 +351,13 @@ def post_execute_template(query_key: str) -> dict:
 
     synthetic_plan = {
         "plan_id": f"template-{query_key}",
+        "func_id": record.func_num,
         "intent": "motion",
         "summary": f"执行模板：{record.query_key}",
-        "target": {"query_key": record.query_key, "func_num": record.func_num},
+        "target": _record_precheck_target(record),
+        "speed": _record_precheck_speed(record),
     }
-    precheck = precheck_service.run_l1(store.snapshot(), synthetic_plan)
+    precheck = precheck_service.run_plan(store.snapshot(), synthetic_plan)
     if precheck["status"] == "fail":
         raise HTTPException(
             status_code=409,
@@ -461,6 +464,31 @@ def _execute_flow(flow_name: str, *, mode: str) -> dict:
         extra={"flow_name": flow.name, "mode": mode, "steps": selected_steps, "dispatch_id": bridge_result.dispatch_id},
     )
     return {**result, "bridge": bridge_result.__dict__, "precheck": precheck}
+
+
+def _record_precheck_target(record: QueryRecord) -> dict[str, Any]:
+    pose = record.pose_tuple()
+    if pose is None:
+        return {"query_key": record.query_key, "func_num": record.func_num}
+    return {
+        "query_key": record.query_key,
+        "func_num": record.func_num,
+        "x": float(pose[0]),
+        "y": float(pose[1]),
+        "z": float(pose[2]),
+        "rx": float(pose[3]),
+        "ry": float(pose[4]),
+        "rz": float(pose[5]),
+    }
+
+
+def _record_precheck_speed(record: QueryRecord) -> dict[str, float]:
+    params = dict(getattr(record, "params", {}) or {})
+    return {
+        "spd_pct": float(params.get("spd_pct", 50.0) or 50.0),
+        "acc_pct": float(params.get("acc_pct", 50.0) or 50.0),
+        "dec_pct": float(params.get("dec_pct", 50.0) or 50.0),
+    }
 
 
 @app.post("/api/system/pause")
@@ -580,18 +608,18 @@ def _template_record_from_input(payload: TemplateRecordInput) -> QueryRecord:
 def _validate_template_record(record: QueryRecord) -> str | None:
     if not record.query_key:
         return "模板名称不能为空。"
-    if record.func_num not in (11, 104, 106, 107, 108, 109, 110, 120):
-        return "当前仅支持 Func11 / Func104 / Func106 / Func107 / Func108 / Func109 / Func110 / Func120。"
+    if record.func_num in (106, 107):
+        return "当前阶段不支持 Func106/Func107，请改用 Func108/Func112 等受支持动作。"
+    if record.func_num == 11:
+        return "当前 zbasic-GLM 协议不支持 Func11，请改用 Func112 或已验证流程。"
+    if record.func_num not in (104, 108, 109, 110, 112, 120):
+        return "当前仅支持 Func104 / Func108 / Func109 / Func110 / Func112 / Func120。"
     if not (1 <= record.safety_level <= 5):
         return "安全等级必须在 1 到 5 之间。"
-    if record.func_num in (106, 107, 108, 11):
+    if record.func_num in (108, 11):
         for key in ("spd_pct", "acc_pct", "dec_pct"):
             if key in record.params and not (0 <= float(record.params[key]) <= 100):
                 return f"{key} 必须在 0 到 100 之间。"
-    if record.func_num == 106 and not (0 <= record.int_param("axis_no") <= 5):
-        return "Func106 的轴号只能是 0 到 5。"
-    if record.func_num == 107 and not (6 <= record.int_param("axis_no") <= 11):
-        return "Func107 的轴号只能是 6 到 11。"
     if record.func_num == 109 and record.float_param("delay_sec") <= 0:
         return "Func109 的 delay_sec 必须大于 0。"
     if record.func_num == 110 and record.float_param("delay_sec") <= 0:

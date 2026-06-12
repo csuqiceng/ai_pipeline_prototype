@@ -1539,6 +1539,17 @@ def test_operator_context_query_uses_single_known_position_for_coordinate_follow
     assert "y=0" in answer
 
 
+def test_operator_position_context_does_not_default_generic_format_question_to_single_home(tmp_path):
+    dummy = make_flow_draft_operator(tmp_path)
+    registry = dummy._position_registry()
+    ok, message = registry.set_position("home", (1475, 0, 1545, 0, 0, 0), created_by="operator")
+    assert ok, message
+
+    answer = dummy._operator_position_context_answer("位置的坐标要什么样的")
+
+    assert answer == ""
+
+
 def test_operator_context_query_answers_position_params_from_query_table():
     dummy = DummyOperator()
     chats = []
@@ -3689,6 +3700,22 @@ def test_operator_restricted_agent_moving_state_blocks_active_runtime():
     assert dummy._operator_restricted_agent_is_moving() is True
 
 
+def test_operator_restricted_agent_moving_state_ignores_agent_background_parse_busy():
+    dummy = DummyOperator()
+    dummy.motion_percent = "空闲"
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+    dummy.current_func_text = "Func108"
+    dummy.nlp_sequence_running = True
+    dummy._operator_agent_parse_running = True
+    dummy.flow_running = False
+
+    assert dummy._operator_restricted_agent_is_moving() is False
+    snapshot = dummy._operator_controller_snapshot_provider()
+    assert snapshot.is_moving is False
+    assert "nlp_sequence_running=True" not in snapshot.moving_reasons
+
+
 def test_operator_try_restricted_agent_plan_uses_injected_service_and_adapter():
     dummy = DummyOperator()
     result = SimpleNamespace(
@@ -3993,9 +4020,21 @@ def test_operator_try_agent_orchestrator_repeats_last_atomic_template():
     dummy._atomic_memory = AtomicMemory()
     last_record = QueryRecord(
         query_key="atomic:virtual:8:1:3",
-        func_num=107,
-        description="原子函数：虚拟轴点动",
-        params={"axis_no": 8, "pos_val": 3.0, "fuzzy_pos": 1, "spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0},
+        func_num=108,
+        description="原子函数：Func108相对位移/姿态",
+        params={
+            "target_x": 0.0,
+            "target_y": 0.0,
+            "target_z": 3.0,
+            "target_rx": 0.0,
+            "target_ry": 0.0,
+            "target_rz": 0.0,
+            "fuzzy_pos": 1,
+            "position_increment": 1,
+            "spd_pct": 50.0,
+            "acc_pct": 50.0,
+            "dec_pct": 50.0,
+        },
     )
     dummy._atomic_memory.remember_record(last_record)
 
@@ -4005,24 +4044,23 @@ def test_operator_try_agent_orchestrator_repeats_last_atomic_template():
     assert plan.actions[0].action_type == "atomic_template"
     record = plan.atomic_records[plan.actions[0].target]
     assert record.query_key == "atomic:repeat:atomic:virtual:8:1:3"
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 8
+    assert record.func_num == 108
+    assert record.params["target_z"] == 3.0
 
 
 def test_operator_try_agent_orchestrator_continues_last_direction_atomic_template():
     dummy = DummyOperator()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
     dummy._atomic_memory = AtomicMemory()
-    dummy._atomic_memory.record_direction(func_num=107, axis_no=6, direction=1, step=3.0)
+    dummy._atomic_memory.record_direction(func_num=108, axis_no=6, direction=1, step=3.0)
 
     plan = dummy._operator_try_agent_orchestrator_plan("小正，继续")
 
     assert plan is not None
     assert plan.actions[0].action_type == "atomic_template"
     record = plan.atomic_records[plan.actions[0].target]
-    assert record.func_num == 107
-    assert record.params["axis_no"] == 6
-    assert record.params["pos_val"] == 3.0
+    assert record.func_num == 108
+    assert record.params["target_y"] == 3.0
 
 
 def test_operator_try_agent_orchestrator_does_not_treat_update_question_as_resume():
@@ -4161,7 +4199,7 @@ def test_operator_try_agent_orchestrator_uses_deepseek_fallback_when_enabled():
     assert "不要输出 MODBUS" in client.system_prompt
 
 
-def test_operator_try_agent_orchestrator_routes_joint_jog_to_agent_draft():
+def test_operator_try_agent_orchestrator_rejects_joint_jog_agent_draft():
     dummy = DummyOperator()
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
     result = SimpleNamespace(
@@ -4199,10 +4237,7 @@ def test_operator_try_agent_orchestrator_routes_joint_jog_to_agent_draft():
 
     plan = dummy._operator_try_agent_orchestrator_plan("小正，J1转到45度")
 
-    assert plan is not None
-    assert plan.actions[0].action_type == "agent_draft"
-    assert plan.source == "restricted_agent"
-    assert plan.flow_draft["func_id"] == 106
+    assert plan is None
 
 
 def test_operator_try_agent_orchestrator_uses_tool_chain_confirm_plan_for_single_command():
@@ -4290,25 +4325,31 @@ def test_operator_try_agent_orchestrator_routes_virtual_linear_jog_to_agent_draf
     dummy.axis_ranges = AxisRangeConfig(x=(-1, 1), y=(-1, 1), z=(0, 1), restricted_agent_enabled=True)
     result = SimpleNamespace(
         kind="waiting_confirmation",
-        intent="virtual_jog",
-        func_id=107,
+        intent="move_linear",
+        func_id=108,
         message="等待操作者确认。",
         understanding=None,
         draft=SimpleNamespace(
             draft_id="draft-up",
-            func_id=107,
-            intent="virtual_jog",
+            func_id=108,
+            intent="move_linear",
             params={
-                "axis_no": 8,
-                "pos_val": 3.0,
+                "target_x": 0.0,
+                "target_y": 0.0,
+                "target_z": 3.0,
+                "target_rx": 0.0,
+                "target_ry": 0.0,
+                "target_rz": 0.0,
                 "spd_pct": 40.0,
                 "acc_pct": 45.0,
                 "dec_pct": 50.0,
                 "fuzzy_pos": 1,
-                "fuzzy_spd": 1,
-                "fuzzy_acc": 1,
-                "fuzzy_dec": 1,
+                "fuzzy_spd": 0,
+                "fuzzy_acc": 0,
+                "fuzzy_dec": 0,
                 "stop_cmd": 0,
+                "position_increment": 1,
+                "move_type": 0,
             },
             param_sources={},
             raw_text="小正，上升3毫米",
@@ -4316,7 +4357,7 @@ def test_operator_try_agent_orchestrator_routes_virtual_linear_jog_to_agent_draf
             precheck_result={"valid": True, "summary": "L1通过。"},
         ),
         precheck_result={"valid": True, "summary": "L1通过。"},
-        confirmation_text="【复述确认】Func107 虚拟轴点动",
+        confirmation_text="【复述确认】Func108 笛卡尔运动",
         query_record=None,
     )
     dummy._restricted_agent_service = SimpleNamespace(parse=lambda text: result)
@@ -4326,7 +4367,7 @@ def test_operator_try_agent_orchestrator_routes_virtual_linear_jog_to_agent_draf
     assert plan is not None
     assert plan.actions[0].action_type == "agent_draft"
     assert plan.source == "restricted_agent"
-    assert plan.flow_draft["func_id"] == 107
+    assert plan.flow_draft["func_id"] == 108
 
 
 def test_operator_try_agent_orchestrator_routes_continuous_path_to_agent_draft():
@@ -9155,6 +9196,38 @@ def test_operator_l2_target_pose_extracts_full_pose_from_template():
     assert dummy._operator_l2_target_pose(plan) == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
 
 
+def test_operator_l2_target_pose_resolves_incremental_template_against_current_pose():
+    dummy = DummyOperator()
+    dummy.robot_x = "300"
+    dummy.robot_y = "0"
+    dummy.robot_z = "100"
+    dummy.robot_r = "10 / 20 / 30"
+    dummy.table = {
+        "Z上升50": QueryRecord(
+            query_key="Z上升50",
+            func_num=108,
+            params={
+                "target_x": 0.0,
+                "target_y": 0.0,
+                "target_z": 50.0,
+                "target_rx": 0.0,
+                "target_ry": 0.0,
+                "target_rz": 0.0,
+                "fuzzy_pos": 1,
+                "position_increment": 1,
+            },
+        )
+    }
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("template", "Z上升50", "rule", "上升", "测试"),),
+        source="rule",
+        raw_text="上升",
+        reason="测试",
+    )
+
+    assert dummy._operator_l2_target_pose(plan) == (300.0, 0.0, 150.0, 10.0, 20.0, 30.0)
+
+
 def test_operator_l2_unavailable_summary_does_not_block_execution():
     dummy = DummyOperator()
     dummy.table = {
@@ -9179,6 +9252,99 @@ def test_operator_l2_unavailable_summary_does_not_block_execution():
     assert "L1安全检查结果" in summary
     assert "L2运动规划预演暂不可用" in summary
     assert "现场确认" in summary
+
+
+def test_operator_l2_summary_mentions_robot_safety_failure_details():
+    result = {
+        "status": "fail",
+        "items": [],
+        "robot_safety": {
+            "safe": False,
+            "position_ok": True,
+            "ik_ok": False,
+            "pose_ok": None,
+            "blocking_level": "L2",
+            "detail_zh": "L2逆解预判未通过：未找到满足关节限位的 FSTATUS。",
+            "suggestion_zh": "请调整目标位姿或补充中间点后重试。",
+        },
+    }
+
+    summary = DummyOperator._operator_l2_summary(result)
+
+    assert "位置=通过" in summary
+    assert "逆解=未通过" in summary
+    assert "姿态=未检查" in summary
+    assert "L2逆解预判未通过" in summary
+    assert "请调整目标位姿" in summary
+
+
+def test_operator_run_l2_motion_plan_attaches_robot_safety_details():
+    class FakeKinematicsEngine:
+        def inverse(self, pose, fstatus: int):
+            return InverseKinematicsResult(True, (0.0, 10.0, 20.0, 30.0, 0.0, 0.0), fstatus)
+
+    dummy = DummyOperator()
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-1000.0, 1000.0),
+        y=(-1000.0, 1000.0),
+        z=(0.0, 2000.0),
+        safe_r_min=0.0,
+        safe_r_max=2000.0,
+        safe_z_min=0.0,
+        safe_z_max=2000.0,
+        joint_limits=(
+            (-180.0, 180.0),
+            (-90.0, 90.0),
+            (-120.0, 120.0),
+            (-180.0, 180.0),
+            (-120.0, 120.0),
+            (-360.0, 360.0),
+        ),
+    )
+    dummy.operator_kinematics_engine = FakeKinematicsEngine()
+    dummy.robot_x = 0.0
+    dummy.robot_y = 0.0
+    dummy.robot_z = 100.0
+    dummy.robot_r = "0/0/0"
+    dummy._operator_publish_l2_progress = lambda _event: None
+    dummy._append_log = lambda *args, **kwargs: None
+    dummy._operator_dashboard_snapshot_dict = lambda: {
+        "safety": {"estop": False, "alarm_active": False, "paused": False},
+        "connection": {"controller": "online", "realtime_feedback": "online"},
+        "motion": {"running_state": "idle", "active_plan_id": None},
+        "position": {"cartesian": {"r": 100.0, "z": 100.0}},
+    }
+    dummy.table = {
+        "move_pose": QueryRecord(
+            query_key="move_pose",
+            func_num=108,
+            params={
+                "target_x": 100.0,
+                "target_y": 0.0,
+                "target_z": 500.0,
+                "target_rx": 0.0,
+                "target_ry": 0.0,
+                "target_rz": 0.0,
+                "spd_pct": 50.0,
+                "acc_pct": 50.0,
+                "dec_pct": 50.0,
+            },
+        )
+    }
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("template", "move_pose", "rule", "移动", "测试"),),
+        source="rule",
+        raw_text="移动",
+        reason="测试",
+    )
+
+    result = dummy._operator_run_l2_motion_plan(plan)
+
+    assert result["status"] == "pass"
+    assert result["robot_safety"]["safe"] is True
+    assert result["robot_safety"]["position_ok"] is True
+    assert result["robot_safety"]["ik_ok"] is True
+    assert result["robot_safety"]["pose_ok"] is True
 
 
 def test_operator_execute_detail_renders_running_flow_as_compact_summary():
@@ -9409,9 +9575,12 @@ def test_operator_controller_snapshot_provider_reuses_current_pose_and_safety_de
         x=(-1, 1),
         y=(-1, 1),
         z=(0, 1),
-        safe_speed_max=45.0,
-        safe_acc_max=35.0,
-        safe_dec_max=25.0,
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+        default_spd_pct=45.0,
+        default_acc_pct=35.0,
+        default_dec_pct=25.0,
     )
     dummy._operator_restricted_agent_is_moving = lambda: False
 
@@ -9428,6 +9597,27 @@ def test_operator_controller_snapshot_provider_reuses_current_pose_and_safety_de
     assert snapshot.safety_params == {"spd_pct": 45.0, "acc_pct": 35.0, "dec_pct": 25.0}
     assert snapshot.is_moving is False
     assert snapshot.read_ok is True
+
+
+def test_operator_controller_snapshot_provider_does_not_use_safe_max_as_motion_defaults():
+    dummy = DummyOperator()
+    dummy.robot_x = "1.0"
+    dummy.robot_y = "2.0"
+    dummy.robot_z = "3.0"
+    dummy.robot_r = "4.0 / 5.0 / 6.0"
+    dummy.axis_ranges = AxisRangeConfig(
+        x=(-1, 1),
+        y=(-1, 1),
+        z=(0, 1),
+        safe_speed_max=150.0,
+        safe_acc_max=150.0,
+        safe_dec_max=150.0,
+    )
+    dummy._operator_restricted_agent_is_moving = lambda: False
+
+    snapshot = dummy._operator_controller_snapshot_provider()
+
+    assert snapshot.safety_params == {"spd_pct": 50.0, "acc_pct": 50.0, "dec_pct": 50.0}
 
 
 def test_operator_agent_runtime_bridge_receives_safety_precheck_dependencies():
@@ -9488,6 +9678,43 @@ def test_operator_confirm_execute_blocks_failed_l2_motion_plan():
     assert status_messages[-1] == "L2运动规划预演未通过，已拒绝执行。"
     assert "插值点 J4=0.0 接近奇异阈值" in chat_messages[-1][1]
     assert log_args(logs[-1])[0:3] == ("运动预演", "确认执行", "拒绝")
+
+
+def test_operator_confirm_execute_l2_rejection_mentions_robot_safety_detail():
+    dummy = DummyOperator()
+    plan = VoiceNlpPlan(
+        actions=(VoiceNlpAction("template", "move_pose", "rule", "移动", "测试"),),
+        source="rule",
+        raw_text="移动",
+        reason="测试",
+    )
+    chat_messages = []
+    dummy._operator_pending_confirm_plan = plan
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {
+        "status": "fail",
+        "items": [{"label": "FSTATUS 可达解", "status": "fail", "message": "未找到可达解。"}],
+        "robot_safety": {
+            "safe": False,
+            "position_ok": True,
+            "ik_ok": False,
+            "pose_ok": None,
+            "blocking_level": "L2",
+            "detail_zh": "L2逆解预判未通过：未找到满足关节限位的 FSTATUS。",
+            "suggestion_zh": "请调整目标位姿或补充中间点后重试。",
+        },
+    }
+    dummy.status_label = SimpleNamespace(setText=lambda _text: None)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text))
+    dummy._operator_archive_execution_result = lambda **kwargs: None
+    dummy._append_log = lambda *args: None
+    dummy._refresh_operator_view = lambda: None
+    dummy._execute_nlp_plan = lambda _plan: None
+
+    dummy._operator_confirm_execute()
+
+    assert "L2逆解预判未通过" in chat_messages[-1][1]
+    assert "逆解=未通过" in chat_messages[-1][1]
 
 
 def test_operator_confirm_execute_fails_closed_when_l2_precheck_raises():
@@ -10005,6 +10232,8 @@ def test_operator_accept_suggestion_uses_l2_avoidance_flow_when_available():
     )
     prepared = []
     confirmed = []
+    status_messages = []
+    chat_messages = []
     logs = []
     dummy._operator_pending_confirm_plan = plan
     dummy._operator_pending_confirm_deadline_sec = 100.0
@@ -10030,14 +10259,20 @@ def test_operator_accept_suggestion_uses_l2_avoidance_flow_when_available():
     }
     dummy._operator_prepare_plan_prechecks = prepared.append
     dummy._operator_confirm_execute = lambda: confirmed.append(dummy._operator_pending_confirm_plan)
+    dummy.status_label = SimpleNamespace(setText=status_messages.append)
+    dummy._operator_add_chat_message = lambda role, text, **kwargs: chat_messages.append((role, text, kwargs))
     dummy._append_log = lambda *args: logs.append(args)
+    dummy._refresh_operator_view = lambda: None
 
     dummy._operator_accept_suggestion()
 
     assert prepared
-    assert confirmed
+    assert confirmed == []
     assert dummy._operator_pending_confirm_plan.actions[0].action_type == "flow"
     assert dummy._operator_pending_confirm_plan.actions[0].target in dummy.service.flows
+    assert status_messages[-1] == "已采纳安全建议，请重新核对后确认执行。"
+    assert "已采纳安全建议" in chat_messages[-1][1]
+    assert "请重新核对右侧待确认参数" in chat_messages[-1][1]
     assert log_args(logs[-1])[0:3] == ("用户页面", "采纳建议", "成功")
 
 
@@ -10194,6 +10429,27 @@ def test_operator_add_chat_from_log_queues_natural_language_completion():
     pending = dummy._operator_pending_broadcasts_for_delivery(0)
     assert [message.text for message in pending] == ["执行完成：共执行 2 步"]
     assert chat_messages == [("assistant", "执行完成：共执行 2 步")]
+
+
+def test_operator_add_chat_from_log_completion_resets_nlp_sequence_running():
+    dummy = DummyOperator()
+    busy_values = []
+    dummy.nlp_sequence_running = True
+    dummy.operator_response_builder = ResponseBuilder()
+    dummy._operator_add_chat_message = lambda *args, **kwargs: None
+    dummy._set_nlp_execute_busy = lambda busy: busy_values.append(busy) or setattr(dummy, "nlp_sequence_running", busy)
+
+    dummy._operator_add_chat_from_log(
+        {
+            "category": "自然语言",
+            "action": "动作序列完成",
+            "result": "成功",
+            "detail": "共执行 1 步",
+        }
+    )
+
+    assert dummy.nlp_sequence_running is False
+    assert busy_values[-1] is False
 
 
 def test_operator_add_chat_from_log_suppresses_outer_one_step_completion_after_flow_completion():
@@ -11431,6 +11687,42 @@ def test_operator_archive_safety_check_updates_last_interaction_record(tmp_path:
     assert payload["safety_check"]["warnings"] == ["未配置逆解"]
 
 
+def test_operator_archive_safety_check_preserves_l2_robot_safety_detail(tmp_path: Path):
+    dummy = DummyOperator()
+    dummy.session_id = "session-1"
+    dummy._log_dir = tmp_path
+    dummy._operator_dashboard_snapshot_dict = lambda: {}
+    dummy._operator_archive_text_input("移动到位置A")
+    dummy._operator_last_precheck_result = {"status": "pass", "items": []}
+    dummy._operator_last_motion_plan_result = {
+        "status": "fail",
+        "items": [{"id": "find_best_fstatus", "status": "fail", "message": "未找到满足关节限位的 FSTATUS。"}],
+        "robot_safety": {
+            "safe": False,
+            "position_ok": True,
+            "ik_ok": False,
+            "pose_ok": None,
+            "blocking_level": "L2",
+            "detail_zh": "L2逆解预判未通过：未找到满足关节限位的 FSTATUS。",
+            "suggestion_zh": "请调整目标位姿或补充中间点后重试。",
+        },
+    }
+    dummy._operator_last_process_precheck_result = None
+
+    updated = dummy._operator_archive_safety_check()
+
+    payload = json.loads((tmp_path / "interaction_session_session-1.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    l2 = payload["safety_check"]["pc_precheck_detail"]["l2"]
+    assert updated is True
+    assert payload["safety_check"]["pc_precheck"] == "fail"
+    assert l2["status"] == "fail"
+    assert l2["robot_safety"]["position_ok"] is True
+    assert l2["robot_safety"]["ik_ok"] is False
+    assert l2["robot_safety"]["pose_ok"] is None
+    assert l2["robot_safety"]["blocking_level"] == "L2"
+    assert "L2逆解预判未通过" in l2["robot_safety"]["detail_zh"]
+
+
 def test_operator_nlp_result_payload_uses_plan_semantic_metadata():
     dummy = DummyOperator()
     plan = VoiceNlpPlan(
@@ -11875,6 +12167,35 @@ def test_operator_wake_command_while_flow_running_pauses_and_prompts_choice():
     assert logs[-1][1] == "新指令打断流程"
 
 
+def test_operator_stale_pause_status_without_active_task_does_not_interrupt_new_wake_command():
+    dummy = DummyOperator()
+    dummy.flow_running = False
+    dummy.nlp_sequence_running = False
+    dummy.pause_active = False
+    dummy.busy = "暂停"
+    dummy.run_state = "暂停"
+
+    handled = dummy._operator_reject_new_action_while_busy("小正，走到X1000等待2秒然后走到X1500")
+
+    assert handled is False
+    assert getattr(dummy, "_operator_pending_interruption_text", "") == ""
+
+
+def test_operator_stale_pending_interruption_is_cleared_when_no_active_task():
+    dummy = DummyOperator()
+    dummy._operator_pending_interruption_text = "小正执行旧流程"
+    dummy.flow_running = False
+    dummy.nlp_sequence_running = False
+    dummy.pause_active = False
+    dummy.busy = "空闲"
+    dummy.run_state = "空闲"
+
+    handled = dummy._operator_handle_pending_interruption_command("小正，走到X1000等待2秒然后走到X1500")
+
+    assert handled is False
+    assert dummy._operator_pending_interruption_text == ""
+
+
 def test_operator_pending_interruption_continue_resumes_current_flow():
     dummy = DummyOperator()
     messages = []
@@ -11885,6 +12206,7 @@ def test_operator_pending_interruption_continue_resumes_current_flow():
     dummy._append_log = lambda *args, **kwargs: None
     dummy._refresh_operator_view = lambda: None
     dummy._handle_system_action = lambda action_key: actions.append(action_key)
+    dummy.flow_running = True
 
     handled = dummy._handle_operator_ui_command("继续当前流程")
 

@@ -40,6 +40,8 @@ class AtomicTemplateAgent:
             table_record = self._lookup_template_record(elements)
             if table_record is None:
                 return None
+            if int(getattr(table_record, "func_num", 0) or 0) in {106, 107}:
+                return None
             return self._record_payload(
                 text=text,
                 record=table_record,
@@ -49,6 +51,8 @@ class AtomicTemplateAgent:
             )
         record = resolved.params.get("record")
         if not isinstance(record, QueryRecord):
+            return None
+        if int(getattr(record, "func_num", 0) or 0) in {106, 107}:
             return None
         return self._record_payload(
             text=text,
@@ -117,6 +121,10 @@ class AtomicTemplateAgent:
         normalized_candidates = {AtomicTemplateAgent._normalize_template_text(item) for item in candidates if item}
         for key, record in table.items():
             if not isinstance(record, QueryRecord):
+                continue
+            if int(getattr(record, "func_num", 0) or 0) != 108:
+                continue
+            if str(key or "").lower().startswith("flowdraft:") or str(getattr(record, "query_key", "") or "").lower().startswith("flowdraft:"):
                 continue
             values = [
                 str(key or ""),

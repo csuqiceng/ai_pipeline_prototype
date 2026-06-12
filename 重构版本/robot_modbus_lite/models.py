@@ -476,12 +476,12 @@ class SixAxisCommand:
         if self.func_num == 109:
             return [
                 VrWriteRequest(start_vr=0, values=(109.0,)),
-                VrWriteRequest(start_vr=2, values=(self.delay_sec,)),
+                VrWriteRequest(start_vr=4, values=(self.delay_sec,)),
             ]
         if self.func_num == 110:
             return [
                 VrWriteRequest(start_vr=0, values=(110.0,)),
-                VrWriteRequest(start_vr=2, values=(self.delay_sec,)),
+                VrWriteRequest(start_vr=6, values=(self.delay_sec,)),
             ]
         if self.func_num == 120:
             return [
@@ -515,6 +515,8 @@ class SixAxisStatus:
     func_num: int | None = None
 
     FUNC_STATE_FIELDS: ClassVar[dict[int, tuple[int, int]]] = {
+        8: (22, 0x00C00000),
+        102: (22, 0x00C00000),
         104: (0, 0x00000003),
         106: (2, 0x0000000C),
         107: (4, 0x00000030),
@@ -522,6 +524,7 @@ class SixAxisStatus:
         109: (8, 0x00000300),
         110: (10, 0x00000C00),
         11: (14, 0x0000C000),
+        112: (16, 0x00030000),
         120: (18, 0x000C0000),
     }
     STATE_IDLE = 0
